@@ -1,0 +1,4 @@
+interface:
+  display_name: "Module File Inventory"
+  short_description: "Create consistent file inventory summaries for capstone modules."
+  default_prompt: "Use module file inventory to summarize files created and modified for a capstone module."
