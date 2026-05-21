@@ -1,0 +1,4 @@
+interface:
+  display_name: "Module File Tagging"
+  short_description: "Add module tags and purpose comments to new capstone files."
+  default_prompt: "Use module file tagging when creating new files for a capstone module."
