@@ -1,4 +1,4 @@
-"""Foundation module tests."""
+"""M0 Foundation: module verification tests."""
 
 from app.config import Settings
 from app.db import init_db

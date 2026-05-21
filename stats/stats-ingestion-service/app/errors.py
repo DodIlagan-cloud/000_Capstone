@@ -1,4 +1,4 @@
-"""Shared API error definitions."""
+"""M0 Foundation: shared API error definitions."""
 
 from enum import Enum
 

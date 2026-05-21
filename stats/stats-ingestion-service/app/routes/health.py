@@ -1,4 +1,4 @@
-"""Foundation health and service metadata routes."""
+"""M0 Foundation: health and service metadata routes."""
 
 from fastapi import APIRouter
 

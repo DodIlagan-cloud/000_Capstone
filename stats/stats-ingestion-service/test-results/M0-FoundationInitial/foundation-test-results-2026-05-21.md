@@ -1,5 +1,7 @@
 # Foundation Module Test Results
 
+<!-- M0 Foundation: documented direct verification test result. -->
+
 ## Test Run Summary
 
 | Field | Result |

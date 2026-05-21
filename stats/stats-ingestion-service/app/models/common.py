@@ -1,4 +1,4 @@
-"""Shared Pydantic response models."""
+"""M0 Foundation: shared Pydantic response models."""
 
 from pydantic import BaseModel, Field
 

@@ -1,4 +1,4 @@
-"""Direct Foundation verification script for terminal screenshot evidence."""
+"""M0 Foundation: direct verification script for terminal screenshot evidence."""
 
 import sys
 from pathlib import Path

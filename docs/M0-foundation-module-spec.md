@@ -1,5 +1,7 @@
 # Foundation Module Specification
 
+<!-- M0 Foundation: module specification and acceptance criteria. -->
+
 ## Module Summary
 
 The Foundation module establishes the shared backend base for the Stats capstone project. It provides the application bootstrap, configuration, database session management, common schemas, error response conventions, middleware, logging, and test scaffolding that later modules will build on.

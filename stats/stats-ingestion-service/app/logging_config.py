@@ -1,4 +1,4 @@
-"""Application logging setup."""
+"""M0 Foundation: centralized application logging setup."""
 
 import logging
 

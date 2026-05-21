@@ -1,5 +1,7 @@
 # Foundation Manual Test Checklist
 
+<!-- M0 Foundation: manual verification checklist for non-pytest testing. -->
+
 Use this checklist when manually verifying the Foundation module without pytest.
 
 ## Setup

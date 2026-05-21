@@ -1,5 +1,7 @@
 # Foundation Screenshot Evidence
 
+<!-- M0 Foundation: index of actual Windows browser and terminal screenshot evidence. -->
+
 ## Summary
 
 Screenshot evidence was captured for the Foundation module on 2026-05-21.

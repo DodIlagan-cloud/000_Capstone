@@ -1,4 +1,4 @@
-"""Shared test setup for the Stats Ingestion Service."""
+"""M0 Foundation: shared test setup for the Stats Ingestion Service."""
 
 from fastapi.testclient import TestClient
 import pytest
