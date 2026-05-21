@@ -1,0 +1,4 @@
+interface:
+  display_name: "Module Test Evidence"
+  short_description: "Capture actual Windows test evidence for local modules."
+  default_prompt: "Create actual Windows browser and terminal screenshot evidence for this module's tests, crop the relevant parts, and document the artefacts."

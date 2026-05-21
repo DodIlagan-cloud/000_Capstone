@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+PyPDF2
+pytesseract
+Pillow
+python-dotenv
+pytest
+pytest-asyncio
+httpx
+sqlalchemy
+alembic
+python-multipart
+aiofiles
+pypdf

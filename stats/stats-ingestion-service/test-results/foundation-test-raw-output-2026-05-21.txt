@@ -1,0 +1,11 @@
+FOUNDATION TEST RUN
+app_title=Stats Ingestion Service
+health_status_code=200
+health_body={'status': 'healthy', 'service': 'Stats Ingestion Service', 'version': '1.0.0'}
+root_status_code=200
+root_body={'service': 'Stats Ingestion Service', 'version': '1.0.0', 'message': 'Stats Ingestion Service is running'}
+settings_defaults={'app_name': 'Stats Ingestion Service', 'app_version': '1.0.0', 'api_prefix': '/api/v1', 'max_file_size_mb': 50, 'allowed_extensions': ['pdf'], 'database_url': 'sqlite:///./stats_ingestion.db'}
+init_db_callable=True
+
+Environmental note:
+PowerShell printed a profile execution policy warning before command execution. The Python command completed successfully with exit code 0.
