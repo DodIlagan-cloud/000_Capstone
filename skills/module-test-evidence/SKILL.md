@@ -5,6 +5,8 @@ description: Create assessment-ready test evidence for local software modules. U
 
 # Module Test Evidence
 
+<!-- M0 Foundation: reusable evidence workflow created during M0 for future modules. -->
+
 Use this skill to produce reusable, assessment-friendly test artefacts for a completed module. The preferred evidence standard is actual Windows browser and terminal screenshots, cropped to the relevant content.
 
 ## Evidence Standard

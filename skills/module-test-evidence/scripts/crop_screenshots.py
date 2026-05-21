@@ -1,4 +1,4 @@
-"""Crop screenshot evidence files in place."""
+"""M0 Foundation: crop screenshot evidence files in place."""
 
 from __future__ import annotations
 

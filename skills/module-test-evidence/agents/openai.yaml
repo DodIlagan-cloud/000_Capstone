@@ -1,3 +1,5 @@
+# M0 Foundation: UI metadata for the reusable module test evidence skill.
+
 interface:
   display_name: "Module Test Evidence"
   short_description: "Capture actual Windows test evidence for local modules."
