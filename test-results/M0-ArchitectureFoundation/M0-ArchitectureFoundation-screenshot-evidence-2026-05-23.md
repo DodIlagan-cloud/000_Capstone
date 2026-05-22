@@ -10,7 +10,7 @@ This evidence set uses an actual Windows terminal screenshot cropped to the rele
 
 | Evidence | File | Result |
 | --- | --- | --- |
-| Windows terminal architecture verification | `M0-ArchitectureFoundation-windows-terminal-test-2026-05-23.png` | PowerShell shows the direct M0 architecture checks and final `Result: PASSED`. |
+| Windows terminal architecture verification | `M0-ArchitectureFoundation-windows-terminal-test-2026-05-23.png` | PowerShell shows the direct M0 architecture, Stats Data boundary, and runtime configuration checks with final `Result: PASSED`. |
 
 ## Notes
 
