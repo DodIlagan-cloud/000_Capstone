@@ -1,328 +1,275 @@
-# Foundation Module Specification
+# M0 Project Foundation Specification
 
-<!-- M0 Foundation: module specification and acceptance criteria. -->
+<!-- M0 Foundation: project foundation specification aligned with the Stats building-block module plan. -->
 
 ## Module Summary
 
-The Foundation module establishes the shared backend base for the Stats capstone project. It provides the application bootstrap, configuration, database session management, common schemas, error response conventions, middleware, logging, and test scaffolding that later modules will build on.
+M0 Project Foundation establishes the repository, documentation, evidence, and delivery conventions for the Stats capstone project.
 
-This module does not implement full PDF ingestion, transaction extraction, OCR, reporting, authentication, or frontend workflows. It creates the stable service foundation those modules will depend on.
+Stats is developed as an integrating product built from reusable building-block modules. M0 does not own product features such as authentication, file ingestion, OCR, storage, or dashboard logic. It provides the rules, templates, and project scaffolding that allow those later modules to be specified, implemented, tested, evidenced, versioned, and composed consistently.
+
+## Architecture Alignment
+
+M0 is aligned with:
+
+- `docs/building-block-module-plan.md`
+- `docs/building-block-module-io-map.md`
+
+The building-block plan defines M0 as:
+
+| Field | M0 Direction |
+| --- | --- |
+| Build order | `0` |
+| Module | Project Foundation |
+| Type | Project |
+| Main responsibility | Repo conventions, module specs, GitHub workflow, evidence standard |
+| Reusable output | Module template and repo rules |
+
+The architecture direction established by M0 is:
+
+- Stats Web is the encompassing `.NET` user-facing app and orchestration shell.
+- Backend capabilities are segregated into standalone modules that can be reused outside Stats.
+- Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
+- Each later module owns its own spec, contract, tests, evidence, configuration sample, runtime instructions, and container path when containerization is reached.
 
 ## Goals
 
-- Provide a predictable FastAPI application entry point.
-- Centralize application settings and environment variable behavior.
-- Establish database engine, session, and initialization patterns.
-- Define common response and error contracts.
-- Configure baseline middleware and logging.
-- Provide a clean structure for adding future routes, services, models, and tests.
-- Confirm the service can start and expose basic health/status endpoints.
+- Establish the repository layout direction for apps, reusable modules, contracts, infrastructure, docs, samples, and integration tests.
+- Define the standard artefacts every later standalone module or encompassing app module must produce.
+- Create a module specification convention that starts with goals, non-goals, contracts, acceptance criteria, and test plan before implementation.
+- Establish GitHub/version-control workflow for traceability of code, specs, evidence, and module changes.
+- Establish module tagging and file-inventory conventions so module-owned changes are reviewable.
+- Establish test-result and screenshot-evidence conventions suitable for capstone assessment.
+- Record the initial architecture boundaries that prevent Stats-specific UI flows from leaking into reusable backend apps.
 
 ## Non-Goals
 
-- Extracting transactions from PDFs.
-- Persisting uploaded PDFs or parsed transactions beyond foundational database setup.
-- Implementing OCR behavior.
-- Building a frontend upload/review interface.
-- Adding authentication or user management.
-- Creating production deployment infrastructure beyond local runtime readiness.
+- Implementing the Identity Access Module.
+- Implementing Stats Web pages, navigation, login UI, upload UI, dashboard UI, or reporting UI.
+- Implementing file validation, file ingestion, OCR, document classification, transaction extraction, data validation, records storage, or email ingestion.
+- Defining final database schemas for later modules.
+- Containerizing modules or deploying them to cloud infrastructure.
+- Replacing later module specs with one project-wide feature specification.
 
-## Current Target Service
+## M0 Outputs
 
-The Foundation module applies to:
+M0 must produce or establish these project outputs:
+
+| Output | Purpose |
+| --- | --- |
+| Building-block module plan | Defines architecture boundaries, module build order, composition view, and BA alignment. |
+| Building-block I/O map | Defines starting input/output contracts for reusable modules. |
+| M0 project foundation spec | Defines the project standards in this document. |
+| Module spec convention | Ensures each module starts from scope, contracts, acceptance criteria, and test plan. |
+| Module file inventory convention | Records created and modified files per module or meaningful change set. |
+| Module tagging convention | Marks module-owned text/code blocks where requested for traceability. |
+| Test evidence convention | Stores test results, raw outputs, checklists, and actual screenshot evidence. |
+| GitHub workflow | Preserves specs, implementation, evidence, and commit history. |
+
+## Repository Direction
+
+The repository should move toward the structure defined by the building-block module plan:
+
+```text
+000_Capstone/
+|-- apps/
+|   |-- stats-web/
+|   `-- stats-admin-tools/
+|-- modules/
+|   |-- identity-access-module/
+|   |-- file-validation-module/
+|   |-- file-ingestion-module/
+|   |-- ocr-extraction-module/
+|   |-- document-classification-module/
+|   |-- transaction-extraction-module/
+|   |-- data-validation-module/
+|   |-- records-storage-module/
+|   `-- email-ingestion-module/
+|-- contracts/
+|   |-- identity/
+|   |-- documents/
+|   |-- extraction/
+|   `-- transactions/
+|-- infrastructure/
+|   |-- compose/
+|   |-- containers/
+|   `-- cloud/
+|-- docs/
+|   |-- module-plans/
+|   |-- specs/
+|   `-- evidence/
+|-- samples/
+|   |-- synthetic/
+|   `-- anonymized/
+`-- tests/
+    `-- integration/
+```
+
+### Current-Workspace Note
+
+The repository currently contains early work under:
 
 ```text
 stats/stats-ingestion-service
+stats/stats.Web
 ```
 
-The service is a FastAPI backend for ingesting PDF documents, extracting financial transaction data, and exposing normalized results through API endpoints.
+Those folders remain valid project history and current implementation surfaces. As later modules are refined, their specs must state whether a capability remains in an existing folder temporarily or is moved into the target `apps/` or `modules/` segregation.
 
-## Required Project Structure
+M0 must not treat the current `stats-ingestion-service` folder as the final boundary for every backend capability.
 
-The service should use this baseline structure:
+## Module Standards
+
+Every later standalone module must provide:
+
+1. A module spec with goals, non-goals, tasks, and acceptance criteria.
+2. A local run command and test command.
+3. A clear input/output contract.
+4. Module-local automated tests.
+5. Evidence for acceptance tests.
+6. A configuration example with no secrets committed.
+7. A Dockerfile or container plan before cloud deployment.
+8. Failure behavior visible to callers through explicit errors or status results.
+
+Encompassing Stats modules such as Stats Web must also state which reusable module APIs they call and must not absorb reusable OCR, parsing, validation, storage, or authentication internals.
+
+## Module Specification Convention
+
+Each module spec must identify:
+
+- Module number, name, type, and build order.
+- Business-analysis alignment.
+- Goals and non-goals.
+- Architecture boundary and owner folder.
+- Inputs, outputs, contracts, error/status results, and dependencies.
+- Local runtime and configuration expectations.
+- Automated tests, manual checks, evidence artefacts, and acceptance criteria.
+- Deferred items for later modules.
+
+For reusable modules, the starting contract should be derived from `docs/building-block-module-io-map.md` and refined only inside the owning module spec.
+
+## Contract Boundary Rules
+
+M0 establishes these project rules:
+
+- Reusable apps expose explicit contracts instead of depending on another module's internal implementation.
+- Stats Web may call reusable app APIs, but it should not implement reusable validation, extraction, or identity rules.
+- File Validation and File Ingestion remain separate concerns.
+- OCR Extraction, Document Classification, and Transaction Extraction remain separate concerns.
+- Storage and reporting consume results from processing modules; they do not silently become processing modules.
+- Integration behavior belongs in Stats workflow integration tests or in the coordinating Stats app layer.
+
+## GitHub and Version-Control Workflow
+
+M0 must establish a GitHub workflow for the capstone repository.
+
+### Requirements
+
+- Source code, specs, inventories, evidence files, and project conventions must be version controlled.
+- Commits should group one meaningful change set where practical.
+- Module implementation, module test evidence, and reusable skills should be committed separately when they are logically separate.
+- Generated caches, local runtime files, local tool state, secrets, and build artefacts must be excluded through ignore rules or module-local ignore files.
+- GitHub history should preserve traceability from spec to implementation to evidence.
+
+### Recommended Commit Grouping
+
+Use separate commits for:
+
+- Module specs and design artefacts.
+- Module implementation changes.
+- Acceptance-test evidence and regression evidence when produced after implementation.
+- Reusable Codex skills or workflow tooling.
+- Cross-module integration changes.
+
+## Evidence Standard
+
+Each module evidence set should be stored in a named evidence folder near that module or under an agreed evidence path.
+
+### Required Evidence Types
+
+- Test-result summary.
+- Raw test or direct verification output.
+- Manual verification checklist when manual checks are used.
+- Screenshot evidence index.
+- Actual Windows browser screenshots for web/API UI evidence when screenshots are required.
+- Actual Windows terminal screenshots for command/test evidence when screenshots are required.
+
+### Screenshot Rules
+
+- Prefer actual browser and terminal screenshots over rendered-response images.
+- Crop screenshots to the relevant browser or terminal content.
+- State what each screenshot proves in the screenshot evidence index.
+- Keep regression evidence separate from the initial module evidence.
+- Use clear folder names that start with the tested module prefix, for example `M0-FoundationInitial` or `M1-UserAccessManagement`.
+
+## File Inventory and Tagging Standard
+
+Each module or substantial change set should identify files created or modified and describe why.
+
+Where module tagging is requested:
+
+- Tag text/code files with concise module start/end markers or concise module comments appropriate to the file format.
+- Keep tags readable without obscuring implementation logic.
+- Do not attempt to inline-tag binary screenshots.
+- Retest affected executable code after tagging changes.
+
+## M0 Documentation Artefacts
+
+At minimum, M0 documentation must include:
+
+- This M0 Project Foundation spec.
+- The building-block module plan.
+- The building-block module I/O map.
+- A reusable module spec template for later building blocks.
+- File inventories for implemented modules or meaningful module change sets.
+- Local environment guidance as project dependencies become concrete.
+
+## M0 Verification
+
+M0 verification is primarily project-convention verification.
+
+### Required Checks
+
+- Repository is tracked in Git and published to the intended GitHub repository.
+- Architecture documentation identifies the building-block module boundaries.
+- A later module can start from a spec, contract, acceptance criteria, and evidence plan without inventing a new process.
+- Evidence rules are demonstrated by at least one module evidence set.
+- Ignore rules prevent caches, secrets, and obvious local-only outputs from being committed.
+
+### Supporting Demonstration
+
+Early Foundation and regression evidence currently demonstrates the evidence workflow through files under:
 
 ```text
-stats/stats-ingestion-service/
-  app/
-    __init__.py
-    main.py
-    config.py
-    db.py
-    errors.py
-    logging_config.py
-    models/
-      __init__.py
-      common.py
-      database.py
-      requests.py
-      transaction.py
-    routes/
-      __init__.py
-      health.py
-    services/
-      __init__.py
-    utils/
-      __init__.py
-  tests/
-    __init__.py
-    conftest.py
-    test_foundation.py
-  requirements.txt
-  .env.example
+stats/stats-ingestion-service/test-results/
 ```
 
-Existing files may be reused where they already satisfy the contract. Files should only be split or renamed when doing so improves clarity without creating unnecessary churn.
+That demonstration is supporting M0 evidence. It does not redefine M0 as a FastAPI service module.
 
-## Application Bootstrap
+## Runtime and Dependencies
 
-The application must expose a configured FastAPI app.
+M0 itself does not require one application runtime. It governs a repository that may contain multiple runtimes, including:
 
-### Requirements
+- `.NET` for the Stats Web encompassing app.
+- Python/FastAPI for current backend/API modules where applicable.
+- PostgreSQL or other module-specific dependencies defined by later specs.
+- Container and cloud tooling when those project modules are reached.
 
-- Create the app in `app/main.py`.
-- Set app metadata from settings:
-  - `app_name`
-  - `app_version`
-  - description
-  - debug mode
-- Register middleware during startup.
-- Register foundation routes.
-- Provide a consistent pattern for adding future routers.
-- Avoid duplicated app declarations in the same file.
-
-### Required Endpoints
-
-#### `GET /health`
-
-Returns operational health metadata.
-
-Expected response shape:
-
-```json
-{
-  "status": "healthy",
-  "service": "Stats Ingestion Service",
-  "version": "1.0.0"
-}
-```
-
-#### `GET /`
-
-Returns basic service metadata.
-
-Expected response shape:
-
-```json
-{
-  "service": "Stats Ingestion Service",
-  "version": "1.0.0",
-  "message": "Stats Ingestion Service is running"
-}
-```
-
-## Configuration
-
-Configuration must be centralized in `app/config.py`.
-
-### Required Settings
-
-| Setting | Default | Description |
-| --- | --- | --- |
-| `app_name` | `Stats Ingestion Service` | Service display name |
-| `app_version` | `1.0.0` | Service version |
-| `debug` | `false` | Debug/runtime reload flag |
-| `api_prefix` | `/api/v1` | Prefix for versioned API routes |
-| `max_file_size_mb` | `50` | Maximum PDF upload size |
-| `allowed_extensions` | `["pdf"]` | Allowed upload file extensions |
-| `upload_directory` | `uploads` | Local upload directory |
-| `enable_ocr` | `true` | Enables OCR behavior for future PDF processing |
-| `ocr_timeout_seconds` | `300` | OCR timeout for future processing |
-| `database_url` | `sqlite:///./stats_ingestion.db` | SQLAlchemy connection URL |
-| `database_echo` | `false` | SQLAlchemy query logging |
-| `log_level` | `INFO` | Application logging level |
-
-### Environment Behavior
-
-- Settings must support environment variable overrides.
-- Boolean values should accept string values such as `true` and `false`.
-- Integer values should be parsed safely.
-- The configured upload directory should be created when settings initialize.
-- Defaults should allow local development without requiring a `.env` file.
-
-## Database Foundation
-
-Database setup must live in `app/db.py` and shared database models must use a single declarative base.
-
-### Requirements
-
-- Create a SQLAlchemy engine from `settings.database_url`.
-- Support SQLite local development with appropriate `check_same_thread` handling.
-- Create a `SessionLocal` session factory.
-- Provide a `get_db()` dependency that yields and closes sessions.
-- Provide an `init_db()` function that creates tables from metadata.
-- Keep the declarative `Base` importable by database model modules.
-
-### Out of Scope
-
-- Alembic migration generation.
-- Production database provisioning.
-- Repository-specific persistence methods for PDF and transaction records.
-
-## Shared Schemas
-
-The module must define reusable Pydantic schemas for common service responses.
-
-### Required Schemas
-
-#### Error Response
-
-```json
-{
-  "type": "ERROR_TYPE",
-  "message": "Human-readable error message"
-}
-```
-
-#### Health Response
-
-```json
-{
-  "status": "healthy",
-  "service": "Stats Ingestion Service",
-  "version": "1.0.0"
-}
-```
-
-#### Root Response
-
-```json
-{
-  "service": "Stats Ingestion Service",
-  "version": "1.0.0",
-  "message": "Stats Ingestion Service is running"
-}
-```
-
-Schemas should be compatible with the installed Pydantic version and configured for ORM compatibility where needed.
-
-## Error Handling Contract
-
-The Foundation module must define a consistent error convention for later modules.
-
-### Required Error Types
-
-- `INVALID_REQUEST`
-- `INVALID_FILE_TYPE`
-- `FILE_TOO_LARGE`
-- `PROCESSING_ERROR`
-- `DATABASE_ERROR`
-- `NOT_FOUND`
-- `INTERNAL_ERROR`
-
-### Requirements
-
-- Error responses must include `type` and `message`.
-- API handlers should avoid leaking internal stack traces to clients.
-- Internal details should be logged for debugging.
-- Later modules should be able to reuse these error types rather than inventing separate shapes.
-
-## Logging
-
-Logging configuration should be centralized.
-
-### Requirements
-
-- Configure logging level from `settings.log_level`.
-- Provide a reusable logger setup function.
-- Use a format that includes timestamp, level, logger name, and message.
-- Avoid noisy debug logging unless debug mode or log level enables it.
-
-## Middleware
-
-The Foundation module must configure baseline middleware.
-
-### Required Middleware
-
-- CORS middleware.
-
-### CORS Defaults
-
-Initial local-development defaults may allow all origins, methods, and headers. The structure should allow stricter production settings later.
-
-## Testing
-
-The Foundation module must include tests proving that the base service works.
-
-### Required Tests
-
-- App imports successfully.
-- `GET /health` returns HTTP 200.
-- `GET /health` response includes:
-  - `status`
-  - `service`
-  - `version`
-- `GET /` returns HTTP 200.
-- `GET /` response includes:
-  - `service`
-  - `version`
-  - `message`
-- Settings expose expected default values.
-- Database initialization function is callable.
-
-### Test Tooling
-
-- Use `pytest`.
-- Use FastAPI `TestClient` for endpoint tests.
-- Keep test setup reusable through `tests/conftest.py` if shared fixtures are needed.
-
-## Runtime Requirements
-
-The service must be runnable locally with:
-
-```powershell
-uvicorn app.main:app --reload
-```
-
-from:
-
-```text
-stats/stats-ingestion-service
-```
-
-The module should also support direct execution through `python -m app.main` if retained by the implementation.
-
-## Dependencies
-
-The Foundation module requires these baseline dependencies:
-
-- `fastapi`
-- `uvicorn`
-- `pydantic`
-- `python-dotenv`
-- `pytest`
-- `httpx`
-- `sqlalchemy`
-
-Existing PDF-specific dependencies may remain in `requirements.txt`, but the Foundation module itself should not depend on PDF parsing packages.
+Each later module spec must declare its own run command, test command, configuration sample, and dependency assumptions.
 
 ## Acceptance Criteria
 
-The Foundation module is complete when:
+M0 is complete when:
 
-- The service has one clear FastAPI app declaration.
-- `/health` and `/` respond successfully.
-- Configuration loads defaults and supports environment overrides.
-- The upload directory is created automatically.
-- Database engine/session/init patterns are available.
-- Shared response and error schemas are defined.
-- Logging configuration is centralized.
-- CORS middleware is configured.
-- Foundation tests pass.
-- Future modules can add routes, services, schemas, and database models without changing the foundation structure.
+- The building-block architecture direction is documented and used as the boundary for later module work.
+- Module order distinguishes Project Foundation, reusable standalone modules, Stats Web encompassing work, integration, infrastructure, and evaluation evidence.
+- Module spec, contract, file inventory, tagging, GitHub, and evidence conventions are documented.
+- Later module specs can define their own owner folders, contracts, tests, and evidence without treating a single backend service as the entire application.
+- GitHub stores the capstone repository history and meaningful project artefacts.
+- At least one module evidence package demonstrates the required test-result, raw-output, checklist, screenshot-index, and cropped actual screenshot pattern.
 
 ## Implementation Notes
 
-- Existing service files should be reused where practical.
-- Duplicated code in `app/main.py` should be cleaned up during implementation.
-- Existing ingestion-specific code should not be expanded as part of the Foundation module.
-- Any behavior outside this spec should be deferred to the relevant future module.
+- Earlier FastAPI foundation work remains useful as implementation history and supporting evidence, but M0 ownership is now project-level foundation.
+- New feature behavior should be specified under the owning building-block module rather than appended to M0.
+- Use `docs/building-block-module-plan.md` as the architecture boundary before starting each later module chat.

@@ -18,6 +18,13 @@ stats_ingestion.db
 uploads/
 *.log
 
+# .NET build output
+**/bin/
+**/obj/
+
+# Local document rendering checks
+docx_render_check/
+
 # IDE/local tool state
 .qodo/
 .vscode/
