@@ -1,0 +1,30 @@
+M0 Architecture Foundation Direct Verification
+Command: python test-results\M0-ArchitectureFoundation\M0-ArchitectureFoundation_terminal_check.py
+Repository: C:\000_Capstone
+
+Scenario M0-AF-01: required architecture artefacts
+[PASS] required path: README.md
+[PASS] required path: apps/README.md
+[PASS] required path: modules/README.md
+[PASS] required path: contracts/README.md
+[PASS] required path: infrastructure/README.md
+[PASS] required path: samples/README.md
+[PASS] required path: tests/integration/README.md
+[PASS] required path: docs/M0-foundation-module-spec.md
+[PASS] required path: docs/M0-foundation-file-inventory.md
+[PASS] required path: docs/building-block-module-plan.md
+[PASS] required path: docs/building-block-module-io-map.md
+[PASS] required path: docs/specs/module-spec-template.md
+[PASS] required path: docs/evidence/README.md
+[PASS] required path: docs/module-plans/README.md
+[PASS] required path: stats/README.md
+
+Scenario M0-AF-02: repository hygiene ignore rules
+[PASS] ignored local/build path: docx_render_check
+[PASS] ignored local/build path: stats/stats.Web/bin
+[PASS] ignored local/build path: stats/stats.Web/obj
+[PASS] ignored local/build path: stats/stats-ingestion-service/stats_ingestion.db
+
+Required artefacts passed: 15/15
+Ignore-rule checks passed: 4/4
+Result: PASSED

@@ -1,0 +1,27 @@
+# M0 Architecture Foundation Test Scenarios
+
+<!-- M0 Foundation: architecture verification scenarios for the building-block setup. -->
+
+## Scope
+
+These scenarios verify M0 as a project foundation module after the building-block architecture shift.
+
+They do not verify Python API behavior, .NET page behavior, or M1 identity behavior. Earlier service evidence remains separate under `stats/stats-ingestion-service/test-results/`.
+
+## Scenarios
+
+| ID | Scenario | Verification Method | Expected Result |
+| --- | --- | --- | --- |
+| `M0-AF-01` | Required architecture artefacts exist | Run `M0-ArchitectureFoundation_terminal_check.py` and inspect the required-path checks. | Root entry point, boundary READMEs, foundation docs, module spec template, and transition note are present. |
+| `M0-AF-02` | Local and build artefacts stay out of Git changes | Run `M0-ArchitectureFoundation_terminal_check.py` and inspect `git check-ignore` checks. | Local DOCX render output, .NET build output, and local SQLite runtime file are ignored. |
+| `M0-AF-03` | Later modules have a spec starting point | Inspect `docs/specs/module-spec-template.md`. | Template includes module identity, BA alignment, goals, non-goals, contracts, dependencies, tests, acceptance criteria, and deferred items. |
+| `M0-AF-04` | Existing implementation is marked transitional | Inspect `README.md` and `stats/README.md`. | Existing `stats.Web` and `stats-ingestion-service` paths are retained but not described as final module boundaries. |
+
+## Evidence Mapping
+
+| Scenario | Evidence |
+| --- | --- |
+| `M0-AF-01` | Raw output and Windows terminal screenshot from the direct verification script. |
+| `M0-AF-02` | Raw output and Windows terminal screenshot from the direct verification script. |
+| `M0-AF-03` | Checklist review plus the retained module spec template. |
+| `M0-AF-04` | Checklist review plus the retained root and transition READMEs. |
