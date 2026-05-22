@@ -6,7 +6,7 @@
 
 M0 Project Foundation establishes the repository, documentation, evidence, and delivery conventions for the Stats capstone project.
 
-Stats is developed as an integrating product built from reusable building-block modules. M0 does not own product features such as authentication, file ingestion, OCR, storage, or dashboard logic. It provides the rules, templates, and project scaffolding that allow those later modules to be specified, implemented, tested, evidenced, versioned, and composed consistently.
+Stats is developed as an integrating product built from reusable building-block modules and encompassing Stats product modules. M0 does not own product features such as authentication, file ingestion, OCR, Stats persistence, or dashboard logic. It provides the rules, templates, and project scaffolding that allow those later modules to be specified, implemented, tested, evidenced, versioned, and composed consistently.
 
 ## Architecture Alignment
 
@@ -28,6 +28,7 @@ The building-block plan defines M0 as:
 The architecture direction established by M0 is:
 
 - Stats Web is the encompassing `.NET` user-facing app and orchestration shell.
+- Stats Data and Persistence is the encompassing Stats product module for database schema, migrations, persistence adapters, and stored workflow results.
 - Backend capabilities are segregated into standalone modules that can be reused outside Stats.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
 - Each later module owns its own spec, contract, tests, evidence, configuration sample, runtime instructions, and container path when containerization is reached.
@@ -41,12 +42,16 @@ The architecture direction established by M0 is:
 - Establish module tagging and file-inventory conventions so module-owned changes are reviewable.
 - Establish test-result and screenshot-evidence conventions suitable for capstone assessment.
 - Record the initial architecture boundaries that prevent Stats-specific UI flows from leaking into reusable backend apps.
+<!-- M0 Foundation Start -->
+<!-- Adds the project-wide runtime configuration goal. -->
+- Establish a project-wide configuration convention so environment-dependent runtime values are not hardcoded into project source.
+<!-- M0 Foundation End -->
 
 ## Non-Goals
 
 - Implementing the Identity Access Module.
 - Implementing Stats Web pages, navigation, login UI, upload UI, dashboard UI, or reporting UI.
-- Implementing file validation, file ingestion, OCR, document classification, transaction extraction, data validation, records storage, or email ingestion.
+- Implementing file validation, file ingestion, OCR, document classification, transaction extraction, data validation, Stats Data and Persistence, or email ingestion.
 - Defining final database schemas for later modules.
 - Containerizing modules or deploying them to cloud infrastructure.
 - Replacing later module specs with one project-wide feature specification.
@@ -74,6 +79,7 @@ The repository should move toward the structure defined by the building-block mo
 000_Capstone/
 |-- apps/
 |   |-- stats-web/
+|   |-- stats-data/
 |   `-- stats-admin-tools/
 |-- modules/
 |   |-- identity-access-module/
@@ -83,7 +89,6 @@ The repository should move toward the structure defined by the building-block mo
 |   |-- document-classification-module/
 |   |-- transaction-extraction-module/
 |   |-- data-validation-module/
-|   |-- records-storage-module/
 |   `-- email-ingestion-module/
 |-- contracts/
 |   |-- identity/
@@ -131,7 +136,28 @@ Every later standalone module must provide:
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior visible to callers through explicit errors or status results.
 
-Encompassing Stats modules such as Stats Web must also state which reusable module APIs they call and must not absorb reusable OCR, parsing, validation, storage, or authentication internals.
+Encompassing Stats modules such as Stats Web and Stats Data must state which reusable module contracts they call or store and must not absorb reusable OCR, parsing, validation, or authentication internals.
+
+<!-- M0 Foundation Start -->
+<!-- Defines the project-wide rule for config-driven runtime values. -->
+## Runtime Configuration Standard
+
+The whole Stats project must use configuration files or supported environment/secret providers for runtime values instead of hardcoding them in source code.
+
+This rule applies to reusable modules, encompassing Stats apps, transitional code, admin tools, infrastructure scripts, and later cloud deployment work.
+
+Examples of runtime values that must be configurable:
+
+- API and service base URLs.
+- Hosts, ports, and browser/CORS origins.
+- Database targets, connection values, storage targets, and queue/mailbox/resource names.
+- Secrets, passwords, tokens, keys, bootstrap credentials, and authentication settings.
+- Environment-dependent file paths, feature switches, timeouts, limits, and cloud deployment settings.
+
+Project configuration may include committed safe local defaults, examples, and templates. Real secrets and developer-specific overrides must be excluded from source control and supplied through ignored local config, environment variables, or managed secret providers.
+
+Each module or app spec must name its configuration sample and the runtime values it owns. Consumers must be able to change environment-dependent targets without editing source code.
+<!-- M0 Foundation End -->
 
 ## Module Specification Convention
 
@@ -143,6 +169,10 @@ Each module spec must identify:
 - Architecture boundary and owner folder.
 - Inputs, outputs, contracts, error/status results, and dependencies.
 - Local runtime and configuration expectations.
+<!-- M0 Foundation Start -->
+<!-- Requires each later module spec to name its runtime configuration surface. -->
+- Config files, safe examples, override paths, and runtime values that must be changed without source edits.
+<!-- M0 Foundation End -->
 - Automated tests, manual checks, evidence artefacts, and acceptance criteria.
 - Deferred items for later modules.
 
@@ -152,11 +182,15 @@ For reusable modules, the starting contract should be derived from `docs/buildin
 
 M0 establishes these project rules:
 
-- Reusable apps expose explicit contracts instead of depending on another module's internal implementation.
-- Stats Web may call reusable app APIs, but it should not implement reusable validation, extraction, or identity rules.
+- Reusable modules expose explicit contracts instead of depending on another module's internal implementation.
+<!-- M0 Foundation Start -->
+<!-- Applies the project-wide runtime configuration rule at the contract boundary level. -->
+- Runtime values are configured through config files or supported environment/secret providers instead of being embedded in source code.
+<!-- M0 Foundation End -->
+- Stats Web may call reusable module APIs, but it should not implement reusable validation, extraction, or identity rules.
 - File Validation and File Ingestion remain separate concerns.
 - OCR Extraction, Document Classification, and Transaction Extraction remain separate concerns.
-- Storage and reporting consume results from processing modules; they do not silently become processing modules.
+- Stats Data and reporting consume results from processing modules; they do not silently become reusable processing modules.
 - Integration behavior belongs in Stats workflow integration tests or in the coordinating Stats app layer.
 
 ## GitHub and Version-Control Workflow
@@ -232,6 +266,7 @@ M0 verification is primarily project-convention verification.
 
 - Repository is tracked in Git and published to the intended GitHub repository.
 - Architecture documentation identifies the building-block module boundaries.
+- Project rules require environment-dependent runtime values to be configurable without source-code edits.
 - A later module can start from a spec, contract, acceptance criteria, and evidence plan without inventing a new process.
 - Evidence rules are demonstrated by at least one module evidence set.
 - Ignore rules prevent caches, secrets, and obvious local-only outputs from being committed.
@@ -262,8 +297,9 @@ Each later module spec must declare its own run command, test command, configura
 M0 is complete when:
 
 - The building-block architecture direction is documented and used as the boundary for later module work.
-- Module order distinguishes Project Foundation, reusable standalone modules, Stats Web encompassing work, integration, infrastructure, and evaluation evidence.
+- Module order distinguishes Project Foundation, reusable standalone modules, Stats Web encompassing work, Stats Data and Persistence, integration, infrastructure, and evaluation evidence.
 - Module spec, contract, file inventory, tagging, GitHub, and evidence conventions are documented.
+- Runtime configuration rules prevent environment-dependent values and secrets from being hardcoded into source.
 - Later module specs can define their own owner folders, contracts, tests, and evidence without treating a single backend service as the entire application.
 - GitHub stores the capstone repository history and meaningful project artefacts.
 - At least one module evidence package demonstrates the required test-result, raw-output, checklist, screenshot-index, and cropped actual screenshot pattern.

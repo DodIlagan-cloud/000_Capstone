@@ -13,7 +13,13 @@ Planned module lanes:
 - `document-classification-module/`
 - `transaction-extraction-module/`
 - `data-validation-module/`
-- `records-storage-module/`
 - `email-ingestion-module/`
 
 Each module should own a spec, README, tests, evidence, configuration sample, explicit contract, local run instructions, and a container path when containerization is reached.
+
+Stats-specific persistence belongs in `apps/stats-data/`, not in a reusable processing module.
+
+<!-- M0 Foundation Start -->
+<!-- Applies the project runtime configuration rule to reusable modules. -->
+Each reusable module must expose its runtime configuration through config files or supported environment/secret providers so URLs, ports, data targets, secrets, limits, paths, and environment switches do not require source-code edits.
+<!-- M0 Foundation End -->

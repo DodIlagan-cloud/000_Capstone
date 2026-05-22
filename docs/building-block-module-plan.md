@@ -4,11 +4,17 @@
 
 Stats will be developed as an integrating product built from reusable modules.
 
-- The Stats front end is an encompassing `.NET` module that presents the user experience and coordinates backend capabilities.
+- The Stats front end and Stats database are encompassing product modules that present the user experience, persist project data, and coordinate backend capabilities.
 - Backend capabilities are segregated into standalone modules that can be tested, containerized, versioned, and reused in other projects.
 - A reusable module should not depend on Stats UI code or Stats-specific page flows.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
 - Each module gets its own spec, folder, README, tests, evidence, configuration sample, and container path when containerization is reached.
+
+<!-- M0 Foundation Start -->
+<!-- Defines the project-wide configuration boundary for every later building block. -->
+- Runtime values must be supplied through config files or supported environment/secret providers instead of being hardcoded in source code.
+- Committed configuration must contain only safe defaults or examples; real secrets and local developer overrides stay uncommitted.
+<!-- M0 Foundation End -->
 
 ## Proposed Repository Segregation
 
@@ -16,6 +22,7 @@ Stats will be developed as an integrating product built from reusable modules.
 000_Capstone/
 |-- apps/
 |   |-- stats-web/                    # .NET encompassing front end and Stats orchestration
+|   |-- stats-data/                   # Stats database schema, migrations, persistence adapters
 |   `-- stats-admin-tools/            # Optional scripts/tools used only by Stats
 |-- modules/
 |   |-- identity-access-module/          # Login, tokens, roles, access checks
@@ -25,7 +32,6 @@ Stats will be developed as an integrating product built from reusable modules.
 |   |-- document-classification-module/  # Document type classification
 |   |-- transaction-extraction-module/   # Financial field/transaction extraction
 |   |-- data-validation-module/          # Cleaning, duplicate checks, data-quality warnings
-|   |-- records-storage-module/          # Persist and retrieve processed document records
 |   `-- email-ingestion-module/          # Email attachment intake into ingestion flow
 |-- contracts/
 |   |-- identity/
@@ -60,6 +66,11 @@ Every standalone module must provide:
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior that is visible to callers through explicit errors or status results.
 
+<!-- M0 Foundation Start -->
+<!-- Requires modules to keep runtime configuration outside source literals. -->
+9. Config-defined runtime values for environment-dependent URLs, hosts, ports, database targets, secrets, tokens, file paths, feature switches, and cloud resource settings.
+<!-- M0 Foundation End -->
+
 ## Module Map
 
 | Build Order | Module | Type | Main Responsibility | Reusable Contract |
@@ -73,9 +84,9 @@ Every standalone module must provide:
 | 6 | Document Classification Module | Standalone module | Classify bank statement, receipt, invoice, bill, unknown | Classification API/result contract |
 | 7 | Transaction Extraction Module | Standalone module | Extract financial fields and transaction candidates | Transaction extraction API/result contract |
 | 8 | Data Validation Module | Standalone module | Clean, validate, warn, and detect duplicates/incomplete records | Data-quality report contract |
-| 9 | Records Storage Module | Standalone module | Persist documents, extracted text, structured records, processing results | Storage/query API |
-| 10 | Stats Workflow Integration | Stats app | Connect web upload to validation, ingestion, OCR, classification, extraction, validation, storage | End-to-end Stats workflow |
-| 11 | Stats Dashboard and Reporting | Encompassing `.NET` app | Financial dashboard, document status, transactions, summaries, warnings | UI over storage/query APIs |
+| 9 | Stats Data and Persistence | Encompassing product module | Stats database schema, migrations, persistence adapters, stored workflow results | Stats persistence contract |
+| 10 | Stats Workflow Integration | Stats product | Connect web upload to validation, ingestion, OCR, classification, extraction, validation, and persistence | End-to-end Stats workflow |
+| 11 | Stats Dashboard and Reporting | Encompassing `.NET` app | Financial dashboard, document status, transactions, summaries, warnings | UI over Stats persistence/query layer |
 | 12 | Email Ingestion Module | Standalone module | Retrieve authorized attachments and submit them to file ingestion | Email source adapter and ingestion contract |
 | 13 | Containerization | Infrastructure | Local containers, Compose, service health checks, dependencies | Dockerfiles and Compose profiles |
 | 14 | Cloud Readiness | Infrastructure | Azure config, secrets, storage, monitoring, deployment notes | Deployment and environment contract |
@@ -93,7 +104,7 @@ flowchart LR
     OCR --> Classification["Document Classification Module"]
     Classification --> Extraction["Transaction Extraction Module"]
     Extraction --> Validation["Data Validation Module"]
-    Validation --> Storage["Records Storage Module"]
+    Validation --> Storage["Stats Data and Persistence"]
     Storage --> Web
     Email["Email Ingestion Module"] --> Ingestion
 ```
@@ -107,7 +118,7 @@ flowchart LR
 | File validation controls | File Validation Module |
 | OCR Processing | OCR Extraction Module |
 | Process and Data Analysis | Classification, Transaction Extraction, Data Validation |
-| Data Storage | Records Storage Module |
+| Data Storage | Stats Data and Persistence product module |
 | Dashboard and Reporting | Stats Web dashboard/reporting module |
 | Email Ingestion | Email Ingestion Module |
 | Validation and Evaluation | Evaluation Evidence module and per-module tests |
@@ -122,7 +133,7 @@ The official Capstone timeline remains six weeks. The reusable-module architectu
 | 20-26 May 2026 | Project setup and detailed design | Foundation, Identity Access spec, Stats Web shell direction, sample/contracts setup |
 | 27 May-2 June 2026 | Document ingestion | File Validation Module, File Ingestion Module, Stats upload workflow contract |
 | 3-9 June 2026 | OCR and parsing | OCR Extraction Module, Document Classification Module, Transaction Extraction Module |
-| 10-16 June 2026 | Validation, cleaning, and storage | Data Validation Module, Records Storage Module |
+| 10-16 June 2026 | Validation, cleaning, and storage | Data Validation Module, Stats Data and Persistence |
 | 17-23 June 2026 | Dashboard and integration | Stats Workflow Integration, Stats Dashboard and Reporting |
 | 24-30 June 2026 | Testing and finalisation | Containerization priority pass, Cloud Readiness notes, Evaluation Evidence, final fixes |
 
@@ -146,6 +157,17 @@ The official Capstone timeline remains six weeks. The reusable-module architectu
 - OCR engines.
 - Document parsing rules.
 - Data-quality algorithms.
+
+### Stats Data and Persistence
+
+`apps/stats-data/` owns the Stats-specific database direction:
+
+- Database schema and migrations.
+- Persistence adapters for document workflow results.
+- Queries used by Stats Web dashboard and reporting.
+- Associations between users, ingested documents, extraction results, validation results, and reporting records.
+
+Stats Data and Persistence is not a reusable standalone processing module. It stores the outputs of reusable modules in the form required by the Stats product. Another project may reuse the processing modules with a different schema and storage strategy.
 
 ### Identity Access Module
 

@@ -7,7 +7,7 @@ This document defines the inputs and outputs for the reusable Stats building-blo
 It excludes encompassing or product-specific layers:
 
 - Stats `.NET` front end and dashboard.
-- Database implementation and storage schema.
+- Database implementation, persistence adapters, and storage schema because these belong to the encompassing Stats product layer.
 - Project foundation, evaluation evidence, cloud readiness, and containerization.
 
 The goal is to make each reusable module understandable and testable on its own before Stats composes them into a complete workflow.
@@ -36,7 +36,7 @@ flowchart LR
 | OCR Extraction Module | Ingested document reference/content and OCR/extraction options | Extracted text, page/image metadata, extraction method, confidence/quality metadata, extraction errors | Document Classification Module and later extraction modules |
 | Document Classification Module | Extracted text and document metadata | Document type label, confidence, classification reasons/features where useful, unknown result | Transaction Extraction Module and workflow coordinator |
 | Transaction Extraction Module | Extracted text, document type, document metadata, extraction rules/options | Transaction candidates and financial field candidates with source/confidence metadata | Data Validation Module |
-| Data Validation Module | Transaction candidates, document context, data-quality rules/options | Cleaned/normalized records, validation warnings/errors, duplicate flags, completeness/quality report | Workflow coordinator, reporting, persistence layer |
+| Data Validation Module | Transaction candidates, document context, data-quality rules/options | Cleaned/normalized records, validation warnings/errors, duplicate flags, completeness/quality report | Stats workflow, reporting, and Stats persistence layer |
 | Email Ingestion Module | Authorized mailbox/source config, email search/fetch request | Attachment candidates, email source metadata, ingestion-ready file handoff, email intake status/errors | File Validation Module or File Ingestion Module |
 
 ## Detailed Input/Output Definitions
@@ -277,11 +277,11 @@ flowchart LR
 | 4 | OCR Extraction Module | Text extraction result | Document Classification Module |
 | 5 | Document Classification Module | Classification result plus text context | Transaction Extraction Module |
 | 6 | Transaction Extraction Module | Transaction candidates | Data Validation Module |
-| 7 | Data Validation Module | Cleaned records and quality report | Stats workflow/reporting/persistence layer |
+| 7 | Data Validation Module | Cleaned records and quality report | Stats workflow, Stats reporting, and Stats persistence layer |
 
 ## Boundary Notes
 
 - The front end may call Identity Access Module and File Ingestion Module, but it should not implement their reusable rules.
-- Storage receives results after reusable processing, but storage is not part of this reusable input/output map.
+- Stats data persistence receives results after reusable processing, but the database/persistence layer is not part of this reusable input/output map.
 - Module contracts should be stable enough that another project can replace Stats Web and still use these modules.
 - For each module chat, treat the rows above as the starting contract. Refine fields only when that module spec needs them.

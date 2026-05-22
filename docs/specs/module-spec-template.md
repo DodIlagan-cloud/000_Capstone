@@ -49,6 +49,13 @@ State what this module owns, what it calls, and what it must not absorb from nei
 - Configuration sample: `<path>`
 - External dependencies: `<dependencies>`
 
+<!-- M0 Foundation Start -->
+<!-- Prompts each module spec to declare config-driven runtime values. -->
+- Runtime values owned by this module: `<URLs, hosts, ports, database/resource targets, secrets, limits, paths, feature switches>`
+- Config override path or provider: `<config file, environment variables, managed secrets, or other provider>`
+- Hardcoded runtime values allowed in source: `none unless explicitly justified as a stable code constant`
+<!-- M0 Foundation End -->
+
 ## Tasks
 
 1. `<implementation task>`

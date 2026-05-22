@@ -22,8 +22,8 @@ M0 is no longer treated as a FastAPI service foundation module. Earlier service 
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `apps/README.md` | Created | Reserves the enclosing Stats application boundary for `stats-web` and Stats-only tools. |
-| `modules/README.md` | Created | Defines the standalone reusable module boundary and expected module folders. |
+| `apps/README.md` | Created | Reserves the encompassing Stats product boundary for `stats-web`, `stats-data`, and Stats-only tools. |
+| `modules/README.md` | Created | Defines the standalone reusable module boundary and keeps Stats-specific persistence out of reusable processing modules. |
 | `contracts/README.md` | Created | Defines the shared contract boundary for identity, document, extraction, and transaction handoffs. |
 | `infrastructure/README.md` | Created | Reserves infrastructure work for Compose, containers, cloud configuration, and deployment notes. |
 | `samples/README.md` | Created | Defines safe sample-data lanes for synthetic and anonymized fixtures. |
@@ -35,6 +35,20 @@ M0 is no longer treated as a FastAPI service foundation module. Earlier service 
 | --- | --- | --- |
 | `docs/specs/README.md` | Created | Documents where module specifications and their templates belong. |
 | `docs/specs/module-spec-template.md` | Created | Supplies the M0 module-spec template for later standalone and encompassing modules. |
+
+<!-- M0 Foundation Start -->
+<!-- Records the project-wide runtime configuration convention update without replacing earlier inventory rows. -->
+## Runtime Configuration Convention Update
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `README.md` | Modified | Adds the project-wide rule that runtime values belong in config files or supported environment/secret providers. |
+| `docs/M0-foundation-module-spec.md` | Modified | Defines the runtime configuration standard for reusable modules, Stats apps, transitional code, tools, and infrastructure. |
+| `docs/building-block-module-plan.md` | Modified | Adds config-driven runtime values to architecture direction and per-module standards. |
+| `docs/specs/module-spec-template.md` | Modified | Prompts later module specs to name owned runtime values, config samples, override paths, and providers. |
+| `apps/README.md` | Modified | Applies the config-driven runtime rule to Stats-specific applications. |
+| `modules/README.md` | Modified | Applies the config-driven runtime rule to reusable building-block modules. |
+<!-- M0 Foundation End -->
 | `docs/module-plans/README.md` | Created | Documents where detailed module plans and boundary refinements belong. |
 | `docs/evidence/README.md` | Created | Documents the project-level evidence index area while preserving module-local evidence where already used. |
 
@@ -76,7 +90,8 @@ This M0 architecture execution should be checked by:
 
 1. Confirming the target top-level boundaries are visible in the repository.
 2. Confirming later module work can start from `docs/specs/module-spec-template.md`.
-3. Confirming the building-block plan and I/O map remain the architecture reference.
-4. Confirming ignored caches, local runtime files, and build outputs do not appear as Git changes.
+3. Confirming the runtime configuration rule prevents environment-dependent values and secrets from being hardcoded in source.
+4. Confirming the building-block plan and I/O map remain the architecture reference.
+5. Confirming ignored caches, local runtime files, and build outputs do not appear as Git changes.
 
 Migrations of active implementation code from `stats/` into `apps/` or `modules/` should be planned in the owning later module spec so history and cross-module boundaries remain reviewable.
