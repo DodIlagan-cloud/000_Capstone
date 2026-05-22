@@ -12,9 +12,16 @@ Use this skill to produce reusable, assessment-friendly test artefacts for a com
 ## Evidence Standard
 
 - Store artefacts in a module-local `test-results/` directory.
-- Use actual visible Windows browser screenshots for endpoint/UI evidence.
+- Treat every completed prior module test set as regression coverage for later modules.
+- When a new module is tested, run and retain evidence for the new module tests and the relevant regression tests for every earlier completed module.
+- Do not drop earlier module checks from a later module test session unless the user explicitly narrows the test scope or the earlier check has been formally replaced and documented.
+- Use actual visible Windows Edge browser screenshots for endpoint/UI evidence.
+- Keep the Edge address bar visible so the local URL/path is part of the browser evidence.
+- Use normal Edge browser windows, not Edge `--app` mode, because app mode hides browser chrome and may show a site/app icon instead of the normal Edge presentation.
 - Use actual visible Windows terminal screenshots for command/test output evidence.
+- Reuse one visible terminal window for a test evidence session when its output is still valid.
 - Crop screenshots to the relevant browser or terminal area before final delivery.
+- Position visible browser windows away from the Windows toast notification area before capture to avoid unrelated notification evidence and retakes.
 - Keep filenames stable and dated: `<module>-windows-browser-<target>-YYYY-MM-DD.png`.
 - Maintain a Markdown evidence index that lists every retained screenshot and what it proves.
 - Remove or avoid rendered-response screenshots unless the user explicitly asks for them.
@@ -23,15 +30,38 @@ Use this skill to produce reusable, assessment-friendly test artefacts for a com
 ## Workflow
 
 1. Identify module name, working directory, service start command, and test targets.
-2. Create `test-results/` under the module root.
-3. Start the service in a visible Windows terminal when browser evidence is needed.
-4. Confirm the service is ready with a direct local HTTP check before opening browser pages.
-5. Open each target in a visible Windows browser window or tab.
-6. Capture screenshots with `PIL.ImageGrab.grab()` and save them under `test-results/`.
-7. Capture a visible Windows terminal screenshot showing test output and a clear passed/failed result.
-8. Crop the screenshots to relevant browser or terminal content.
-9. Create or update an evidence index Markdown file.
-10. Stop any local server process started for evidence capture unless the user wants it left running.
+2. Identify every completed earlier module whose tests must be carried into the regression pass.
+3. Create `test-results/` under the module root.
+4. Start the service in a visible Windows terminal when browser evidence is needed.
+5. Confirm the service is ready with a direct local HTTP check before opening browser pages.
+6. Run the current module verification and the carried-forward prior-module regression verification.
+7. Open each target in a visible Windows Edge browser window or tab and position the window away from the Windows toast notification area.
+8. Capture screenshots with `PIL.ImageGrab.grab()` and save them under `test-results/`.
+9. Find and activate the existing test terminal window, then capture a visible Windows terminal screenshot showing test output and a clear passed/failed result.
+10. Crop the screenshots to relevant browser or terminal content.
+11. Create or update an evidence index Markdown file.
+12. Stop any local server process started for evidence capture unless the user wants it left running.
+
+## Carry-Forward Regression Rule
+
+Each module adds to the project test baseline.
+
+- Module 0 establishes the first test set.
+- Module 1 testing must include Module 1 checks and Module 0 regression checks.
+- Module 2 testing must include Module 2 checks plus Module 0 and Module 1 regression checks.
+- Continue the same pattern for every succeeding module.
+
+When the project has one command that runs all automated checks, use it as the automated regression baseline and still record which modules the run covers. When module-specific manual or evidence-driven checks exist, carry those checks forward when they protect behavior that later modules could break.
+
+For a multi-module regression evidence session, store the module folders under one parent folder using:
+
+```text
+RegTest-<ShortChange>-M0-M1
+```
+
+Extend the module suffix as coverage grows, for example `RegTest-UploadFlow-M0-M1-M2`.
+
+Each child module folder should keep its own module evidence files so a reviewer can see both the new module result and the earlier-module regression results from the same session.
 
 ## Recommended Artefacts
 
@@ -50,7 +80,14 @@ Adapt target names to the module, such as `ingest-upload`, `transactions-list`, 
 
 ## Windows Screenshot Capture
 
-Use visible Windows apps for evidence. Commands that open browsers, terminals, or capture the desktop usually require approval outside the sandbox.
+Use visible Windows apps for evidence. Use Microsoft Edge for browser screenshots unless the user explicitly requests another browser. Commands that open browsers, terminals, or capture the desktop usually require approval outside the sandbox.
+
+Before capturing Edge evidence:
+
+- Place the Edge window away from the Windows toast notification area.
+- Prefer a stable window position that keeps the endpoint content fully visible.
+- Keep the browser address bar in the screenshot unless the user explicitly asks for content-only UI captures.
+- Check for notification overlays before retaining the screenshot.
 
 Example visible service terminal:
 
@@ -108,6 +145,16 @@ Start-Process -FilePath powershell.exe -ArgumentList @(
   'cd "C:\path\to\module"; python test-results\module_terminal_check.py'
 )
 ```
+
+Keep that terminal window for the screenshot step when its displayed output is still correct. Approval prompts or desktop focus changes may place another window in front of it; do not open a second PowerShell window just to recover focus.
+
+Before capturing terminal evidence:
+
+- Find the existing visible PowerShell or Windows Terminal window used for the test.
+- Activate or bring that same window to the foreground.
+- Wait briefly after activation so the focus change settles before `ImageGrab.grab()`.
+- Retake with the same terminal window when possible if the first capture shows another app in front.
+- Open a new terminal only when the original window is gone, the output is stale, or the test must be rerun.
 
 ## Cropping
 
