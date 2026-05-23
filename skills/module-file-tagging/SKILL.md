@@ -31,13 +31,18 @@ M2 - Manual Document Upload
 - Add a matching end tag immediately after the added block.
 - The start tag must include the word `Start`, the module label, and one short purpose line.
 - The end tag must include the module code and the word `End`; for Module 1, `M1 End` is sufficient.
+- Treat existing top-of-file module tags or docstrings as file headers. Do not change, replace, or upgrade an existing file header tag just because the file is edited for a later module.
+- In existing files, tag the smallest meaningful added or modified block with its own start/end pair near the changed lines.
+- When a module replaces an existing text or code line in a commentable file, keep the prior line commented out inside the tagged block and write the replacement directly below it.
+- Keep the commented prior line close to the replacement so the module update is reviewable without Git history.
 - Keep the purpose specific to the file, not the whole module.
 - Use the native comment syntax for the file type.
 - Do not add the tag to generated cache files, binary assets, screenshots, lockfiles, or files where comments are unsupported.
-- Do not tag tiny mechanical edits, formatting-only changes, import-only edits, or one-line fixes when a tag would make the code harder to read.
+- Do not tag formatting-only changes or generated edits where comments are unsupported.
+- In project module files, tag added or modified imports and one-line code changes when they are part of the module work and the file type supports comments.
 - Do not repeatedly tag every line in a contiguous added block. One start/end pair should cover the related block.
 - When adding to an existing tagged block, reuse the existing nearby tag if it clearly applies.
-- When editing existing code inside an older section, do not imply the whole section was created for the module. Tag only the newly added block when practical.
+- When editing existing code inside an older section, do not imply the whole section was created for the module. Tag only the changed block when practical.
 
 ## Examples
 
@@ -110,10 +115,37 @@ JavaScript or TypeScript:
 Added block inside an existing Python file:
 
 ```python
+"""Existing file header remains unchanged."""
+
 # M1 - User Access Management Start
 # Requires an authenticated active user for protected routes.
 def get_current_active_user(...):
     ...
+# M1 End
+```
+
+Modified block inside an existing file with an older module header:
+
+```python
+"""M0 Foundation: shared API error definitions."""
+
+class ErrorType(str, Enum):
+    INVALID_REQUEST = "INVALID_REQUEST"
+
+    # M1 - User Access Management Start
+    # Adds authentication and authorization error identifiers.
+    INVALID_TOKEN = "INVALID_TOKEN"
+    FORBIDDEN = "FORBIDDEN"
+    # M1 End
+```
+
+Updated line inside an existing Python file:
+
+```python
+# M1 - User Access Management Start
+# Changes the default database target for Module 1 user storage.
+# database_url: str = "sqlite:///./stats_ingestion.db"
+database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/stats_ingestion"
 # M1 End
 ```
 

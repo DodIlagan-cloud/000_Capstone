@@ -10,9 +10,10 @@
 | Boundary READMEs are present for the new architecture folders. | Pass | Direct verification script output |
 | Stats-specific persistence is identified as `apps/stats-data/`, not a reusable records storage module. | Pass | `docs/building-block-module-plan.md`, `apps/README.md`, `modules/README.md` |
 | Runtime values, secrets, and environment-dependent targets are required to come from config files or supported environment/secret providers instead of hardcoded source values. | Pass | `README.md`, `docs/building-block-module-plan.md`, `docs/M0-foundation-module-spec.md`, `docs/specs/module-spec-template.md` |
+| Common/config/shared files have documented owners and migration actions before physical code movement. | Pass | `docs/module-plans/common-file-migration-inventory.md` |
 | Module spec template is available for later building blocks. | Pass | `docs/specs/module-spec-template.md` |
-| Existing `stats/` code is described as transitional implementation work. | Pass | `stats/README.md` |
-| Ignore rules cover local DOCX render checks, .NET build output, and the local Stats SQLite runtime file. | Pass | Direct verification script output |
+| Retired transitional source and evidence paths are absent after the M1 migration. | Pass | Direct verification script output |
+| Ignore rules cover local DOCX render checks, .NET build output, and Python test cache output. | Pass | Direct verification script output |
 
 ## Manual Review Note
 

@@ -18,6 +18,11 @@ stats_ingestion.db
 uploads/
 *.log
 
+# M1 - User Access Management Start
+# Keeps local config overrides with secrets or developer-specific values out of source control.
+**/.env
+# M1 End
+
 # .NET build output
 **/bin/
 **/obj/

@@ -1,0 +1,54 @@
+@page
+@model IndexModel
+@* M1 - User Access Management Start *@
+@* Module 1 authenticated landing page for users who completed login and password setup. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats App</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body data-api-base-url="@Model.ApiBaseUrl">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          <h1>Main app</h1>
+        </div>
+        <nav class="header-actions" aria-label="Account actions">
+          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="app-message" class="page-message" role="status" aria-live="polite">Checking access.</p>
+
+      <section id="landing-workspace" class="landing-workspace" hidden>
+        <section class="summary-panel" aria-labelledby="welcome-title">
+          <p class="session-label">Authenticated access</p>
+          <h2 id="welcome-title">Welcome, <span id="current-user-name"></span></h2>
+          <dl class="session-facts">
+            <div>
+              <dt>Email</dt>
+              <dd id="current-user-email"></dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd id="current-user-role"></dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="module-panel" aria-label="Application modules">
+          <h2>Workspace</h2>
+          <p>The application landing page is ready for the upload and dashboard modules that follow access control.</p>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+@* M1 End *@

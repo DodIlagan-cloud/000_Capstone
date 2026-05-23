@@ -112,16 +112,9 @@ The repository should move toward the structure defined by the building-block mo
 
 ### Current-Workspace Note
 
-The repository currently contains early work under:
+The repository now uses the target architecture folders directly. M1 identity is under `modules/identity-access-module/`, and the current Stats Web consumer is under `apps/stats-web/`.
 
-```text
-stats/stats-ingestion-service
-stats/stats.Web
-```
-
-Those folders remain valid project history and current implementation surfaces. As later modules are refined, their specs must state whether a capability remains in an existing folder temporarily or is moved into the target `apps/` or `modules/` segregation.
-
-M0 must not treat the current `stats-ingestion-service` folder as the final boundary for every backend capability.
+Later module work must use the owning architecture folder rather than recreating retired transitional folders.
 
 ## Module Standards
 
@@ -273,13 +266,7 @@ M0 verification is primarily project-convention verification.
 
 ### Supporting Demonstration
 
-Early Foundation and regression evidence currently demonstrates the evidence workflow through files under:
-
-```text
-stats/stats-ingestion-service/test-results/
-```
-
-That demonstration is supporting M0 evidence. It does not redefine M0 as a FastAPI service module.
+M0 architecture evidence under `test-results/M0-ArchitectureFoundation/` demonstrates the current project-level evidence workflow.
 
 ## Runtime and Dependencies
 
@@ -306,6 +293,6 @@ M0 is complete when:
 
 ## Implementation Notes
 
-- Earlier FastAPI foundation work remains useful as implementation history and supporting evidence, but M0 ownership is now project-level foundation.
+- M0 ownership is project-level foundation.
 - New feature behavior should be specified under the owning building-block module rather than appended to M0.
 - Use `docs/building-block-module-plan.md` as the architecture boundary before starting each later module chat.

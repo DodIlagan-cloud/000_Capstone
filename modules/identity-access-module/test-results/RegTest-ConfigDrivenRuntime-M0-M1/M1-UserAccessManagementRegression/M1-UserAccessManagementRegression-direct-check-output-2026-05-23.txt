@@ -1,0 +1,24 @@
+﻿M1 CONFIG-DRIVEN RUNTIME REGRESSION TEST EVIDENCE
+==========================================================
+Automated test command: pytest tests\test_auth.py tests\test_users.py tests\test_foundation.py
+Frontend build command: dotnet build apps\stats-web -c Release
+Configured database URL ends with /stats: True
+Configured API host: 0.0.0.0
+Configured API port: 8000
+Configured CORS origins: ['*']
+Stats Web configured API base URL: http://127.0.0.1:8013
+Visible API health status: 200
+Visible Stats Web login page status: 200
+Backend docs status: 200
+Bootstrap admin must change password: True
+Bootstrap admin login status: 200
+Bootstrap admin password change required: True
+User add before password change status: 403
+Admin password change status: 200
+User add after password change status: 201
+Created user must change password: True
+Created user first login status: 200
+Created user password change required: True
+
+Result: PASSED
+

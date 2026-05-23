@@ -38,11 +38,11 @@ Committed config may provide safe local defaults and examples. Real secrets and 
 | `samples/` | Safe sample data and fixtures. |
 | `tests/integration/` | Cross-module Stats workflow checks. |
 
-## Transitional Code
+## Current Code Homes
 
-Earlier implementation work currently remains under `stats/`:
+The project now uses the architecture folders directly. M1 is active under:
 
-- `stats/stats.Web/`
-- `stats/stats-ingestion-service/`
+- `modules/identity-access-module/`
+- `apps/stats-web/`
 
-Those folders are not the final architecture boundary. Later module specs should decide the migration path for their owned behavior into `apps/` or `modules/` without mixing Stats UI or Stats persistence concerns into reusable processing services.
+New module work should use the owning `apps/`, `modules/`, `contracts/`, `infrastructure/`, `samples/`, or `tests/` path rather than recreating retired transitional folders.

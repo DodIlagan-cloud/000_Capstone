@@ -23,14 +23,30 @@ REQUIRED_PATHS = (
     "docs/specs/module-spec-template.md",
     "docs/evidence/README.md",
     "docs/module-plans/README.md",
-    "stats/README.md",
+    "docs/module-plans/common-file-migration-inventory.md",
+    "apps/stats-web/README.md",
+    "apps/stats-data/README.md",
+    "modules/identity-access-module/README.md",
+    "contracts/identity/README.md",
+    "contracts/documents/README.md",
+    "contracts/extraction/README.md",
+    "contracts/transactions/README.md",
 )
 
 IGNORE_TARGETS = (
     "docx_render_check",
-    "stats/stats.Web/bin",
-    "stats/stats.Web/obj",
-    "stats/stats-ingestion-service/stats_ingestion.db",
+    "apps/stats-web/bin",
+    "apps/stats-web/obj",
+    "modules/identity-access-module/.pytest_cache",
+)
+
+RETIRED_PATHS = (
+    "stats/README.md",
+    "stats/stats.Web",
+    "stats/stats-ingestion-service/app",
+    "stats/stats-ingestion-service/tests",
+    "stats/stats-ingestion-service/test-results",
+    "stats/stats-ingestion-service/requirements.txt",
 )
 
 REQUIRED_CONTENT = {
@@ -53,6 +69,19 @@ REQUIRED_CONFIGURATION_CONTENT = {
     "modules/README.md": ("do not require source-code edits",),
 }
 
+REQUIRED_MIGRATION_CONTENT = {
+    "docs/module-plans/common-file-migration-inventory.md": (
+        "Retired transitional folders must not be recreated",
+        "Stats Web UI and orchestration",
+        "Identity login, tokens, roles, and user administration",
+        "Stats database schema and persistence adapters",
+        "Runtime values must stay config-driven",
+    ),
+    "apps/stats-data/README.md": ("Stats Data stores outputs", "not a reusable OCR"),
+    "modules/identity-access-module/README.md": ("reusable identity behavior", "config/defaults.env"),
+    "contracts/identity/README.md": ("token verification result", "authorization decision"),
+}
+
 
 def display_path_check(path_text: str) -> bool:
     exists = (REPO_ROOT / path_text).exists()
@@ -69,6 +98,12 @@ def display_ignore_check(path_text: str) -> bool:
     ignored = completed.returncode == 0
     print(f"[{'PASS' if ignored else 'FAIL'}] ignored local/build path: {path_text}")
     return ignored
+
+
+def display_retired_absence_check(path_text: str) -> bool:
+    absent = not (REPO_ROOT / path_text).exists()
+    print(f"[{'PASS' if absent else 'FAIL'}] retired path absent: {path_text}")
+    return absent
 
 
 def display_content_check(path_text: str, expected_text: str) -> bool:
@@ -115,6 +150,16 @@ def main() -> int:
         for expected_text in expected_values
     ]
     print()
+    print("Scenario M0-AF-05: common-file migration ownership")
+    migration_results = [
+        display_content_check(path_text, expected_text)
+        for path_text, expected_values in REQUIRED_MIGRATION_CONTENT.items()
+        for expected_text in expected_values
+    ]
+    print()
+    print("Scenario M0-AF-06: retired transitional paths are absent")
+    retired_results = [display_retired_absence_check(path_text) for path_text in RETIRED_PATHS]
+    print()
 
     passed = (
         all(path_results)
@@ -122,11 +167,15 @@ def main() -> int:
         and all(content_results)
         and all(absence_results)
         and all(configuration_results)
+        and all(migration_results)
+        and all(retired_results)
     )
     print(f"Required artefacts passed: {sum(path_results)}/{len(path_results)}")
     print(f"Ignore-rule checks passed: {sum(ignore_results)}/{len(ignore_results)}")
     print(f"Stats Data boundary checks passed: {sum(content_results) + sum(absence_results)}/{len(content_results) + len(absence_results)}")
     print(f"Runtime configuration checks passed: {sum(configuration_results)}/{len(configuration_results)}")
+    print(f"Common-file migration checks passed: {sum(migration_results)}/{len(migration_results)}")
+    print(f"Retired-path absence checks passed: {sum(retired_results)}/{len(retired_results)}")
     print(f"Result: {'PASSED' if passed else 'FAILED'}")
     return 0 if passed else 1
 

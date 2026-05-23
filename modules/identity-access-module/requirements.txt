@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+pytest
+pytest-asyncio
+httpx
+sqlalchemy
+alembic
+
+# M1 - User Access Management Start
+# Adds PostgreSQL and authentication dependencies for user account storage.
+psycopg[binary]
+passlib[bcrypt]
+python-jose[cryptography]
+email-validator
+# M1 End
