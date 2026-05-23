@@ -8,7 +8,8 @@ Stats will be developed as an integrating product built from reusable modules.
 - Backend capabilities are segregated into standalone modules that can be tested, containerized, versioned, and reused in other projects.
 - A reusable module should not depend on Stats UI code or Stats-specific page flows.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
-- Each module gets its own spec, folder, README, tests, evidence, configuration sample, and container path when containerization is reached.
+- Each module gets its own implementation folder, README, module-local automated tests, configuration sample, and container path when containerization is reached.
+- Project-wide specifications, file inventories, diagrams, plans, and evidence belong in root `docs/` and root `test-results/` rather than inside module/app folders.
 
 <!-- M0 Foundation Start -->
 <!-- Defines the project-wide configuration boundary for every later building block. -->
@@ -46,6 +47,7 @@ Stats will be developed as an integrating product built from reusable modules.
 |   |-- module-plans/
 |   |-- specs/
 |   `-- evidence/
+|-- test-results/                    # Root evidence and regression artefacts for all modules
 |-- samples/
 |   |-- synthetic/
 |   `-- anonymized/
@@ -60,8 +62,8 @@ Every standalone module must provide:
 1. A module spec with goals, non-goals, tasks, and acceptance criteria.
 2. A local run command and test command.
 3. A clear input/output contract.
-4. Module-local automated tests.
-5. Evidence for its acceptance tests.
+4. Module-local automated tests in the owning module/app folder.
+5. Evidence for its acceptance tests under root `test-results/`.
 6. A configuration example with no secrets committed.
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior that is visible to callers through explicit errors or status results.
@@ -193,6 +195,7 @@ These remain separate:
 ```text
 We are implementing only <module name> as a standalone reusable module/building block for the Stats project.
 Use docs/building-block-module-plan.md as the architecture boundary.
-First create the module spec, tasks, contracts, acceptance criteria, and test plan.
+First create the module spec, tasks, contracts, acceptance criteria, and test plan under root docs.
+Store all verification evidence under root test-results.
 Do not add Stats-specific UI or logic unless this module is apps/stats-web.
 ```

@@ -1,0 +1,49 @@
+@page
+@model DocumentsModel
+@* M2 - Stats Web Shell Start *@
+@* Provides the authenticated document-status shell before workflow persistence exists. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats Documents</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="documents">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          <h1>Documents</h1>
+        </div>
+        <nav class="header-actions" aria-label="Account actions">
+          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="app-message" class="page-message" role="status" aria-live="polite">Checking access.</p>
+
+      <section id="landing-workspace" class="shell-workspace" hidden>
+        <nav class="shell-nav" aria-label="Stats workspace navigation">
+          <a href="/">Home</a>
+          <a href="/Upload">Upload documents</a>
+          <a href="/EmailSetup">Email ingestion setup</a>
+          <a href="/Documents" aria-current="page">Documents</a>
+          <a href="/Reports">Reports</a>
+        </nav>
+
+        <section class="shell-panel" aria-labelledby="documents-title">
+          <p class="session-label">Document status</p>
+          <h2 id="documents-title">No workflow records yet</h2>
+          <p class="panel-copy">Document tracking will connect after ingestion, workflow integration, and Stats Data define the status contract.</p>
+          <div class="empty-state">Waiting for M4 File Ingestion and M9 Stats Data.</div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+@* M2 End *@

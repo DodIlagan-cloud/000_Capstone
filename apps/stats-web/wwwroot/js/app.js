@@ -26,9 +26,20 @@ async function loadLandingPage() {
       return;
     }
 
-    currentUserName.textContent = user.full_name || "Stats user";
-    currentUserEmail.textContent = user.email;
-    currentUserRole.textContent = user.role;
+    // M2 - Stats Web Shell Start
+    // Lets shared shell pages reuse the M1 access guard without requiring identity fields on every page.
+    if (currentUserName) {
+      currentUserName.textContent = user.full_name || "Stats user";
+    }
+
+    if (currentUserEmail) {
+      currentUserEmail.textContent = user.email;
+    }
+
+    if (currentUserRole) {
+      currentUserRole.textContent = user.role;
+    }
+    // M2 End
     manageUsersLink.hidden = user.role !== "admin";
     landingWorkspace.hidden = false;
     setAppMessage("Access granted.", "success");

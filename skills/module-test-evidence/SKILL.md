@@ -11,7 +11,7 @@ Use this skill to produce reusable, assessment-friendly test artefacts for a com
 
 ## Evidence Standard
 
-- Store artefacts in a module-local `test-results/` directory.
+- Store artefacts in the repository root `test-results/` directory, never under `apps/<app>/test-results/` or `modules/<module>/test-results/`.
 - Treat every completed prior module test set as regression coverage for later modules.
 - When a new module is tested, run and retain evidence for the new module tests and the relevant regression tests for every earlier completed module.
 - Do not drop earlier module checks from a later module test session unless the user explicitly narrows the test scope or the earlier check has been formally replaced and documented.
@@ -31,12 +31,12 @@ Use this skill to produce reusable, assessment-friendly test artefacts for a com
 
 1. Identify module name, working directory, service start command, and test targets.
 2. Identify every completed earlier module whose tests must be carried into the regression pass.
-3. Create `test-results/` under the module root.
+3. Create or reuse the repository root `test-results/` folder, then create a named module/regression evidence folder under it.
 4. Start the service in a visible Windows terminal when browser evidence is needed.
 5. Confirm the service is ready with a direct local HTTP check before opening browser pages.
 6. Run the current module verification and the carried-forward prior-module regression verification.
 7. Open each target in a visible Windows Edge browser window or tab and position the window away from the Windows toast notification area.
-8. Capture screenshots with `PIL.ImageGrab.grab()` and save them under `test-results/`.
+8. Capture screenshots with `PIL.ImageGrab.grab()` and save them under the root `test-results/<evidence-folder>/`.
 9. Find and activate the existing test terminal window, then capture a visible Windows terminal screenshot showing test output and a clear passed/failed result.
 10. Crop the screenshots to relevant browser or terminal content.
 11. Create or update an evidence index Markdown file.
@@ -56,25 +56,25 @@ When the project has one command that runs all automated checks, use it as the a
 For a multi-module regression evidence session, store the module folders under one parent folder using:
 
 ```text
-RegTest-<ShortChange>-M0-M1
+test-results/RegTest-<ShortChange>-M0-M1
 ```
 
 Extend the module suffix as coverage grows, for example `RegTest-UploadFlow-M0-M1-M2`.
 
-Each child module folder should keep its own module evidence files so a reviewer can see both the new module result and the earlier-module regression results from the same session.
+Each child evidence folder should keep its own module evidence files so a reviewer can see both the new module result and the earlier-module regression results from the same root `test-results/` session.
 
 ## Recommended Artefacts
 
 For a module named `foundation`, create:
 
-- `test-results/foundation-test-results-YYYY-MM-DD.md`
-- `test-results/foundation-test-raw-output-YYYY-MM-DD.txt`
-- `test-results/foundation-manual-test-checklist.md`
-- `test-results/foundation-screenshot-evidence-YYYY-MM-DD.md`
-- `test-results/foundation-windows-browser-health-YYYY-MM-DD.png`
-- `test-results/foundation-windows-browser-root-YYYY-MM-DD.png`
-- `test-results/foundation-windows-browser-docs-YYYY-MM-DD.png`
-- `test-results/foundation-windows-terminal-test-YYYY-MM-DD.png`
+- `test-results/<EvidenceFolder>/foundation-test-results-YYYY-MM-DD.md`
+- `test-results/<EvidenceFolder>/foundation-test-raw-output-YYYY-MM-DD.txt`
+- `test-results/<EvidenceFolder>/foundation-manual-test-checklist.md`
+- `test-results/<EvidenceFolder>/foundation-screenshot-evidence-YYYY-MM-DD.md`
+- `test-results/<EvidenceFolder>/foundation-windows-browser-health-YYYY-MM-DD.png`
+- `test-results/<EvidenceFolder>/foundation-windows-browser-root-YYYY-MM-DD.png`
+- `test-results/<EvidenceFolder>/foundation-windows-browser-docs-YYYY-MM-DD.png`
+- `test-results/<EvidenceFolder>/foundation-windows-terminal-test-YYYY-MM-DD.png`
 
 Adapt target names to the module, such as `ingest-upload`, `transactions-list`, or `database-init`.
 
@@ -115,25 +115,25 @@ else:
 Example screenshot capture:
 
 ```powershell
-python -c "from PIL import ImageGrab; p='test-results/module-windows-browser-health-YYYY-MM-DD.png'; ImageGrab.grab().save(p); print(p)"
+python -c "from PIL import ImageGrab; p='C:\\path\\to\\repo\\test-results\\EvidenceFolder\\module-windows-browser-health-YYYY-MM-DD.png'; ImageGrab.grab().save(p); print(p)"
 ```
 
 ## Terminal Evidence
 
-Prefer a short module-specific script under `test-results/` when PowerShell quoting would be fragile. The script should print:
+Prefer a short module-specific evidence script under root `test-results/<EvidenceFolder>/` when PowerShell quoting would be fragile. The script should print:
 
 - Module/test name.
 - Command or API checks performed.
 - HTTP status codes or test assertions.
 - A final `Result: PASSED` or `Result: FAILED`.
 
-If the script lives under `test-results/`, add the module root to `sys.path` before importing local packages:
+If the script lives under root `test-results/`, add the module root to `sys.path` before importing local packages:
 
 ```python
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, r"C:\path\to\repo\modules\module-name")
 ```
 
 Then open it in a visible terminal:
@@ -142,7 +142,7 @@ Then open it in a visible terminal:
 Start-Process -FilePath powershell.exe -ArgumentList @(
   '-NoExit',
   '-Command',
-  'cd "C:\path\to\module"; python test-results\module_terminal_check.py'
+  'cd "C:\path\to\repo"; python test-results\EvidenceFolder\module_terminal_check.py'
 )
 ```
 
@@ -163,7 +163,7 @@ Crop screenshots after capture so they contain only the relevant browser or term
 Use `scripts/crop_screenshots.py` when crop boxes are known:
 
 ```powershell
-python "<skill-path>\scripts\crop_screenshots.py" --base "C:\path\to\module\test-results" --crop "file.png=left,top,right,bottom"
+python "<skill-path>\scripts\crop_screenshots.py" --base "C:\path\to\repo\test-results\EvidenceFolder" --crop "file.png=left,top,right,bottom"
 ```
 
 Preview screenshots before and after cropping when possible. If a crop is wrong, restore from the original capture if available or retake the screenshot.

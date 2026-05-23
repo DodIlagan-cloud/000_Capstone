@@ -11,6 +11,7 @@
 | Build order | `<order>` |
 | Type | `<standalone module / encompassing app / integration / infrastructure / project>` |
 | Owner folder | `<apps/... or modules/...>` |
+| Evidence folder | `test-results/<module-or-regression-session>/` |
 
 ## Business Alignment
 
@@ -27,6 +28,8 @@ Describe the business-analysis area this module supports and the reason it is se
 ## Architecture Boundary
 
 State what this module owns, what it calls, and what it must not absorb from neighboring modules.
+
+Project-wide documentation and evidence belong in root `docs/` and root `test-results/`. The owner folder should contain only module/app implementation code, module-local automated tests, runtime configuration samples, local run instructions, and assets required by that module/app.
 
 ## Inputs and Outputs
 
@@ -62,6 +65,8 @@ State what this module owns, what it calls, and what it must not absorb from nei
 2. `<test or evidence task>`
 
 ## Test Plan
+
+Store test summaries, raw output, manual checklists, screenshot indexes, and screenshots under root `test-results/<module-or-regression-session>/`.
 
 | Check | Level | Evidence |
 | --- | --- | --- |

@@ -1,0 +1,57 @@
+@page
+@model UploadModel
+@* M2 - Stats Web Shell Start *@
+@* Provides the authenticated document-upload action page before validation and ingestion modules are connected. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats Upload Documents</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="upload">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          <h1>Upload documents</h1>
+        </div>
+        <nav class="header-actions" aria-label="Account actions">
+          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="app-message" class="page-message" role="status" aria-live="polite">Checking access.</p>
+
+      <section id="landing-workspace" class="shell-workspace" hidden>
+        <nav class="shell-nav" aria-label="Stats workspace navigation">
+          <a href="/">Home</a>
+          <a href="/Upload" aria-current="page">Upload documents</a>
+          <a href="/EmailSetup">Email ingestion setup</a>
+          <a href="/Documents">Documents</a>
+          <a href="/Reports">Reports</a>
+        </nav>
+
+        <section class="shell-panel" aria-labelledby="upload-title">
+          <div>
+            <p class="session-label">Manual upload</p>
+            <h2 id="upload-title">Ready for ingestion contracts</h2>
+            <p class="panel-copy">Select a document when the File Validation and File Ingestion modules are connected. This shell does not validate or store files yet.</p>
+          </div>
+
+          <form class="upload-shell-form" aria-describedby="upload-state">
+            <label for="document-file">Document</label>
+            <input id="document-file" name="document" type="file" disabled />
+            <button type="button" disabled>Submit to ingestion</button>
+            <p id="upload-state" class="deferred-state">Deferred until M3 File Validation and M4 File Ingestion are implemented.</p>
+          </form>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+@* M2 End *@

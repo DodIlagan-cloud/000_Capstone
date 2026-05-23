@@ -58,7 +58,7 @@ M0 is no longer treated as a FastAPI service foundation module. The active imple
 | `modules/README.md` | Modified | Applies the config-driven runtime rule to reusable building-block modules. |
 <!-- M0 Foundation End -->
 | `docs/module-plans/README.md` | Created | Documents where detailed module plans and boundary refinements belong. |
-| `docs/evidence/README.md` | Created | Documents the project-level evidence index area while preserving module-local evidence where already used. |
+| `docs/evidence/README.md` | Created | Documents the project-level evidence guidance area and requires final assessment evidence to live under root `test-results/`. |
 
 ## Repository Rules
 

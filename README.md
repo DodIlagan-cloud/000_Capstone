@@ -35,8 +35,11 @@ Committed config may provide safe local defaults and examples. Real secrets and 
 | `contracts/` | Explicit shared handoff contracts between modules and apps. |
 | `infrastructure/` | Compose, containers, cloud, and deployment work. |
 | `docs/` | Foundation specs, module plans, specs, evidence guidance, and project notes. |
+| `test-results/` | Root evidence, raw outputs, checklists, screenshots, and regression results for all modules. |
 | `samples/` | Safe sample data and fixtures. |
 | `tests/integration/` | Cross-module Stats workflow checks. |
+
+Project-wide documentation and evidence belong at the repository root under `docs/` and `test-results/`. Module and app folders should contain only their own implementation code, module-local automated tests, runtime configuration samples, local run instructions, and required assets.
 
 ## Current Code Homes
 

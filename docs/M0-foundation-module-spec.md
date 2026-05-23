@@ -103,6 +103,10 @@ The repository should move toward the structure defined by the building-block mo
 |   |-- module-plans/
 |   |-- specs/
 |   `-- evidence/
+|-- test-results/
+|   |-- M0-ArchitectureFoundation/
+|   |-- RegTest-AdminUserFlow-M0-M1/
+|   `-- M2-StatsWebShell-M0-M1/
 |-- samples/
 |   |-- synthetic/
 |   `-- anonymized/
@@ -116,6 +120,20 @@ The repository now uses the target architecture folders directly. M1 identity is
 
 Later module work must use the owning architecture folder rather than recreating retired transitional folders.
 
+### Root Project Artefact Rule
+
+Project-wide artefacts must live at the repository root, not inside an individual module or app folder.
+
+| Artefact Type | Required Location |
+| --- | --- |
+| Module specifications, file inventories, project plans, diagrams, and project documentation | `docs/` |
+| Test results, raw command output, manual checklists, screenshot indexes, and evidence screenshots | `test-results/` |
+| Cross-module integration tests | `tests/integration/` |
+| Shared contracts | `contracts/` |
+| Module/app implementation code, module-owned tests, runtime config samples, and local run instructions | Owning `modules/...` or `apps/...` folder |
+
+Module folders should contain only code, module-local automated tests, runtime configuration samples, module README files, and assets needed by that module or app. They must not contain final assessment evidence folders unless a later project-level decision explicitly changes this rule.
+
 ## Module Standards
 
 Every later standalone module must provide:
@@ -123,8 +141,8 @@ Every later standalone module must provide:
 1. A module spec with goals, non-goals, tasks, and acceptance criteria.
 2. A local run command and test command.
 3. A clear input/output contract.
-4. Module-local automated tests.
-5. Evidence for acceptance tests.
+4. Module-local automated tests under the owning module or app folder.
+5. Evidence for acceptance tests under root `test-results/`.
 6. A configuration example with no secrets committed.
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior visible to callers through explicit errors or status results.
@@ -196,6 +214,7 @@ M0 must establish a GitHub workflow for the capstone repository.
 - Commits should group one meaningful change set where practical.
 - Module implementation, module test evidence, and reusable skills should be committed separately when they are logically separate.
 - Generated caches, local runtime files, local tool state, secrets, and build artefacts must be excluded through ignore rules or module-local ignore files.
+- Project-wide specs, inventories, documentation, and evidence should be committed from root `docs/` and root `test-results/` paths even when they describe one module.
 - GitHub history should preserve traceability from spec to implementation to evidence.
 
 ### Recommended Commit Grouping
@@ -210,7 +229,9 @@ Use separate commits for:
 
 ## Evidence Standard
 
-Each module evidence set should be stored in a named evidence folder near that module or under an agreed evidence path.
+Each module evidence set must be stored in a named folder under root `test-results/`.
+
+Do not place final assessment evidence under `apps/<app>/test-results/` or `modules/<module>/test-results/`. Those module/app folders are reserved for implementation code, module-local automated tests, runtime configuration samples, and module-specific assets.
 
 ### Required Evidence Types
 
@@ -226,7 +247,7 @@ Each module evidence set should be stored in a named evidence folder near that m
 - Prefer actual browser and terminal screenshots over rendered-response images.
 - Crop screenshots to the relevant browser or terminal content.
 - State what each screenshot proves in the screenshot evidence index.
-- Keep regression evidence separate from the initial module evidence.
+- Keep regression evidence separate from the initial module evidence when useful, but keep both under root `test-results/`.
 - Use clear folder names that start with the tested module prefix, for example `M0-FoundationInitial` or `M1-UserAccessManagement`.
 
 ## File Inventory and Tagging Standard
@@ -250,6 +271,7 @@ At minimum, M0 documentation must include:
 - A reusable module spec template for later building blocks.
 - File inventories for implemented modules or meaningful module change sets.
 - Local environment guidance as project dependencies become concrete.
+- Root `test-results/` evidence folders for module verification and regression sessions.
 
 ## M0 Verification
 
@@ -288,6 +310,7 @@ M0 is complete when:
 - Module spec, contract, file inventory, tagging, GitHub, and evidence conventions are documented.
 - Runtime configuration rules prevent environment-dependent values and secrets from being hardcoded into source.
 - Later module specs can define their own owner folders, contracts, tests, and evidence without treating a single backend service as the entire application.
+- Project-wide documentation and evidence are stored at root `docs/` and root `test-results/`, while module/app folders keep only module-specific code, tests, configuration, runtime files, and assets.
 - GitHub stores the capstone repository history and meaningful project artefacts.
 - At least one module evidence package demonstrates the required test-result, raw-output, checklist, screenshot-index, and cropped actual screenshot pattern.
 

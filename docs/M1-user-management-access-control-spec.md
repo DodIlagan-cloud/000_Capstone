@@ -65,7 +65,7 @@ The business need is to ensure that financial document processing is only availa
 3. Keep identity persistence, bootstrap behavior, API binding, browser origin access, and consumer API routing configurable for the current PostgreSQL-backed Stats deployment without making Stats database schema ownership a reusable M1 concern.
 4. Keep Stats-specific Razor Pages and navigation as consumer behavior outside the reusable identity internals.
 5. Keep the migrated identity code under `modules/identity-access-module/` and make new reusable identity changes there.
-6. Retain module-local automated tests, Stats Web consumer verification where useful, evidence artefacts, configuration samples, and regression coverage.
+6. Retain module-local automated tests, Stats Web consumer verification where useful, root `test-results/` evidence artefacts, configuration samples, and regression coverage.
 
 ## Non-Goals
 
@@ -89,7 +89,9 @@ The current repository boundary for Module 1 is:
 modules/identity-access-module/
 ```
 
-This folder owns reusable identity/access code, tests, configuration samples, runtime instructions, module evidence, and contract documentation.
+This folder owns reusable identity/access code, module-local automated tests, configuration samples, runtime instructions, and module README files.
+
+M1 specifications, file inventories, project-level documentation, and assessment evidence belong under root `docs/` and root `test-results/`.
 
 ### Current Implementation Surface
 
@@ -841,7 +843,7 @@ Each completed module adds to the Stats project regression baseline.
 - Use FastAPI `TestClient` for endpoint tests.
 - Use a test database configuration isolated from development data.
 - Use fixtures in module tests for users, tokens, and database sessions where practical.
-- Use grouped regression evidence folders for sessions that cover multiple modules so the current module and prior-module regression results remain together.
+- Use grouped regression evidence folders under root `test-results/` for sessions that cover multiple modules so the current module and prior-module regression results remain together.
 
 ## Runtime Requirements
 
@@ -928,7 +930,7 @@ Module 1 is complete when:
 - Keep route handlers thin and focused on request/response behavior.
 - Use current settings, database, error, logging, and router patterns while the code remains under the transitional FastAPI surface.
 - Keep Stats Web consumer behaviour focused on login, first-login password setup, landing-page access, user management, auth error feedback, and sign out until the Stats Web Shell spec refines the app UI.
-- Reusable identity code and tests now live under `modules/identity-access-module/`; Stats-specific Razor Pages now live under `apps/stats-web/`.
+- Reusable identity code and module-local automated tests now live under `modules/identity-access-module/`; Stats-specific Razor Pages now live under `apps/stats-web/`; project documentation and evidence live under root `docs/` and `test-results/`.
 - Avoid implementing document-specific ownership rules until Stats Data and the relevant workflow specs define document models and user associations.
 
 <!-- M1 End -->
