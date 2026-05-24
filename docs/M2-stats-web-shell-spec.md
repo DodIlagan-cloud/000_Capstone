@@ -386,6 +386,10 @@ M2 must follow the M0 runtime configuration standard. Runtime values must be sup
 | `StatsWeb:Azure:Environment` | `local` | Environment label such as `local`, `dev`, `test`, or `prod`. |
 | `StatsWeb:Azure:UseManagedIdentity` | `false` locally | Enables Azure managed identity usage in deployed environments when implemented. |
 | `StatsWeb:Azure:KeyVaultUri` | empty locally | Future Azure Key Vault URI for secrets or protected settings. |
+| `StatsWeb:LocalOrchestration:Enabled` | `true` locally | Enables the shell to health-check and start configured sibling APIs during local runs so Stats behaves as one app. |
+| `StatsWeb:LocalOrchestration:StartMissingServices` | `true` locally | Starts configured local services when their health endpoint is unavailable. |
+| `StatsWeb:LocalOrchestration:HealthCheckTimeoutSeconds` | `2` | Timeout for local sibling-service health checks. |
+| `StatsWeb:LocalOrchestration:Services` | Identity and File Validation local APIs | Local-only process definitions for module APIs owned by the shell runtime during development/evidence runs. |
 
 Environment variables should be able to override these values through the ASP.NET Core configuration pipeline. `STATS_API_BASE_URL` may remain supported for the current M1 identity API target.
 
@@ -399,6 +403,7 @@ Examples that must remain configurable:
 - Hosts and ports.
 - Feature switches.
 - Downstream module endpoints.
+- Local orchestration service names, commands, working directories, health URLs, and environment overrides.
 - Power BI/Fabric workspace, report, semantic model, capacity, and embed mode settings.
 - Azure environment, Key Vault, and managed identity settings.
 - Browser-visible environment labels.
@@ -432,7 +437,14 @@ Command:
 dotnet run --urls "http://127.0.0.1:5013"
 ```
 
-The M1 Identity Access API must be running and reachable at the configured `StatsApi:BaseUrl` for login and user-management flows.
+When `StatsWeb:LocalOrchestration:Enabled` is true and `StatsWeb:Azure:Environment` is `local` or `development`, Stats Web must health-check configured local sibling services and start any missing service process before serving the shell. This allows the local developer/evidence experience to behave as one Stats app while keeping module code in separate directories.
+
+Local orchestration currently includes:
+
+- M1 Identity Access API at `http://127.0.0.1:8013`.
+- M3 File Validation API at `http://127.0.0.1:8014` when the M3 module is present.
+
+In Azure or other deployed environments, local process orchestration must be disabled. Stats Web should call deployed module endpoints through configured service URLs, Azure service discovery, or gateway routing instead of starting sibling processes.
 
 ### Local Build Command
 
@@ -454,13 +466,15 @@ Command:
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8013
 ```
 
+Manual API startup remains valid for focused module debugging. During ordinary local Stats Web startup, the shell should start this API automatically if the health check fails and local orchestration is enabled.
+
 ### Dependencies
 
 M2 currently depends on:
 
 - .NET SDK compatible with `apps/stats-web/stats.Web.csproj`.
 - ASP.NET Core Razor Pages.
-- A reachable M1 Identity Access API for authentication flows.
+- A reachable M1 Identity Access API for authentication flows, either already running or started through local orchestration.
 - Browser JavaScript for session state and API calls.
 - Existing static assets in `apps/stats-web/wwwroot/`.
 
