@@ -8,11 +8,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stats Upload Documents</title>
-    <link rel="stylesheet" href="/css/access.css" />
+    <link rel="stylesheet" href="/css/access.css" asp-append-version="true" />
     <script src="/js/access.js" defer></script>
     <script src="/js/app.js" defer></script>
+    <script src="/js/upload.js" defer asp-append-version="true"></script>
   </head>
-  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="upload">
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-file-validation-base-url="@Model.FileValidationBaseUrl" data-shell-area="upload">
     <main class="app-shell">
       <header class="app-header">
         <div>
@@ -39,16 +40,25 @@
         <section class="shell-panel" aria-labelledby="upload-title">
           <div>
             <p class="session-label">Manual upload</p>
-            <h2 id="upload-title">Ready for ingestion contracts</h2>
-            <p class="panel-copy">Select a document when the File Validation and File Ingestion modules are connected. This shell does not validate or store files yet.</p>
+            <h2 id="upload-title">Validate before parsing</h2>
+            <p class="panel-copy">Choose a document and Stats will validate it automatically. Accepted files are ready for the next parsing step when the later ingestion and processing modules are connected.</p>
           </div>
 
-          <form class="upload-shell-form" aria-describedby="upload-state">
+          @* M3 - File Validation Module Start *@
+          @* Enables automatic file validation on selection while keeping parsing deferred to later modules. *@
+          <form class="upload-shell-form" aria-describedby="upload-state" novalidate>
             <label for="document-file">Document</label>
-            <input id="document-file" name="document" type="file" disabled />
-            <button type="button" disabled>Submit to ingestion</button>
-            <p id="upload-state" class="deferred-state">Deferred until M3 File Validation and M4 File Ingestion are implemented.</p>
+            <div id="document-drop-zone" class="document-drop-zone" role="button" tabindex="0">
+              <input id="document-file" class="drop-zone-input" name="document" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" />
+              <span class="drop-zone-title">Drop document here</span>
+              <span class="drop-zone-copy">or browse for a PDF, PNG, JPG, or JPEG file</span>
+            </div>
+            <div id="selected-file-summary" class="file-summary" hidden></div>
+            <div id="validation-result" class="validation-result" hidden></div>
+            <button id="continue-processing-button" type="button" disabled>Continue to parsing</button>
+            <p id="upload-state" class="deferred-state">Choose a file to validate. Parsing starts in a later module after validation succeeds.</p>
           </form>
+          @* M3 End *@
         </section>
       </section>
     </main>

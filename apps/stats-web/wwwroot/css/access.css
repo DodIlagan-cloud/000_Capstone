@@ -404,6 +404,113 @@ tbody tr:last-child td {
   margin: 0;
 }
 
+/* M3 - File Validation Module Start */
+/* Styles automatic upload validation states without adding ingestion behavior. */
+.file-summary,
+.validation-result {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.8rem;
+}
+
+.document-drop-zone {
+  align-items: center;
+  background: rgba(7, 17, 22, 0.28);
+  border: 1px dashed rgba(182, 201, 197, 0.46);
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  gap: 0.35rem;
+  justify-items: center;
+  min-height: 9rem;
+  padding: 1rem;
+  position: relative;
+  text-align: center;
+}
+
+.document-drop-zone:hover,
+.document-drop-zone:focus-within,
+.document-drop-zone[data-dragging="true"] {
+  background: rgba(89, 194, 173, 0.12);
+  border-color: rgba(125, 219, 191, 0.72);
+}
+
+.document-drop-zone .drop-zone-input {
+  height: 1px;
+  inset: 0;
+  opacity: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+}
+
+.drop-zone-title {
+  color: var(--text);
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.drop-zone-copy {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.file-summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.file-summary span,
+.validation-result dd,
+.validation-result li,
+.validation-result p {
+  color: var(--muted);
+}
+
+.validation-result[data-status="accepted"] {
+  border-color: rgba(89, 194, 173, 0.42);
+}
+
+.validation-result[data-status="rejected"] {
+  border-color: rgba(255, 173, 158, 0.42);
+}
+
+.validation-result h3 {
+  font-size: 1.1rem;
+  margin: 0 0 0.6rem;
+}
+
+.validation-result dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 0.7rem;
+}
+
+.validation-result dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.validation-result dd {
+  margin: 0.15rem 0 0;
+}
+
+.validation-result ul,
+.validation-result p {
+  margin: 0;
+}
+
+.deferred-state[data-tone="success"] {
+  color: var(--accent-strong);
+}
+
+.deferred-state[data-tone="error"] {
+  color: var(--danger);
+}
+/* M3 End */
+
 .empty-state {
   padding: 1rem;
 }
