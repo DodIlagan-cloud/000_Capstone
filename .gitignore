@@ -16,7 +16,14 @@ env/
 # Local runtime output
 stats_ingestion.db
 uploads/
+apps/stats-data/data/
 *.log
+
+# Test evidence is retained locally until the final evidence check-in.
+test-results/
+
+# Keeps local config overrides with secrets or developer-specific values out of source control.
+**/.env
 
 # .NET build output
 **/bin/

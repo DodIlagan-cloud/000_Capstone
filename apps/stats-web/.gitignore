@@ -1,0 +1,5 @@
+# M1 - User Access Management Start
+# Keeps generated ASP.NET Core build outputs out of Module 1 source control changes.
+bin/
+obj/
+# M1 End

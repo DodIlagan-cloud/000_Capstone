@@ -8,7 +8,6 @@ Planned module lanes:
 
 - `identity-access-module/`
 - `file-validation-module/`
-- `file-ingestion-module/`
 - `ocr-extraction-module/`
 - `document-classification-module/`
 - `transaction-extraction-module/`
@@ -18,6 +17,11 @@ Planned module lanes:
 Each module should own a spec, README, tests, evidence, configuration sample, explicit contract, local run instructions, and a container path when containerization is reached.
 
 Stats-specific persistence belongs in `apps/stats-data/`, not in a reusable processing module.
+
+Current implemented module folders:
+
+- `identity-access-module/`
+- `file-validation-module/` for merged M3 validation and M4 ingestion behavior.
 
 <!-- M0 Foundation Start -->
 <!-- Applies the project runtime configuration rule to reusable modules. -->

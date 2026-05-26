@@ -1,0 +1,68 @@
+@page
+@model UploadModel
+@* M2 - Stats Web Shell Start *@
+@* Provides the authenticated document-upload action page for merged file intake and later workflow handoff. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats Upload Documents</title>
+    <link rel="stylesheet" href="/css/access.css" asp-append-version="true" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/app.js" defer></script>
+    <script src="/js/upload.js" defer asp-append-version="true"></script>
+  </head>
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-file-validation-base-url="@Model.FileValidationBaseUrl" data-file-ingestion-base-url="@Model.FileIngestionBaseUrl" data-shell-area="upload">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          <h1>Upload documents</h1>
+        </div>
+        <nav class="header-actions" aria-label="Account actions">
+          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="app-message" class="page-message" role="status" aria-live="polite">Checking access.</p>
+
+      <section id="landing-workspace" class="shell-workspace" hidden>
+        <nav class="shell-nav" aria-label="Stats workspace navigation">
+          <a href="/">Home</a>
+          <a href="/Upload" aria-current="page">Upload documents</a>
+          <a href="/EmailSetup">Email ingestion setup</a>
+          <a href="/Documents">Documents</a>
+          <a href="/Reports">Reports</a>
+        </nav>
+
+        <section class="shell-panel" aria-labelledby="upload-title">
+          <div>
+            <p class="session-label">Manual upload</p>
+            <h2 id="upload-title">Validate before parsing</h2>
+            <p class="panel-copy">Choose a document and Stats will validate it automatically. Accepted files can then be sent to the common processing directory.</p>
+          </div>
+
+          @* M3/M4 - File Intake Module Start *@
+          @* Enables validation-gated ingestion into the configured common processing directory. *@
+          <form class="upload-shell-form" aria-describedby="upload-state" novalidate>
+            <label for="document-file">Document</label>
+            <div id="document-drop-zone" class="document-drop-zone" role="button" tabindex="0">
+              <input id="document-file" class="drop-zone-input" name="document" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" />
+              <span class="drop-zone-title">Drop document here</span>
+              <span class="drop-zone-copy">or browse for a PDF, PNG, JPG, or JPEG file</span>
+            </div>
+            <div id="selected-file-summary" class="file-summary" hidden></div>
+            <div id="validation-result" class="validation-result" hidden></div>
+            <div id="ingestion-result" class="validation-result" hidden></div>
+            <button id="continue-processing-button" type="button" disabled>Send to processing</button>
+            <p id="upload-state" class="deferred-state">Choose a file to validate.</p>
+          </form>
+          @* M3/M4 End *@
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+@* M2 End *@

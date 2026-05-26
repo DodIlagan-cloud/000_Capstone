@@ -84,7 +84,6 @@ The repository should move toward the structure defined by the building-block mo
 |-- modules/
 |   |-- identity-access-module/
 |   |-- file-validation-module/
-|   |-- file-ingestion-module/
 |   |-- ocr-extraction-module/
 |   |-- document-classification-module/
 |   |-- transaction-extraction-module/
@@ -135,6 +134,7 @@ Every later standalone module must provide:
 6. A configuration example with no secrets committed.
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior visible to callers through explicit errors or status results.
+9. Config-driven real-data automated/evidence tests when the module processes realistic files, records, messages, or external-style inputs.
 
 Encompassing Stats modules such as Stats Web and Stats Data must state which reusable module contracts they call or store and must not absorb reusable OCR, parsing, validation, or authentication internals.
 
@@ -174,6 +174,7 @@ Each module spec must identify:
 - Config files, safe examples, override paths, and runtime values that must be changed without source edits.
 <!-- M0 Foundation End -->
 - Automated tests, manual checks, evidence artefacts, and acceptance criteria.
+- Real-data test inputs, configuration variables, privacy constraints, and evidence expectations when realistic local datasets are required.
 - Deferred items for later modules.
 
 For reusable modules, the starting contract should be derived from `docs/building-block-module-io-map.md` and refined only inside the owning module spec.
@@ -188,7 +189,7 @@ M0 establishes these project rules:
 - Runtime values are configured through config files or supported environment/secret providers instead of being embedded in source code.
 <!-- M0 Foundation End -->
 - Stats Web may call reusable module APIs, but it should not implement reusable validation, extraction, or identity rules.
-- File Validation and File Ingestion remain separate concerns.
+- File validation and file ingestion remain separate concerns inside the merged intake module boundary.
 - OCR Extraction, Document Classification, and Transaction Extraction remain separate concerns.
 - Stats Data and reporting consume results from processing modules; they do not silently become reusable processing modules.
 - Integration behavior belongs in Stats workflow integration tests or in the coordinating Stats app layer.
@@ -227,6 +228,18 @@ Each module evidence set should be stored in a named evidence folder near that m
 - Screenshot evidence index.
 - Actual Windows browser screenshots for web/API UI evidence when screenshots are required.
 - Actual Windows terminal screenshots for command/test evidence when screenshots are required.
+- Real-data automated/evidence test output for modules that process user-like files, extracted text, classifications, transactions, records, emails, or stored workflow artefacts.
+
+### Real-Data Test Standard
+
+Modules that process realistic inputs must include a configurable real-data test path in addition to synthetic unit fixtures.
+
+- Real-data tests must be automated where practical and runnable from the module test suite or evidence runner.
+- Real-data locations must be supplied through configuration or environment variables such as `STATS_TESTDATA_DIR`; personal drive paths must not be hardcoded in source.
+- Automated application-flow tests must use configured real application test data. When the configured real-data directory is unavailable, the test should fail or the evidence runner should stop with a clear setup message rather than silently substituting synthetic data.
+- Evidence runs should set the required real-data variables and retain raw output proving the real input was processed.
+- Tests must assert the business-relevant handoff, not only that the command succeeded. Examples include saved file location under configured storage, extracted text presence, classification label, parsed transaction count, validation findings, or persistence status.
+- Private/anonymized source files should remain outside source control unless a safe committed sample dataset is explicitly approved.
 
 ### Screenshot Rules
 

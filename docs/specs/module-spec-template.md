@@ -53,6 +53,7 @@ State what this module owns, what it calls, and what it must not absorb from nei
 <!-- Prompts each module spec to declare config-driven runtime values. -->
 - Runtime values owned by this module: `<URLs, hosts, ports, database/resource targets, secrets, limits, paths, feature switches>`
 - Config override path or provider: `<config file, environment variables, managed secrets, or other provider>`
+- Real-data test input variables: `<environment variables or config keys such as STATS_TESTDATA_DIR; state failure/setup behavior when unavailable>`
 - Hardcoded runtime values allowed in source: `none unless explicitly justified as a stable code constant`
 <!-- M0 Foundation End -->
 
@@ -66,6 +67,7 @@ State what this module owns, what it calls, and what it must not absorb from nei
 | Check | Level | Evidence |
 | --- | --- | --- |
 | `<behavior>` | `<unit / direct / integration / manual>` | `<test result, raw output, screenshot, checklist>` |
+| Real-data processing with configured local/anonymized dataset | `<automated / evidence>` | `<raw output showing configured test data was processed and relevant handoff/assertion passed>` |
 
 ## Acceptance Criteria
 

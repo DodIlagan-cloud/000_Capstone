@@ -26,8 +26,7 @@ Stats will be developed as an integrating product built from reusable modules.
 |   `-- stats-admin-tools/            # Optional scripts/tools used only by Stats
 |-- modules/
 |   |-- identity-access-module/          # Login, tokens, roles, access checks
-|   |-- file-validation-module/          # File rules, signatures, size/type checks, hashes
-|   |-- file-ingestion-module/           # Upload intake, source tracking, ingestion jobs
+|   |-- file-validation-module/          # File validation plus upload intake, source tracking, ingestion jobs
 |   |-- ocr-extraction-module/           # OCR/text extraction from supported documents
 |   |-- document-classification-module/  # Document type classification
 |   |-- transaction-extraction-module/   # Financial field/transaction extraction
@@ -65,6 +64,7 @@ Every standalone module must provide:
 6. A configuration example with no secrets committed.
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior that is visible to callers through explicit errors or status results.
+9. Config-driven real-data tests and evidence when a module processes user-like files, records, extracted text, transactions, emails, or stored workflow artefacts.
 
 <!-- M0 Foundation Start -->
 <!-- Requires modules to keep runtime configuration outside source literals. -->
@@ -78,16 +78,15 @@ Every standalone module must provide:
 | 0 | Project Foundation | Project | Repo conventions, module specs, GitHub workflow, evidence standard | Module template and repo rules |
 | 1 | Identity Access Module | Standalone module | User login, role claims, tokens, protected access checks | Auth/token API and token verification contract |
 | 2 | Stats Web Shell | Encompassing `.NET` app | Login UI, app navigation, service orchestration shell | Calls module APIs; no OCR/parsing logic |
-| 3 | File Validation Module | Standalone module | Validate file type, size, extension, signatures, hashes, rejection reasons | File validation request/result API |
-| 4 | File Ingestion Module | Standalone module | Receive files from upload/source adapters, create ingestion record/job | Ingestion API and ingestion status contract |
+| 3-4 | File Validation and Ingestion Module | Standalone module | Validate file type, size, extension, signatures, hashes, rejection reasons, accepted-file intake, ingestion records, and handoff status | File validation request/result API plus ingestion API/status contract |
 | 5 | OCR Extraction Module | Standalone module | Extract text from PDFs/images/scans, expose extraction metadata | Text extraction API/result contract |
 | 6 | Document Classification Module | Standalone module | Classify bank statement, receipt, invoice, bill, unknown | Classification API/result contract |
 | 7 | Transaction Extraction Module | Standalone module | Extract financial fields and transaction candidates | Transaction extraction API/result contract |
 | 8 | Data Validation Module | Standalone module | Clean, validate, warn, and detect duplicates/incomplete records | Data-quality report contract |
 | 9 | Stats Data and Persistence | Encompassing product module | Stats database schema, migrations, persistence adapters, stored workflow results | Stats persistence contract |
-| 10 | Stats Workflow Integration | Stats product | Connect web upload to validation, ingestion, OCR, classification, extraction, validation, and persistence | End-to-end Stats workflow |
+| 10 | Stats Workflow Integration | Stats product | Connect web upload to file intake, OCR, classification, extraction, data validation, and persistence | End-to-end Stats workflow |
 | 11 | Stats Dashboard and Reporting | Encompassing `.NET` app | Financial dashboard, document status, transactions, summaries, warnings | UI over Stats persistence/query layer |
-| 12 | Email Ingestion Module | Standalone module | Retrieve authorized attachments and submit them to file ingestion | Email source adapter and ingestion contract |
+| 12 | Email Ingestion Module | Standalone module | Retrieve authorized attachments and submit them to file intake | Email source adapter and intake contract |
 | 13 | Containerization | Infrastructure | Local containers, Compose, service health checks, dependencies | Dockerfiles and Compose profiles |
 | 14 | Cloud Readiness | Infrastructure | Azure config, secrets, storage, monitoring, deployment notes | Deployment and environment contract |
 | 15 | Evaluation Evidence | Project | Metrics, ground-truth comparisons, report evidence | Evaluation dataset/results format |
@@ -98,15 +97,14 @@ Every standalone module must provide:
 flowchart LR
     User["User"] --> Web["Stats Web (.NET)"]
     Web --> Identity["Identity Access Module"]
-    Web --> Ingestion["File Ingestion Module"]
-    Ingestion --> FileValidation["File Validation Module"]
-    Ingestion --> OCR["OCR Extraction Module"]
+    Web --> FileIntake["File Validation and Ingestion Module"]
+    FileIntake --> OCR["OCR Extraction Module"]
     OCR --> Classification["Document Classification Module"]
     Classification --> Extraction["Transaction Extraction Module"]
     Extraction --> Validation["Data Validation Module"]
     Validation --> Storage["Stats Data and Persistence"]
     Storage --> Web
-    Email["Email Ingestion Module"] --> Ingestion
+    Email["Email Ingestion Module"] --> FileIntake
 ```
 
 ## BA Alignment
@@ -114,13 +112,13 @@ flowchart LR
 | Business Analysis Area | Building-Block Plan |
 | --- | --- |
 | User Management and Access Control | Identity Access Module plus Stats Web login/access UI |
-| Manual Document Upload | Stats Web upload UI plus File Ingestion Module |
-| File validation controls | File Validation Module |
+| Manual Document Upload | Stats Web upload UI plus the merged File Validation and Ingestion Module |
+| File validation controls | Merged File Validation and Ingestion Module |
 | OCR Processing | OCR Extraction Module |
 | Process and Data Analysis | Classification, Transaction Extraction, Data Validation |
 | Data Storage | Stats Data and Persistence product module |
 | Dashboard and Reporting | Stats Web dashboard/reporting module |
-| Email Ingestion | Email Ingestion Module |
+| Email Ingestion | Email Ingestion Module feeding the merged File Validation and Ingestion Module |
 | Validation and Evaluation | Evaluation Evidence module and per-module tests |
 | Cloud architecture | Containerization and Cloud Readiness modules |
 
@@ -131,7 +129,7 @@ The official Capstone timeline remains six weeks. The reusable-module architectu
 | Dates | Delivery Focus | Building-Block Modules |
 | --- | --- | --- |
 | 20-26 May 2026 | Project setup and detailed design | Foundation, Identity Access spec, Stats Web shell direction, sample/contracts setup |
-| 27 May-2 June 2026 | Document ingestion | File Validation Module, File Ingestion Module, Stats upload workflow contract |
+| 27 May-2 June 2026 | Document ingestion | Merged File Validation and Ingestion Module, Stats upload workflow contract |
 | 3-9 June 2026 | OCR and parsing | OCR Extraction Module, Document Classification Module, Transaction Extraction Module |
 | 10-16 June 2026 | Validation, cleaning, and storage | Data Validation Module, Stats Data and Persistence |
 | 17-23 June 2026 | Dashboard and integration | Stats Workflow Integration, Stats Dashboard and Reporting |
@@ -175,10 +173,10 @@ Stats Data and Persistence is not a reusable standalone processing module. It st
 
 ### File Validation and File Ingestion
 
-These remain separate:
+These are implemented in one reusable intake runtime:
 
-- File Validation Module answers whether a file is acceptable and why.
-- File Ingestion Module tracks a file entering a workflow and calls validation/extraction modules as needed.
+- File validation answers whether a file is acceptable and why.
+- File ingestion tracks accepted files entering a workflow and exposes downstream handoff/status.
 
 ### OCR and Financial Extraction
 

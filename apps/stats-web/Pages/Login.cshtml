@@ -1,0 +1,51 @@
+@page
+@model LoginModel
+@* M1 - User Access Management Start *@
+@* Module 1 Razor login page for authentication and first-login password setup. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats Login</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/login.js" defer></script>
+  </head>
+  <body class="login-body" data-api-base-url="@Model.ApiBaseUrl">
+    <main class="login-shell">
+      <section class="login-stage" aria-labelledby="login-title">
+        <div class="login-panel">
+          <p class="product-name">Stats</p>
+          <h1 id="login-title">Sign in</h1>
+
+          <form id="login-form" class="access-form">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="username" maxlength="255" required />
+
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required />
+
+            <p id="login-message" class="page-message" role="status" aria-live="polite"></p>
+            <button id="login-submit" type="submit">Sign in</button>
+          </form>
+
+          <form id="password-setup-form" class="access-form" hidden>
+            <p class="session-label">First login</p>
+            <h2>Set a new password</h2>
+
+            <label for="new-password">New password</label>
+            <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required />
+
+            <label for="confirm-password">Confirm password</label>
+            <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required />
+
+            <p id="password-setup-message" class="page-message" role="status" aria-live="polite"></p>
+            <button id="password-setup-submit" type="submit">Set password</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+@* M1 End *@

@@ -1,0 +1,97 @@
+@page
+@model IndexModel
+@* M1 - User Access Management Start *@
+@* Module 1 authenticated landing page for users who completed login and password setup. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats App</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body
+    data-api-base-url="@Model.ApiBaseUrl"
+    data-upload-shell-enabled="@Model.UploadShellEnabled.ToString().ToLowerInvariant()"
+    data-dashboard-shell-enabled="@Model.DashboardShellEnabled.ToString().ToLowerInvariant()">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          @* M2 - Stats Web Shell Start *@
+          @* Presents the authenticated Stats workspace shell entry point. *@
+          <h1>Workspace</h1>
+          @* M2 End *@
+        </div>
+        <nav class="header-actions" aria-label="Account actions">
+          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="app-message" class="page-message" role="status" aria-live="polite">Checking access.</p>
+
+      <section id="landing-workspace" class="landing-workspace" hidden>
+        <section class="summary-panel" aria-labelledby="welcome-title">
+          <p class="session-label">Authenticated access</p>
+          <h2 id="welcome-title">Welcome, <span id="current-user-name"></span></h2>
+          <dl class="session-facts">
+            <div>
+              <dt>Email</dt>
+              <dd id="current-user-email"></dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd id="current-user-role"></dd>
+            </div>
+          </dl>
+        </section>
+
+        @* M2 - Stats Web Shell Start *@
+        @* Makes the authenticated workspace a dashboard-first shell with ingestion actions. *@
+        <section class="module-panel shell-overview" aria-label="Dashboard">
+          <div>
+            <p class="session-label">Dashboard</p>
+            <h2>Financial workspace</h2>
+            <p class="panel-copy">This dashboard shell is ready for document intake, email ingestion setup, and reporting once the later processing and persistence modules are connected.</p>
+          </div>
+
+          <nav class="shell-nav" aria-label="Stats workspace navigation">
+            <a href="/" aria-current="page">Home</a>
+            <a href="/Upload">Upload documents</a>
+            <a href="/EmailSetup">Email ingestion setup</a>
+            <a href="/Documents">Documents</a>
+            <a href="/Reports">Reports</a>
+          </nav>
+
+          <div class="module-grid" aria-label="Dashboard readiness">
+            <article class="module-card">
+              <p class="session-label">Documents</p>
+              <h3>0</h3>
+              <p>No persisted workflow records yet.</p>
+            </article>
+            <article class="module-card">
+              <p class="session-label">Transactions</p>
+              <h3>0</h3>
+              <p>No validated transaction data yet.</p>
+            </article>
+            <article class="module-card">
+              <p class="session-label">Warnings</p>
+              <h3>0</h3>
+              <p>No data-quality report yet.</p>
+            </article>
+          </div>
+
+          <div class="next-actions" aria-label="Ingestion setup actions">
+            <a class="primary-action" href="/Upload">Upload documents</a>
+            <a href="/EmailSetup">Set up email ingestion</a>
+          </div>
+        </section>
+        @* M2 End *@
+      </section>
+    </main>
+  </body>
+</html>
+@* M1 End *@

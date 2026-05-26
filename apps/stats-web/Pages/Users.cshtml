@@ -1,0 +1,88 @@
+@page
+@model UsersModel
+@* M1 - User Access Management Start *@
+@* Module 1 Razor administrator page for listing and creating user accounts. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats User Management</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer></script>
+    <script src="/js/users.js" defer></script>
+  </head>
+  <body data-api-base-url="@Model.ApiBaseUrl">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          <h1>User management</h1>
+        </div>
+        <nav class="header-actions" aria-label="User management actions">
+          <a href="/">Main app</a>
+          @* M2 - Stats Web Shell Start *@
+          @* Keeps administrator user management connected to the broader Stats shell navigation. *@
+          <a href="/Upload">Upload</a>
+          <a href="/EmailSetup">Email setup</a>
+          @* M2 End *@
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="access-message" class="page-message" role="status" aria-live="polite"></p>
+
+      <section id="users-workspace" class="users-workspace" hidden>
+        <section class="create-pane" aria-labelledby="create-user-title">
+          <h2 id="create-user-title">Add user</h2>
+          <form id="create-user-form" class="access-form">
+            <label for="full-name">Full name</label>
+            <input id="full-name" name="full_name" type="text" maxlength="100" required />
+
+            <label for="user-email">Email</label>
+            <input id="user-email" name="email" type="email" maxlength="255" required />
+
+            <label for="temporary-password">Temporary password</label>
+            <input id="temporary-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required />
+
+            <label for="role">Role</label>
+            <select id="role" name="role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+
+            <label class="active-toggle" for="is-active">
+              <input id="is-active" name="is_active" type="checkbox" checked />
+              <span>Active account</span>
+            </label>
+
+            <p id="create-message" class="page-message" role="status" aria-live="polite"></p>
+            <button id="create-user-submit" type="submit">Create user</button>
+          </form>
+        </section>
+
+        <section class="list-pane" aria-labelledby="user-list-title">
+          <div class="list-heading">
+            <h2 id="user-list-title">Users</h2>
+            <button id="refresh-users" type="button">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Role</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Password</th>
+                </tr>
+              </thead>
+              <tbody id="user-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+@* M1 End *@
