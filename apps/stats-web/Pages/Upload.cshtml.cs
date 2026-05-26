@@ -11,6 +11,9 @@ public class UploadModel(StatsApiOptions statsApiOptions, StatsWebShellOptions s
     // M3 - File Validation Module Start
     // Exposes the validation API target so selecting a file can trigger validation automatically.
     public string FileValidationBaseUrl { get; } = shellOptions.FileValidationBaseUrl.TrimEnd('/');
-    // M3 End
+
+    // Exposes the ingestion API target for validation-gated handoff to common processing storage.
+    public string FileIngestionBaseUrl { get; } = shellOptions.FileIngestionBaseUrl.TrimEnd('/');
+    // M3/M4 End
 }
 // M2 End

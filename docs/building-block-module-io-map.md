@@ -17,10 +17,9 @@ The goal is to make each reusable module understandable and testable on its own 
 ```mermaid
 flowchart LR
     Identity["Identity Access Module"]
-    UploadSource["Manual Upload Source"] --> FileValidation["File Validation Module"]
-    Email["Email Ingestion Module"] --> FileValidation
-    FileValidation --> FileIngestion["File Ingestion Module"]
-    FileIngestion --> OCR["OCR Extraction Module"]
+    UploadSource["Manual Upload Source"] --> FileIntake["File Validation and Ingestion Module"]
+    Email["Email Ingestion Module"] --> FileIntake
+    FileIntake --> OCR["OCR Extraction Module"]
     OCR --> Classification["Document Classification Module"]
     Classification --> TransactionExtraction["Transaction Extraction Module"]
     TransactionExtraction --> DataValidation["Data Validation Module"]
@@ -31,13 +30,12 @@ flowchart LR
 | Module | Primary Input | Primary Output | Output Used By |
 | --- | --- | --- | --- |
 | Identity Access Module | Login credentials, token validation request, role/permission check request | Auth token/session result, user identity claims, authorization decision, auth error | Any module or UI needing protected access |
-| File Validation Module | Uploaded file or file reference plus validation policy | Accepted/rejected file validation result, detected file metadata, rejection reasons, optional hash | File Ingestion Module |
-| File Ingestion Module | Validated file metadata, source context, accepted file reference/content | Ingestion job/request record, ingestion status, normalized document handoff | OCR Extraction Module and workflow coordinator |
+| File Validation and Ingestion Module | Uploaded file or file reference, validation policy, source context, ingestion options | Accepted/rejected validation result, ingestion record/status, normalized document handoff | OCR Extraction Module and workflow coordinator |
 | OCR Extraction Module | Ingested document reference/content and OCR/extraction options | Extracted text, page/image metadata, extraction method, confidence/quality metadata, extraction errors | Document Classification Module and later extraction modules |
 | Document Classification Module | Extracted text and document metadata | Document type label, confidence, classification reasons/features where useful, unknown result | Transaction Extraction Module and workflow coordinator |
 | Transaction Extraction Module | Extracted text, document type, document metadata, extraction rules/options | Transaction candidates and financial field candidates with source/confidence metadata | Data Validation Module |
 | Data Validation Module | Transaction candidates, document context, data-quality rules/options | Cleaned/normalized records, validation warnings/errors, duplicate flags, completeness/quality report | Stats workflow, reporting, and Stats persistence layer |
-| Email Ingestion Module | Authorized mailbox/source config, email search/fetch request | Attachment candidates, email source metadata, ingestion-ready file handoff, email intake status/errors | File Validation Module or File Ingestion Module |
+| Email Ingestion Module | Authorized mailbox/source config, email search/fetch request | Attachment candidates, email source metadata, ingestion-ready file handoff, email intake status/errors | File Validation and Ingestion Module |
 
 ## Detailed Input/Output Definitions
 
@@ -68,7 +66,7 @@ flowchart LR
 - Missing/expired/invalid token.
 - Role-required action denied for standard user.
 
-### File Validation Module
+### File Validation and Ingestion Module
 
 **Input**
 
@@ -77,6 +75,7 @@ flowchart LR
 | File Content or File Reference | Candidate document entering the system. |
 | Source Metadata | Filename, content type, source, size if known. |
 | Validation Policy | Allowed types, allowed extensions, maximum size, required signature rules. |
+| Ingestion Options | Target workflow, idempotency/deduplication hints, processing priority if supported. |
 
 **Output**
 
@@ -85,29 +84,6 @@ flowchart LR
 | Validation Status | Accepted or rejected. |
 | File Metadata | Normalized filename, size, extension, detected type, content type, optional hash. |
 | Validation Findings | Error/warning codes such as unsupported type, empty file, oversize file, signature mismatch. |
-
-**Minimum test fixtures**
-
-- Valid PDF.
-- Missing/empty file.
-- Oversized file.
-- Extension/content mismatch.
-- Unsupported file type.
-
-### File Ingestion Module
-
-**Input**
-
-| Input Item | Description |
-| --- | --- |
-| Validated File | File content/reference that passed validation. |
-| Source Context | Manual upload, email attachment, batch import, API source, user/source identifier. |
-| Ingestion Options | Target workflow, idempotency/deduplication hints, processing priority if supported. |
-
-**Output**
-
-| Output Item | Description |
-| --- | --- |
 | Ingestion ID | Stable identifier for the document intake attempt. |
 | Ingestion Status | Received, queued, rejected, handed off, failed. |
 | Normalized Document Handoff | Document reference/content and metadata for downstream processing. |
@@ -117,6 +93,11 @@ flowchart LR
 
 - Valid manual upload handoff.
 - Valid email attachment handoff.
+- Valid PDF.
+- Missing/empty file.
+- Oversized file.
+- Extension/content mismatch.
+- Unsupported file type.
 - Duplicate/idempotent submission.
 - Downstream handoff failure.
 
@@ -271,17 +252,16 @@ flowchart LR
 
 | Step | Producer | Output | Consumer |
 | --- | --- | --- | --- |
-| 1 | Manual upload source or Email Ingestion Module | File candidate | File Validation Module |
-| 2 | File Validation Module | Accepted file validation result | File Ingestion Module |
-| 3 | File Ingestion Module | Normalized document handoff | OCR Extraction Module |
-| 4 | OCR Extraction Module | Text extraction result | Document Classification Module |
-| 5 | Document Classification Module | Classification result plus text context | Transaction Extraction Module |
-| 6 | Transaction Extraction Module | Transaction candidates | Data Validation Module |
-| 7 | Data Validation Module | Cleaned records and quality report | Stats workflow, Stats reporting, and Stats persistence layer |
+| 1 | Manual upload source or Email Ingestion Module | File candidate plus source context | File Validation and Ingestion Module |
+| 2 | File Validation and Ingestion Module | Normalized document handoff | OCR Extraction Module |
+| 3 | OCR Extraction Module | Text extraction result | Document Classification Module |
+| 4 | Document Classification Module | Classification result plus text context | Transaction Extraction Module |
+| 5 | Transaction Extraction Module | Transaction candidates | Data Validation Module |
+| 6 | Data Validation Module | Cleaned records and quality report | Stats workflow, Stats reporting, and Stats persistence layer |
 
 ## Boundary Notes
 
-- The front end may call Identity Access Module and File Ingestion Module, but it should not implement their reusable rules.
+- The front end may call Identity Access Module and the merged File Validation and Ingestion Module, but it should not implement their reusable rules.
 - Stats data persistence receives results after reusable processing, but the database/persistence layer is not part of this reusable input/output map.
 - Module contracts should be stable enough that another project can replace Stats Web and still use these modules.
 - For each module chat, treat the rows above as the starting contract. Refine fields only when that module spec needs them.

@@ -1,12 +1,17 @@
-// M3 - File Validation Module Start
-// Automatically validates selected upload candidates through the standalone File Validation Module.
+// M3/M4 - File Intake Module Start
+// Automatically validates selected upload candidates through the merged file intake module.
 const documentFileInput = document.querySelector("#document-file");
 const documentDropZone = document.querySelector("#document-drop-zone");
 const selectedFileSummary = document.querySelector("#selected-file-summary");
 const validationResult = document.querySelector("#validation-result");
+const ingestionResult = document.querySelector("#ingestion-result");
 const uploadState = document.querySelector("#upload-state");
 const continueProcessingButton = document.querySelector("#continue-processing-button");
 const fileValidationBaseUrl = document.body.dataset.fileValidationBaseUrl || "";
+const fileIngestionBaseUrl = document.body.dataset.fileIngestionBaseUrl || fileValidationBaseUrl;
+
+let selectedFile = null;
+let acceptedValidation = null;
 
 function formatFileSize(bytes) {
   if (bytes < 1024) {
@@ -28,6 +33,14 @@ function formatFileSize(bytes) {
 function setValidationState(message, tone = "pending") {
   uploadState.textContent = message;
   uploadState.dataset.tone = tone;
+}
+
+function valueFromPath(path) {
+  if (!path) {
+    return "Pending";
+  }
+
+  return path;
 }
 
 function renderSelectedFile(file) {
@@ -88,11 +101,14 @@ function renderValidationResult(result) {
 
 function validateFileCandidate(file) {
   validationResult.hidden = true;
+  ingestionResult.hidden = true;
   continueProcessingButton.disabled = true;
+  selectedFile = file || null;
+  acceptedValidation = null;
 
   if (!file) {
     selectedFileSummary.hidden = true;
-    setValidationState("Choose a file to validate. Parsing starts in a later module after validation succeeds.");
+    setValidationState("Choose a file to validate.");
     return;
   }
 
@@ -127,14 +143,107 @@ async function validateSelectedFile(file) {
     renderValidationResult(result);
 
     if (result.status === "accepted") {
-      setValidationState("File accepted. Parsing will begin when the next module is connected.", "success");
-      continueProcessingButton.disabled = true;
+      acceptedValidation = result;
+      setValidationState("File accepted. Send it to processing when ready.", "success");
+      continueProcessingButton.disabled = false;
       return;
     }
 
     setValidationState("File rejected. Choose another file to continue.", "error");
   } catch (error) {
     setValidationState(error.message || "File validation failed.", "error");
+  }
+}
+
+function renderIngestionResult(record) {
+  ingestionResult.hidden = false;
+  ingestionResult.dataset.status = record.status === "queued" ? "accepted" : "rejected";
+  ingestionResult.replaceChildren();
+
+  const heading = document.createElement("h3");
+  heading.textContent = record.status === "queued" ? "Queued for processing" : "Not queued";
+
+  const handoff = record.handoff || {};
+  const source = record.source || {};
+  const details = document.createElement("dl");
+  [
+    ["Ingestion id", record.ingestion_id],
+    ["Status", record.status],
+    ["Submitted by", source.submitted_by || "Current browser session"],
+    ["Processing file", valueFromPath(handoff.content_reference)],
+    ["Workflow", handoff.workflow || record.options?.workflow || "Default"],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value || "-";
+    row.append(term, description);
+    details.append(row);
+  });
+
+  ingestionResult.append(heading, details);
+
+  const findings = record.findings || [];
+  if (findings.length) {
+    const findingList = document.createElement("ul");
+    findings.forEach((finding) => {
+      const item = document.createElement("li");
+      item.textContent = finding.message;
+      findingList.append(item);
+    });
+    ingestionResult.append(findingList);
+  }
+}
+
+async function sendAcceptedFileToProcessing() {
+  if (!selectedFile || !acceptedValidation) {
+    setValidationState("Choose an accepted file before sending it to processing.", "error");
+    return;
+  }
+
+  if (!fileIngestionBaseUrl) {
+    setValidationState("File ingestion is not configured yet.", "error");
+    return;
+  }
+
+  const metadata = acceptedValidation.metadata || {};
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+  formData.append("validation_status", acceptedValidation.status);
+  formData.append("validation_sha256", metadata.sha256 || "");
+  formData.append("detected_mime_type", metadata.detected_mime_type || selectedFile.type || "");
+  formData.append("source_type", "manual_upload");
+  formData.append("source_id", "stats-web-upload");
+
+  try {
+    continueProcessingButton.disabled = true;
+    setValidationState("Sending accepted file to processing.", "pending");
+
+    const user = await window.statsAccess.currentUser();
+    formData.append("submitted_by", user.email);
+
+    const response = await fetch(`${fileIngestionBaseUrl}/api/v1/ingestions`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error("Ingestion service did not accept the request.");
+    }
+
+    const record = await response.json();
+    renderIngestionResult(record);
+
+    if (record.status === "queued") {
+      setValidationState("Document queued in the common processing directory.", "success");
+      return;
+    }
+
+    setValidationState("Document was not queued. Review the ingestion result.", "error");
+  } catch (error) {
+    continueProcessingButton.disabled = false;
+    setValidationState(error.message || "File ingestion failed.", "error");
   }
 }
 
@@ -184,4 +293,8 @@ documentDropZone?.addEventListener("drop", (event) => {
   documentFileInput.files = transfer.files;
   validateFileCandidate(file);
 });
-// M3 End
+
+continueProcessingButton?.addEventListener("click", () => {
+  sendAcceptedFileToProcessing();
+});
+// M3/M4 End

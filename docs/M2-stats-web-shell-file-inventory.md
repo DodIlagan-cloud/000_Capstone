@@ -7,7 +7,7 @@
 
 This document lists the files created or modified for **M2 - Stats Web Shell** and describes the purpose of each change.
 
-M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves the M1 Identity Access consumer flow while adding the dashboard-first home page, upload-documents action page, email-ingestion setup action page, document/report shell surfaces, and configurable future downstream module targets.
+M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves the M1 Identity Access consumer flow while adding the dashboard-first home page, upload-documents action page, email-ingestion setup action page, document/report shell surfaces, and configurable downstream module targets.
 
 ## Specification and Documentation
 
@@ -21,7 +21,7 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 | File | Change Type | Description |
 | --- | --- | --- |
 | `apps/stats-web/Program.cs` | Modified | Adds `StatsWebShellOptions` so shell feature flags, deferred downstream endpoints, Power BI/Fabric placeholders, and Azure deployment settings are supplied through ASP.NET Core configuration. |
-| `apps/stats-web/appsettings.json` | Modified | Adds committed safe defaults for upload, email setup, dashboard/reporting shell, deferred downstream module endpoints, future Power BI/Fabric identifiers, and Azure managed identity/Key Vault placeholders. |
+| `apps/stats-web/appsettings.json` | Modified | Adds committed safe defaults for upload, email setup, dashboard/reporting shell, merged file intake endpoints, future Power BI/Fabric identifiers, and Azure managed identity/Key Vault placeholders. |
 
 ## Razor Pages
 
@@ -55,7 +55,7 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 ## Notes
 
 - M2 keeps authentication and authorization behavior delegated to the M1 Identity Access API.
-- Dashboard, upload documents, email setup, document tracking, and reports are shell surfaces only; processing, mailbox retrieval, and persistence remain deferred to their owning later modules.
+- Dashboard, upload documents, email setup, document tracking, and reports are shell surfaces only; OCR, workflow continuation, mailbox retrieval, and persistence remain deferred to their owning later modules.
 - Module 2 code blocks were tagged using the `M2 - Stats Web Shell Start` and `M2 End` convention.
 
 <!-- M2 End -->

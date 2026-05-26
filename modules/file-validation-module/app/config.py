@@ -63,6 +63,9 @@ class Settings:
     allowed_mime_types: List[str]
     require_known_signature: bool
     compute_sha256: bool
+    storage_root: Path
+    default_workflow: str
+    max_stored_file_size_bytes: int
     # M3 End
 
     def __init__(self):
@@ -94,6 +97,12 @@ class Settings:
             _config_value(config_values, "REQUIRE_KNOWN_SIGNATURE")
         )
         self.compute_sha256 = _parse_bool(_config_value(config_values, "COMPUTE_SHA256"))
+        self.storage_root = self._resolve_storage_root(_config_value(config_values, "STORAGE_ROOT"))
+        self.default_workflow = _config_value(config_values, "DEFAULT_WORKFLOW")
+        self.max_stored_file_size_bytes = _parse_int(
+            _config_value(config_values, "MAX_STORED_FILE_SIZE_BYTES"),
+            0,
+        )
 
     @staticmethod
     def _parse_csv_values(
@@ -115,6 +124,14 @@ class Settings:
                 values.append(normalized_value.lower() if normalize_extension else normalized_value)
 
         return values
+
+    @staticmethod
+    def _resolve_storage_root(value: str) -> Path:
+        configured_path = Path(value)
+        if configured_path.is_absolute():
+            return configured_path
+
+        return (SERVICE_ROOT / configured_path).resolve()
 
 
 settings = Settings()

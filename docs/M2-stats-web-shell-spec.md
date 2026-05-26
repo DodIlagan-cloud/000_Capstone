@@ -36,7 +36,7 @@ The building-block plan defines this module as:
 M2 supports the product-facing parts of these business-analysis areas:
 
 - User Management and Access Control: presents login, sign out, current-user context, password setup, and administrator user-management access by consuming M1 APIs.
-- Manual Document Upload: prepares an authenticated upload-documents action page and handoff boundary for later File Validation and File Ingestion modules.
+- Manual Document Upload: prepares an authenticated upload-documents action page and handoff boundary for the merged File Validation and Ingestion module.
 - Email Ingestion: prepares an authenticated email ingestion setup action page for the later Email Ingestion Module.
 - Dashboard and Reporting: makes the authenticated home page the dashboard shell and prepares report pages for later reporting modules.
 
@@ -48,7 +48,7 @@ The business need is to give users a stable, authenticated Stats workspace befor
 - Preserve current M1 login, first-login password setup, sign out, current-user display, and administrator user-management consumer behavior.
 - Provide a consistent authenticated app layout where the home page is the dashboard shell, with primary actions for uploading documents and setting up email ingestion.
 - Keep all Identity Access behavior behind M1 API calls and browser session handling.
-- Prepare a manual-upload action page that can later call File Validation and File Ingestion APIs without embedding validation or ingestion rules.
+- Prepare a manual-upload action page that can call the merged File Validation and Ingestion API without embedding validation or ingestion rules.
 - Prepare an email-ingestion setup action page that can later call the Email Ingestion Module without embedding mailbox retrieval logic.
 - Prepare dashboard/reporting placeholders that do not calculate final financial analytics before later modules define persistence and reporting contracts.
 - Keep service base URLs and runtime settings configurable through ASP.NET Core configuration providers.
@@ -107,7 +107,7 @@ M2 specifications, file inventories, project-level documentation, and assessment
 ### M2 Calls
 
 - M1 Identity Access Module through configured HTTP API base URL.
-- Later File Ingestion or workflow APIs only after those modules define their contracts.
+- Workflow continuation APIs only after those modules define their contracts.
 - Later Stats Data/query APIs only after Stats Data and Reporting modules define their contracts.
 
 ### M2 Must Not Absorb
@@ -156,7 +156,7 @@ Expected future M2 shell routes include:
 | `/Login` | M1 login and required password setup consumer page. |
 | `/` | Authenticated Stats dashboard/workspace shell with upload and email-ingestion setup action buttons. |
 | `/Users` | Administrator user-management consumer page for M1. |
-| `/Upload` | Authenticated upload-documents action page prepared for later ingestion contracts. |
+| `/Upload` | Authenticated upload-documents action page prepared for merged file intake and later workflow processing. |
 | `/EmailSetup` | Authenticated email-ingestion setup action page prepared for later email ingestion contracts. |
 | `/Documents` | Authenticated document status shell prepared for later workflow state. |
 | `/Reports` | Authenticated reports shell prepared for later report views or exports. |
@@ -176,7 +176,7 @@ M2 is an encompassing app, so its contracts are consumer-facing screens and conf
 | Browser session token | M1 Identity Access API | Bearer token stored for the active browser session. |
 | Current-user profile | M1 Identity Access API | User email, role, full name, active status, and password-state information used by the shell. |
 | Admin user command | Browser admin user | User-create or user-list interaction submitted to M1 user APIs. |
-| Future upload candidate | Browser user | File selected for manual upload, held at shell boundary until File Validation and File Ingestion contracts are implemented. |
+| Upload candidate | Browser user | File selected for manual upload and passed to the merged File Validation and Ingestion API. |
 | Runtime configuration | ASP.NET Core configuration | API base URLs, feature switches, and environment-specific runtime values. |
 | Future reporting configuration | ASP.NET Core configuration or Azure provider | Power BI/Fabric workspace, report, capacity, and embed-config endpoint settings for later M11 implementation. |
 | Azure deployment configuration | ASP.NET Core configuration or Azure provider | Environment label, Key Vault URI, and managed identity switch for later cloud deployment. |
@@ -189,7 +189,7 @@ M2 is an encompassing app, so its contracts are consumer-facing screens and conf
 | Role-aware navigation | Browser user | Admin-only and user-level actions are visible or hidden based on M1 profile data. |
 | Identity API requests | M1 Identity Access API | Login, current-user, password-change, and user-management requests. |
 | Shell page state | Browser user | Dashboard home, upload, email setup, document, and report surfaces render controlled states. |
-| Future module handoff | Later modules | Prepared UI boundaries for upload and workflow calls after contracts exist. |
+| Future workflow handoff | Later modules | Prepared UI boundaries for OCR, processing status, and workflow calls after contracts exist. |
 | Future dashboard embed request | Later reporting module | Prepared configuration boundary for a backend embed-config endpoint after M11 defines Power BI/Fabric integration. |
 | Frontend errors | Browser user | Clear messages for invalid credentials, unauthorized access, unavailable APIs, or deferred features. |
 
@@ -231,7 +231,7 @@ M2 must not own:
 - Ingestion job creation.
 - OCR handoff.
 
-Those behaviors belong to M3 File Validation Module and M4 File Ingestion Module.
+Those behaviors belong to the merged M3/M4 File Validation and Ingestion Module.
 
 ## Email Ingestion Setup Boundary
 
@@ -370,7 +370,7 @@ M2 must follow the M0 runtime configuration standard. Runtime values must be sup
 | `StatsWeb:Features:EmailIngestionSetup` | `true` when introduced | Enables the M2 email-ingestion setup action page without enabling mailbox retrieval. |
 | `StatsWeb:Features:DashboardShell` | `true` when introduced | Enables dashboard/reporting shell surfaces without final reporting logic. |
 | `StatsWeb:Features:ReportsShell` | `true` when introduced | Enables the M2 reports shell without report generation. |
-| `StatsWeb:Downstream:FileIngestionBaseUrl` | empty until M4 | Future File Ingestion API target after contract implementation. |
+| `StatsWeb:Downstream:FileIngestionBaseUrl` | `http://127.0.0.1:8014` after M4 merge | Ingestion endpoint target on the merged File Validation and Ingestion API. |
 | `StatsWeb:Downstream:EmailIngestionBaseUrl` | empty until M12 | Future Email Ingestion API target after contract implementation. |
 | `StatsWeb:Downstream:StatsDataBaseUrl` | empty until later app modules | Future Stats Data or reporting query target after contract implementation. |
 | `StatsWeb:Downstream:ReportingEmbedConfigUrl` | empty until M11 | Future backend endpoint that will return Power BI/Fabric embed configuration. |
@@ -419,7 +419,7 @@ Examples that must remain configurable:
 | Forbidden | User is signed in but lacks the required role for the attempted page/action. |
 | Identity API unavailable | Shell shows a controlled service-unavailable message and does not expose raw exception details. |
 | Deferred feature | Shell route is visible but processing is not connected until the owning module is implemented. |
-| Validation/ingestion unavailable | Upload submit is disabled or returns a controlled message until M3/M4 contracts exist. |
+| Intake unavailable | Upload validation returns a controlled message when the merged M3/M4 intake API is not configured or unavailable. |
 
 ## Runtime Requirements
 
@@ -442,7 +442,7 @@ When `StatsWeb:LocalOrchestration:Enabled` is true and `StatsWeb:Azure:Environme
 Local orchestration currently includes:
 
 - M1 Identity Access API at `http://127.0.0.1:8013`.
-- M3 File Validation API at `http://127.0.0.1:8014` when the M3 module is present.
+- M3/M4 File Validation and Ingestion API at `http://127.0.0.1:8014` when the merged intake module is present.
 
 In Azure or other deployed environments, local process orchestration must be disabled. Stats Web should call deployed module endpoints through configured service URLs, Azure service discovery, or gateway routing instead of starting sibling processes.
 
@@ -552,8 +552,7 @@ M2 is complete when:
 
 ## Deferred Items
 
-- M3 File Validation Module will define file rules, signatures, size limits, metadata, hashes, and rejection reasons.
-- M4 File Ingestion Module will define upload intake, ingestion records, status, and downstream handoff.
+- M3/M4 File Validation and Ingestion Module defines file rules, upload intake, ingestion records, status, and downstream handoff.
 - M5 OCR Extraction Module will extract text and metadata from accepted documents.
 - M6 Document Classification Module will identify document types.
 - M7 Transaction Extraction Module will extract financial fields and transaction candidates.

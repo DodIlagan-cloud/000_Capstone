@@ -11,7 +11,6 @@
 | Build order | `<order>` |
 | Type | `<standalone module / encompassing app / integration / infrastructure / project>` |
 | Owner folder | `<apps/... or modules/...>` |
-| Evidence folder | `test-results/<module-or-regression-session>/` |
 
 ## Business Alignment
 
@@ -28,8 +27,6 @@ Describe the business-analysis area this module supports and the reason it is se
 ## Architecture Boundary
 
 State what this module owns, what it calls, and what it must not absorb from neighboring modules.
-
-Project-wide documentation and evidence belong in root `docs/` and root `test-results/`. The owner folder should contain only module/app implementation code, module-local automated tests, runtime configuration samples, local run instructions, and assets required by that module/app.
 
 ## Inputs and Outputs
 
@@ -56,6 +53,7 @@ Project-wide documentation and evidence belong in root `docs/` and root `test-re
 <!-- Prompts each module spec to declare config-driven runtime values. -->
 - Runtime values owned by this module: `<URLs, hosts, ports, database/resource targets, secrets, limits, paths, feature switches>`
 - Config override path or provider: `<config file, environment variables, managed secrets, or other provider>`
+- Real-data test input variables: `<environment variables or config keys such as STATS_TESTDATA_DIR; state failure/setup behavior when unavailable>`
 - Hardcoded runtime values allowed in source: `none unless explicitly justified as a stable code constant`
 <!-- M0 Foundation End -->
 
@@ -66,11 +64,10 @@ Project-wide documentation and evidence belong in root `docs/` and root `test-re
 
 ## Test Plan
 
-Store test summaries, raw output, manual checklists, screenshot indexes, and screenshots under root `test-results/<module-or-regression-session>/`.
-
 | Check | Level | Evidence |
 | --- | --- | --- |
 | `<behavior>` | `<unit / direct / integration / manual>` | `<test result, raw output, screenshot, checklist>` |
+| Real-data processing with configured local/anonymized dataset | `<automated / evidence>` | `<raw output showing configured test data was processed and relevant handoff/assertion passed>` |
 
 ## Acceptance Criteria
 

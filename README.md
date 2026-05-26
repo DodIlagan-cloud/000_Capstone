@@ -35,17 +35,14 @@ Committed config may provide safe local defaults and examples. Real secrets and 
 | `contracts/` | Explicit shared handoff contracts between modules and apps. |
 | `infrastructure/` | Compose, containers, cloud, and deployment work. |
 | `docs/` | Foundation specs, module plans, specs, evidence guidance, and project notes. |
-| `test-results/` | Root evidence, raw outputs, checklists, screenshots, and regression results for all modules. |
 | `samples/` | Safe sample data and fixtures. |
 | `tests/integration/` | Cross-module Stats workflow checks. |
 
-Project-wide documentation and evidence belong at the repository root under `docs/` and `test-results/`. Module and app folders should contain only their own implementation code, module-local automated tests, runtime configuration samples, local run instructions, and required assets.
+## Transitional Code
 
-## Current Code Homes
+Earlier implementation work currently remains under `stats/`:
 
-The project now uses the architecture folders directly. M1 is active under:
+- `stats/stats.Web/`
+- `stats/stats-ingestion-service/`
 
-- `modules/identity-access-module/`
-- `apps/stats-web/`
-
-New module work should use the owning `apps/`, `modules/`, `contracts/`, `infrastructure/`, `samples/`, or `tests/` path rather than recreating retired transitional folders.
+Those folders are not the final architecture boundary. Later module specs should decide the migration path for their owned behavior into `apps/` or `modules/` without mixing Stats UI or Stats persistence concerns into reusable processing services.

@@ -34,9 +34,12 @@ def test_root_endpoint(client):
 
 def test_settings_configured_values(monkeypatch):
     monkeypatch.delenv("MAX_FILE_SIZE_BYTES", raising=False)
+    monkeypatch.setenv("STORAGE_ROOT", "configured-intake-root")
     settings = Settings()
 
     assert settings.app_name == "File Validation Module"
     assert settings.api_prefix == "/api/v1"
     assert settings.max_file_size_bytes == 10485760
     assert ".pdf" in settings.allowed_extensions
+    assert settings.default_workflow == "document-processing"
+    assert settings.storage_root.name == "configured-intake-root"

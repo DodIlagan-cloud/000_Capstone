@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routes.health import router as health_router
+from app.routes.ingestions import router as ingestions_router
 from app.routes.validation import router as validation_router
 
 
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(validation_router, prefix=settings.api_prefix)
+    application.include_router(ingestions_router, prefix=settings.api_prefix)
 
     return application
 

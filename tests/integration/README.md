@@ -5,13 +5,15 @@
 Cross-module Stats workflow tests belong here.
 
 Module-local tests should stay with the app or reusable module that owns the behavior. Integration tests should focus on contract handoffs, orchestration behavior, and end-to-end Stats workflows.
+<<<<<<< Updated upstream
+=======
 
 <!-- M2 - Stats Web Shell Start -->
 <!-- Documents the Stats Web local orchestration configuration checks. -->
 
 ## Stats Web Local Orchestration Tests
 
-`test_stats_web_orchestration_config.py` verifies that the Stats Web shell registers the local sibling-service orchestrator and declares the Identity Access API and File Validation API as local services.
+`test_stats_web_orchestration_config.py` verifies that the Stats Web shell registers the local sibling-service orchestrator and declares the Identity Access API plus the merged File Validation and Ingestion API as local services.
 
 Run it with:
 
@@ -40,3 +42,4 @@ pytest tests\integration\test_live_identity_database.py
 The test creates one uniquely named temporary user, authenticates that user, and deletes only that temporary user during cleanup. It does not drop tables or clear existing users.
 
 <!-- M1/M3 Regression End -->
+>>>>>>> Stashed changes

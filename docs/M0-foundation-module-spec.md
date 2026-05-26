@@ -84,7 +84,6 @@ The repository should move toward the structure defined by the building-block mo
 |-- modules/
 |   |-- identity-access-module/
 |   |-- file-validation-module/
-|   |-- file-ingestion-module/
 |   |-- ocr-extraction-module/
 |   |-- document-classification-module/
 |   |-- transaction-extraction-module/
@@ -103,10 +102,6 @@ The repository should move toward the structure defined by the building-block mo
 |   |-- module-plans/
 |   |-- specs/
 |   `-- evidence/
-|-- test-results/
-|   |-- M0-ArchitectureFoundation/
-|   |-- RegTest-AdminUserFlow-M0-M1/
-|   `-- M2-StatsWebShell-M0-M1/
 |-- samples/
 |   |-- synthetic/
 |   `-- anonymized/
@@ -116,23 +111,16 @@ The repository should move toward the structure defined by the building-block mo
 
 ### Current-Workspace Note
 
-The repository now uses the target architecture folders directly. M1 identity is under `modules/identity-access-module/`, and the current Stats Web consumer is under `apps/stats-web/`.
+The repository currently contains early work under:
 
-Later module work must use the owning architecture folder rather than recreating retired transitional folders.
+```text
+stats/stats-ingestion-service
+stats/stats.Web
+```
 
-### Root Project Artefact Rule
+Those folders remain valid project history and current implementation surfaces. As later modules are refined, their specs must state whether a capability remains in an existing folder temporarily or is moved into the target `apps/` or `modules/` segregation.
 
-Project-wide artefacts must live at the repository root, not inside an individual module or app folder.
-
-| Artefact Type | Required Location |
-| --- | --- |
-| Module specifications, file inventories, project plans, diagrams, and project documentation | `docs/` |
-| Test results, raw command output, manual checklists, screenshot indexes, and evidence screenshots | `test-results/` |
-| Cross-module integration tests | `tests/integration/` |
-| Shared contracts | `contracts/` |
-| Module/app implementation code, module-owned tests, runtime config samples, and local run instructions | Owning `modules/...` or `apps/...` folder |
-
-Module folders should contain only code, module-local automated tests, runtime configuration samples, module README files, and assets needed by that module or app. They must not contain final assessment evidence folders unless a later project-level decision explicitly changes this rule.
+M0 must not treat the current `stats-ingestion-service` folder as the final boundary for every backend capability.
 
 ## Module Standards
 
@@ -141,11 +129,12 @@ Every later standalone module must provide:
 1. A module spec with goals, non-goals, tasks, and acceptance criteria.
 2. A local run command and test command.
 3. A clear input/output contract.
-4. Module-local automated tests under the owning module or app folder.
-5. Evidence for acceptance tests under root `test-results/`.
+4. Module-local automated tests.
+5. Evidence for acceptance tests.
 6. A configuration example with no secrets committed.
 7. A Dockerfile or container plan before cloud deployment.
 8. Failure behavior visible to callers through explicit errors or status results.
+9. Config-driven real-data automated/evidence tests when the module processes realistic files, records, messages, or external-style inputs.
 
 Encompassing Stats modules such as Stats Web and Stats Data must state which reusable module contracts they call or store and must not absorb reusable OCR, parsing, validation, or authentication internals.
 
@@ -185,6 +174,7 @@ Each module spec must identify:
 - Config files, safe examples, override paths, and runtime values that must be changed without source edits.
 <!-- M0 Foundation End -->
 - Automated tests, manual checks, evidence artefacts, and acceptance criteria.
+- Real-data test inputs, configuration variables, privacy constraints, and evidence expectations when realistic local datasets are required.
 - Deferred items for later modules.
 
 For reusable modules, the starting contract should be derived from `docs/building-block-module-io-map.md` and refined only inside the owning module spec.
@@ -199,7 +189,7 @@ M0 establishes these project rules:
 - Runtime values are configured through config files or supported environment/secret providers instead of being embedded in source code.
 <!-- M0 Foundation End -->
 - Stats Web may call reusable module APIs, but it should not implement reusable validation, extraction, or identity rules.
-- File Validation and File Ingestion remain separate concerns.
+- File validation and file ingestion remain separate concerns inside the merged intake module boundary.
 - OCR Extraction, Document Classification, and Transaction Extraction remain separate concerns.
 - Stats Data and reporting consume results from processing modules; they do not silently become reusable processing modules.
 - Integration behavior belongs in Stats workflow integration tests or in the coordinating Stats app layer.
@@ -214,7 +204,6 @@ M0 must establish a GitHub workflow for the capstone repository.
 - Commits should group one meaningful change set where practical.
 - Module implementation, module test evidence, and reusable skills should be committed separately when they are logically separate.
 - Generated caches, local runtime files, local tool state, secrets, and build artefacts must be excluded through ignore rules or module-local ignore files.
-- Project-wide specs, inventories, documentation, and evidence should be committed from root `docs/` and root `test-results/` paths even when they describe one module.
 - GitHub history should preserve traceability from spec to implementation to evidence.
 
 ### Recommended Commit Grouping
@@ -229,9 +218,7 @@ Use separate commits for:
 
 ## Evidence Standard
 
-Each module evidence set must be stored in a named folder under root `test-results/`.
-
-Do not place final assessment evidence under `apps/<app>/test-results/` or `modules/<module>/test-results/`. Those module/app folders are reserved for implementation code, module-local automated tests, runtime configuration samples, and module-specific assets.
+Each module evidence set should be stored in a named evidence folder near that module or under an agreed evidence path.
 
 ### Required Evidence Types
 
@@ -241,13 +228,25 @@ Do not place final assessment evidence under `apps/<app>/test-results/` or `modu
 - Screenshot evidence index.
 - Actual Windows browser screenshots for web/API UI evidence when screenshots are required.
 - Actual Windows terminal screenshots for command/test evidence when screenshots are required.
+- Real-data automated/evidence test output for modules that process user-like files, extracted text, classifications, transactions, records, emails, or stored workflow artefacts.
+
+### Real-Data Test Standard
+
+Modules that process realistic inputs must include a configurable real-data test path in addition to synthetic unit fixtures.
+
+- Real-data tests must be automated where practical and runnable from the module test suite or evidence runner.
+- Real-data locations must be supplied through configuration or environment variables such as `STATS_TESTDATA_DIR`; personal drive paths must not be hardcoded in source.
+- Automated application-flow tests must use configured real application test data. When the configured real-data directory is unavailable, the test should fail or the evidence runner should stop with a clear setup message rather than silently substituting synthetic data.
+- Evidence runs should set the required real-data variables and retain raw output proving the real input was processed.
+- Tests must assert the business-relevant handoff, not only that the command succeeded. Examples include saved file location under configured storage, extracted text presence, classification label, parsed transaction count, validation findings, or persistence status.
+- Private/anonymized source files should remain outside source control unless a safe committed sample dataset is explicitly approved.
 
 ### Screenshot Rules
 
 - Prefer actual browser and terminal screenshots over rendered-response images.
 - Crop screenshots to the relevant browser or terminal content.
 - State what each screenshot proves in the screenshot evidence index.
-- Keep regression evidence separate from the initial module evidence when useful, but keep both under root `test-results/`.
+- Keep regression evidence separate from the initial module evidence.
 - Use clear folder names that start with the tested module prefix, for example `M0-FoundationInitial` or `M1-UserAccessManagement`.
 
 ## File Inventory and Tagging Standard
@@ -271,7 +270,6 @@ At minimum, M0 documentation must include:
 - A reusable module spec template for later building blocks.
 - File inventories for implemented modules or meaningful module change sets.
 - Local environment guidance as project dependencies become concrete.
-- Root `test-results/` evidence folders for module verification and regression sessions.
 
 ## M0 Verification
 
@@ -288,7 +286,13 @@ M0 verification is primarily project-convention verification.
 
 ### Supporting Demonstration
 
-M0 architecture evidence under `test-results/M0-ArchitectureFoundation/` demonstrates the current project-level evidence workflow.
+Early Foundation and regression evidence currently demonstrates the evidence workflow through files under:
+
+```text
+stats/stats-ingestion-service/test-results/
+```
+
+That demonstration is supporting M0 evidence. It does not redefine M0 as a FastAPI service module.
 
 ## Runtime and Dependencies
 
@@ -310,12 +314,11 @@ M0 is complete when:
 - Module spec, contract, file inventory, tagging, GitHub, and evidence conventions are documented.
 - Runtime configuration rules prevent environment-dependent values and secrets from being hardcoded into source.
 - Later module specs can define their own owner folders, contracts, tests, and evidence without treating a single backend service as the entire application.
-- Project-wide documentation and evidence are stored at root `docs/` and root `test-results/`, while module/app folders keep only module-specific code, tests, configuration, runtime files, and assets.
 - GitHub stores the capstone repository history and meaningful project artefacts.
 - At least one module evidence package demonstrates the required test-result, raw-output, checklist, screenshot-index, and cropped actual screenshot pattern.
 
 ## Implementation Notes
 
-- M0 ownership is project-level foundation.
+- Earlier FastAPI foundation work remains useful as implementation history and supporting evidence, but M0 ownership is now project-level foundation.
 - New feature behavior should be specified under the owning building-block module rather than appended to M0.
 - Use `docs/building-block-module-plan.md` as the architecture boundary before starting each later module chat.

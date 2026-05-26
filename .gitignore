@@ -16,15 +16,14 @@ env/
 # Local runtime output
 stats_ingestion.db
 uploads/
+apps/stats-data/data/
 *.log
 
 # Test evidence is retained locally until the final evidence check-in.
 test-results/
 
-# M1 - User Access Management Start
 # Keeps local config overrides with secrets or developer-specific values out of source control.
 **/.env
-# M1 End
 
 # .NET build output
 **/bin/

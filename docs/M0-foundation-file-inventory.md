@@ -6,7 +6,7 @@
 
 This inventory records the M0 Project Foundation files used to establish the building-block architecture boundary for Stats.
 
-M0 is no longer treated as a FastAPI service foundation module. The active implementation now belongs in the architecture owner folders under `apps/` and `modules/`.
+M0 is no longer treated as a FastAPI service foundation module. Earlier service code and evidence under `stats/stats-ingestion-service/` remain project history and supporting evidence, while this pass makes the project-level repository conventions visible for later modules.
 
 ## Architecture and Entry Points
 
@@ -16,7 +16,7 @@ M0 is no longer treated as a FastAPI service foundation module. The active imple
 | `docs/M0-foundation-module-spec.md` | Modified | Reframes M0 as Project Foundation and aligns the repository target with the building-block module plan. |
 | `docs/building-block-module-plan.md` | Created | Defines build order, module boundaries, architecture direction, BA alignment, and the target repository segregation. |
 | `docs/building-block-module-io-map.md` | Created | Defines starting input/output handoffs and reusable contract families for standalone modules. |
-| `README.md` | Modified | Points current implementation work to the architecture owner folders rather than retired transitional folders. |
+| `stats/README.md` | Created | Marks the existing `stats/` code as a transitional implementation surface until later module migrations are specified. |
 
 ## Repository Boundary Scaffolding
 
@@ -35,14 +35,6 @@ M0 is no longer treated as a FastAPI service foundation module. The active imple
 | --- | --- | --- |
 | `docs/specs/README.md` | Created | Documents where module specifications and their templates belong. |
 | `docs/specs/module-spec-template.md` | Created | Supplies the M0 module-spec template for later standalone and encompassing modules. |
-| `docs/module-plans/common-file-migration-inventory.md` | Created | Maps current common/config/shared files to their future owners and migration actions before code is physically moved. |
-| `apps/stats-web/README.md` | Created | Marks the target owner folder for migrating the current Stats Web app. |
-| `apps/stats-data/README.md` | Created | Marks the target owner folder for Stats-specific database schema, migrations, persistence adapters, and query layer. |
-| `modules/identity-access-module/README.md` | Created | Marks the target owner folder for reusable identity/access behavior. |
-| `contracts/identity/README.md` | Created | Marks the target folder for identity/access contracts. |
-| `contracts/documents/README.md` | Created | Marks the target folder for document/file handoff contracts. |
-| `contracts/extraction/README.md` | Created | Marks the target folder for OCR, extraction, and classification contracts. |
-| `contracts/transactions/README.md` | Created | Marks the target folder for transaction and data-quality contracts. |
 
 <!-- M0 Foundation Start -->
 <!-- Records the project-wide runtime configuration convention update without replacing earlier inventory rows. -->
@@ -58,7 +50,7 @@ M0 is no longer treated as a FastAPI service foundation module. The active imple
 | `modules/README.md` | Modified | Applies the config-driven runtime rule to reusable building-block modules. |
 <!-- M0 Foundation End -->
 | `docs/module-plans/README.md` | Created | Documents where detailed module plans and boundary refinements belong. |
-| `docs/evidence/README.md` | Created | Documents the project-level evidence guidance area and requires final assessment evidence to live under root `test-results/`. |
+| `docs/evidence/README.md` | Created | Documents the project-level evidence index area while preserving module-local evidence where already used. |
 
 ## Repository Rules
 
@@ -77,7 +69,8 @@ These tracked artefacts still demonstrate conventions established earlier in M0:
 | Evidence workflow skill | `skills/module-test-evidence/` | Guides actual Windows screenshot and raw-output evidence capture. |
 | File inventory skill | `skills/module-file-inventory/` | Supports later module inventories. |
 | File tagging skill | `skills/module-file-tagging/` | Supports requested module comments and traceability tags. |
-| Current M0 evidence | `test-results/M0-ArchitectureFoundation/` | Demonstrates project-foundation architecture checks, config-rule checks, raw output, checklist, screenshot index, and actual terminal screenshot evidence. |
+| Initial M0 evidence | `stats/stats-ingestion-service/test-results/M0-FoundationInitial/` | Demonstrates test result summary, raw output, checklist, screenshot index, and actual screenshots. |
+| M0 tagging retest evidence | `stats/stats-ingestion-service/test-results/M0-TaggingAdded/` | Demonstrates retesting after tagged executable files changed. |
 
 ## Updated M0 Architecture Test Evidence
 
@@ -101,4 +94,4 @@ This M0 architecture execution should be checked by:
 4. Confirming the building-block plan and I/O map remain the architecture reference.
 5. Confirming ignored caches, local runtime files, and build outputs do not appear as Git changes.
 
-Migrations of active implementation code should be planned in the owning module spec so history and cross-module boundaries remain reviewable.
+Migrations of active implementation code from `stats/` into `apps/` or `modules/` should be planned in the owning later module spec so history and cross-module boundaries remain reviewable.
