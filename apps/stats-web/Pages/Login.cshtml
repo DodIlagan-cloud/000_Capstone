@@ -24,7 +24,13 @@
             <input id="email" name="email" type="email" autocomplete="username" maxlength="255" required />
 
             <label for="password">Password</label>
-            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required />
+            @* M1 - User Access Management Start *@
+            @* Provides one consistent cross-browser password reveal control. *@
+            <span class="password-field">
+              <input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required />
+              <button class="password-toggle" type="button" data-password-toggle="password" aria-label="Show password" aria-pressed="false" title="Show password"></button>
+            </span>
+            @* M1 End *@
 
             <p id="login-message" class="page-message" role="status" aria-live="polite"></p>
             <button id="login-submit" type="submit">Sign in</button>
@@ -35,10 +41,22 @@
             <h2>Set a new password</h2>
 
             <label for="new-password">New password</label>
-            <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required />
+            @* M1 - User Access Management Start *@
+            @* Provides one consistent cross-browser password reveal control. *@
+            <span class="password-field">
+              <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required />
+              <button class="password-toggle" type="button" data-password-toggle="new-password" aria-label="Show new password" aria-pressed="false" title="Show new password"></button>
+            </span>
+            @* M1 End *@
 
             <label for="confirm-password">Confirm password</label>
-            <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required />
+            @* M1 - User Access Management Start *@
+            @* Provides one consistent cross-browser password reveal control. *@
+            <span class="password-field">
+              <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required />
+              <button class="password-toggle" type="button" data-password-toggle="confirm-password" aria-label="Show confirmation password" aria-pressed="false" title="Show confirmation password"></button>
+            </span>
+            @* M1 End *@
 
             <p id="password-setup-message" class="page-message" role="status" aria-live="polite"></p>
             <button id="password-setup-submit" type="submit">Set password</button>

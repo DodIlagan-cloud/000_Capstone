@@ -9,6 +9,11 @@ const createSubmit = document.querySelector("#create-user-submit");
 const refreshUsersButton = document.querySelector("#refresh-users");
 const logoutButton = document.querySelector("#logout-button");
 
+// M1 - User Access Management Start
+// Activates the custom temporary-password reveal control on the administrator form.
+window.statsAccess.initPasswordVisibilityToggles();
+// M1 End
+
 function setMessage(node, message, tone = "error") {
   node.textContent = message;
   node.dataset.tone = tone;

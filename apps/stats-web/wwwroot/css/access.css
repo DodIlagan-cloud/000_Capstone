@@ -161,6 +161,59 @@ button:disabled {
   opacity: 0.7;
 }
 
+/* M1 - User Access Management Start */
+/* Styles one custom password reveal control and suppresses browser-native duplicates. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+.password-field {
+  display: grid;
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 3.5rem;
+}
+
+button.password-toggle {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--accent-strong);
+  display: inline-flex;
+  height: 2.15rem;
+  justify-content: center;
+  min-height: 2.15rem;
+  padding: 0;
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.15rem;
+}
+
+button.password-toggle:hover,
+button.password-toggle:focus-visible {
+  background: rgba(243, 248, 245, 0.1);
+}
+
+.password-toggle-icon {
+  fill: none;
+  height: 1.25rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 1.25rem;
+}
+
+.password-toggle-slash {
+  stroke-width: 2.2;
+}
+/* M1 End */
+
 .page-message {
   color: var(--danger);
   margin: 0.4rem 0 0;
