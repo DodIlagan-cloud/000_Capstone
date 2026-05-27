@@ -7,6 +7,11 @@ const passwordSetupForm = document.querySelector("#password-setup-form");
 const passwordSetupMessage = document.querySelector("#password-setup-message");
 const passwordSetupSubmit = document.querySelector("#password-setup-submit");
 
+// M1 - User Access Management Start
+// Activates custom password reveal controls for login and first-login setup.
+window.statsAccess.initPasswordVisibilityToggles();
+// M1 End
+
 function setMessage(node, message, tone = "error") {
   node.textContent = message;
   node.dataset.tone = tone;

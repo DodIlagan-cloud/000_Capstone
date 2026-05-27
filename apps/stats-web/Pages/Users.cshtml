@@ -43,7 +43,13 @@
             <input id="user-email" name="email" type="email" maxlength="255" required />
 
             <label for="temporary-password">Temporary password</label>
-            <input id="temporary-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required />
+            @* M1 - User Access Management Start *@
+            @* Provides one consistent cross-browser password reveal control for temporary passwords. *@
+            <span class="password-field">
+              <input id="temporary-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required />
+              <button class="password-toggle" type="button" data-password-toggle="temporary-password" aria-label="Show temporary password" aria-pressed="false" title="Show temporary password"></button>
+            </span>
+            @* M1 End *@
 
             <label for="role">Role</label>
             <select id="role" name="role">
