@@ -1,4 +1,4 @@
-<!-- M3 - File Validation Module Start -->
+﻿<!-- M3 - File Validation Module Start -->
 <!-- Documents files created for the merged M3/M4 file validation and ingestion module. -->
 
 # M3/M4 File Validation and Ingestion File Inventory
@@ -62,14 +62,14 @@ This document lists the files created and modified for the merged **M3 File Vali
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `test-results/M3-FileValidation/M3-FileValidation-test-results-2026-05-24.md` | Created | Summarizes M3 verification, Stats Web build verification, and M0/M1 regression results. |
-| `test-results/M3-FileValidation/M3-FileValidation-test-raw-output-2026-05-24.txt` | Created | Stores raw `pytest` output for the M3 File Validation Module. |
-| `test-results/M3-FileValidation/M3-StatsWeb-upload-integration-build-raw-output-2026-05-24.txt` | Created | Stores raw `dotnet build` output for the Stats Web upload integration surface. |
-| `test-results/M3-FileValidation/M3-M0-regression-raw-output-2026-05-24.txt` | Created | Stores carried-forward M0 architecture regression output. |
-| `test-results/M3-FileValidation/M3-M1-regression-raw-output-2026-05-24.txt` | Created | Stores carried-forward M1 identity regression output. |
-| `test-results/M3-FileValidation/M3-live-database-regression-raw-output-2026-05-24.txt` | Created | Stores the live Stats database identity regression output. |
-| `test-results/M3-FileValidation/M3-FileValidation-manual-test-checklist.md` | Created | Records manual/API/UI validation expectations for M3. |
-| `test-results/M3-FileValidation/M3-FileValidation-screenshot-evidence-2026-05-24.md` | Created | Indexes current raw evidence and lists the planned Windows screenshot targets for the full browser evidence session. |
+| `tests/results/M3-FileValidation/M3-FileValidation-test-results-2026-05-24.md` | Created | Summarizes M3 verification, Stats Web build verification, and M0/M1 regression results. |
+| `tests/results/M3-FileValidation/M3-FileValidation-test-raw-output-2026-05-24.txt` | Created | Stores raw `pytest` output for the M3 File Validation Module. |
+| `tests/results/M3-FileValidation/M3-StatsWeb-upload-integration-build-raw-output-2026-05-24.txt` | Created | Stores raw `dotnet build` output for the Stats Web upload integration surface. |
+| `tests/results/M3-FileValidation/M3-M0-regression-raw-output-2026-05-24.txt` | Created | Stores carried-forward M0 architecture regression output. |
+| `tests/results/M3-FileValidation/M3-M1-regression-raw-output-2026-05-24.txt` | Created | Stores carried-forward M1 identity regression output. |
+| `tests/results/M3-FileValidation/M3-live-database-regression-raw-output-2026-05-24.txt` | Created | Stores the live Stats database identity regression output. |
+| `tests/results/M3-FileValidation/M3-FileValidation-manual-test-checklist.md` | Created | Records manual/API/UI validation expectations for M3. |
+| `tests/results/M3-FileValidation/M3-FileValidation-screenshot-evidence-2026-05-24.md` | Created | Indexes current raw evidence and lists the planned Windows screenshot targets for the full browser evidence session. |
 
 ## Verification
 

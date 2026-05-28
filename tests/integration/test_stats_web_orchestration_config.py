@@ -35,12 +35,13 @@ def test_local_orchestration_is_enabled_for_m2_shell():
     assert orchestration["HealthCheckTimeoutSeconds"] >= 1
 
 
-def test_local_orchestration_declares_identity_and_file_intake_services():
+def test_local_orchestration_declares_identity_file_intake_and_document_parsing_services():
     """Ensure the shell knows the current local module API health endpoints."""
     appsettings = _load_appsettings()
     stats_api_base_url = appsettings["StatsApi"]["BaseUrl"].rstrip("/")
     file_validation_base_url = appsettings["StatsWeb"]["Downstream"]["FileValidationBaseUrl"].rstrip("/")
     file_ingestion_base_url = appsettings["StatsWeb"]["Downstream"]["FileIngestionBaseUrl"].rstrip("/")
+    document_parsing_base_url = appsettings["StatsWeb"]["Downstream"]["DocumentParsingBaseUrl"].rstrip("/")
     services = {
         service["Name"]: service
         for service in appsettings["StatsWeb"]["LocalOrchestration"]["Services"]
@@ -48,6 +49,7 @@ def test_local_orchestration_declares_identity_and_file_intake_services():
 
     assert services["Identity Access API"]["HealthUrl"] == f"{stats_api_base_url}/health"
     assert services["File Validation API"]["HealthUrl"] == f"{file_validation_base_url}/health"
+    assert services["Document Parsing API"]["HealthUrl"] == f"{document_parsing_base_url}/health"
     assert file_ingestion_base_url == file_validation_base_url
     assert "File Ingestion API" not in services
 

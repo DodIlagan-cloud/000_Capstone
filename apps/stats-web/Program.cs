@@ -23,6 +23,17 @@ builder.Services.Configure<StatsLocalOrchestrationOptions>(
 );
 builder.Services.AddHostedService<StatsLocalServiceOrchestrator>();
 // M2 End
+// M13 - Containerization Start
+// Keeps the browser on the single Stats Web entry point while proxying API calls to internal module processes.
+builder.Services.AddSingleton(
+    new StatsWebProxyOptions(
+        IdentityBaseUrl: builder.Configuration["StatsWeb:Proxy:IdentityBaseUrl"] ?? "http://localhost:8013",
+        FileValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:FileValidationBaseUrl"] ?? "http://localhost:8014",
+        FileIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:FileIngestionBaseUrl"] ?? "http://localhost:8014",
+        DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? "http://localhost:8015"
+    )
+);
+// M13 End
 // M2 - Stats Web Shell Start
 // Exposes shell feature flags and deferred downstream module targets through configuration.
 builder.Services.AddSingleton(
@@ -33,6 +44,7 @@ builder.Services.AddSingleton(
         ReportsShellEnabled: builder.Configuration.GetValue("StatsWeb:Features:ReportsShell", true),
         FileValidationBaseUrl: builder.Configuration["StatsWeb:Downstream:FileValidationBaseUrl"] ?? string.Empty,
         FileIngestionBaseUrl: builder.Configuration["StatsWeb:Downstream:FileIngestionBaseUrl"] ?? string.Empty,
+        DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Downstream:DocumentParsingBaseUrl"] ?? string.Empty,
         EmailIngestionBaseUrl: builder.Configuration["StatsWeb:Downstream:EmailIngestionBaseUrl"] ?? string.Empty,
         StatsDataBaseUrl: builder.Configuration["StatsWeb:Downstream:StatsDataBaseUrl"] ?? string.Empty,
         ReportingEmbedConfigUrl: builder.Configuration["StatsWeb:Downstream:ReportingEmbedConfigUrl"] ?? string.Empty,
@@ -58,10 +70,30 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseRouting();
+// M13 - Containerization Start
+// Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
+app.MapMethods(
+    "/api/v1/{**path}",
+    ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    StatsWebApiProxy.ProxyApiRequestAsync
+);
+// M13 End
 app.MapRazorPages();
+// M13 - Containerization Start
+// Exposes a /health endpoint so the M13 Compose health check and container startup script can verify Stats Web is ready.
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Stats Web" }));
+// M13 End
 app.Run();
 
 public sealed record StatsApiOptions(string BaseUrl);
+// M13 - Containerization Start
+public sealed record StatsWebProxyOptions(
+    string IdentityBaseUrl,
+    string FileValidationBaseUrl,
+    string FileIngestionBaseUrl,
+    string DocumentParsingBaseUrl
+);
+// M13 End
 // M2 - Stats Web Shell Start
 // Defines optional local process orchestration for standalone module APIs.
 public sealed class StatsLocalOrchestrationOptions
@@ -248,6 +280,7 @@ public sealed record StatsWebShellOptions(
     bool ReportsShellEnabled,
     string FileValidationBaseUrl,
     string FileIngestionBaseUrl,
+    string DocumentParsingBaseUrl,
     string EmailIngestionBaseUrl,
     string StatsDataBaseUrl,
     string ReportingEmbedConfigUrl,
@@ -262,3 +295,131 @@ public sealed record StatsWebShellOptions(
 );
 // M2 End
 // M1 End
+
+// M13 - Containerization Start
+// Minimal reverse proxy for browser-originating API calls through the single Stats Web container port.
+public static class StatsWebApiProxy
+{
+    public static async Task ProxyApiRequestAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebProxyOptions proxyOptions,
+        ILoggerFactory loggerFactory
+    )
+    {
+        var path = Convert.ToString(context.Request.RouteValues["path"]) ?? string.Empty;
+        var targetBaseUrl = ResolveProxyBaseUrl(path, proxyOptions);
+        if (string.IsNullOrWhiteSpace(targetBaseUrl))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new { detail = $"No Stats module route is configured for /api/v1/{path}." });
+            return;
+        }
+
+        var targetUri = new Uri($"{targetBaseUrl.TrimEnd('/')}/api/v1/{path}{context.Request.QueryString}");
+        using var requestMessage = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
+
+        foreach (var header in context.Request.Headers)
+        {
+            if (IsHopByHopHeader(header.Key) || string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray()))
+            {
+                requestMessage.Content ??= new StreamContent(context.Request.Body);
+                requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+            }
+        }
+
+        if (context.Request.ContentLength > 0 && requestMessage.Content is null)
+        {
+            requestMessage.Content = new StreamContent(context.Request.Body);
+            if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
+            {
+                requestMessage.Content.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+            }
+        }
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            using var responseMessage = await client.SendAsync(
+                requestMessage,
+                HttpCompletionOption.ResponseHeadersRead,
+                context.RequestAborted
+            );
+
+            context.Response.StatusCode = (int)responseMessage.StatusCode;
+            foreach (var header in responseMessage.Headers)
+            {
+                if (!IsHopByHopHeader(header.Key))
+                {
+                    context.Response.Headers[header.Key] = header.Value.ToArray();
+                }
+            }
+
+            foreach (var header in responseMessage.Content.Headers)
+            {
+                if (!IsHopByHopHeader(header.Key))
+                {
+                    context.Response.Headers[header.Key] = header.Value.ToArray();
+                }
+            }
+
+            context.Response.Headers.Remove("transfer-encoding");
+            await responseMessage.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+                or TaskCanceledException
+                or OperationCanceledException
+        )
+        {
+            var logger = loggerFactory.CreateLogger("StatsWebApiProxy");
+            logger.LogWarning(exception, "Failed to proxy /api/v1/{Path} to {TargetUri}.", path, targetUri);
+            context.Response.StatusCode = StatusCodes.Status502BadGateway;
+            await context.Response.WriteAsJsonAsync(new { detail = "Stats module API proxy request failed." });
+        }
+    }
+
+    private static string ResolveProxyBaseUrl(string path, StatsWebProxyOptions proxyOptions)
+    {
+        if (path.StartsWith("auth", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("users", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.IdentityBaseUrl;
+        }
+
+        if (path.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.FileValidationBaseUrl;
+        }
+
+        if (path.StartsWith("ingestions", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.FileIngestionBaseUrl;
+        }
+
+        if (path.StartsWith("parses", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.DocumentParsingBaseUrl;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsHopByHopHeader(string headerName)
+    {
+        return string.Equals(headerName, "Connection", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Keep-Alive", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Proxy-Authenticate", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Proxy-Authorization", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "TE", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Trailer", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Transfer-Encoding", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Upgrade", StringComparison.OrdinalIgnoreCase);
+    }
+}
+// M13 End

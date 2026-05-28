@@ -1,4 +1,4 @@
-# M0 Project Foundation File Inventory
+﻿# M0 Project Foundation File Inventory
 
 <!-- M0 Foundation: project-level file inventory for architecture scaffolding and repository rules. -->
 
@@ -69,20 +69,20 @@ These tracked artefacts still demonstrate conventions established earlier in M0:
 | Evidence workflow skill | `skills/module-test-evidence/` | Guides actual Windows screenshot and raw-output evidence capture. |
 | File inventory skill | `skills/module-file-inventory/` | Supports later module inventories. |
 | File tagging skill | `skills/module-file-tagging/` | Supports requested module comments and traceability tags. |
-| Initial M0 evidence | `stats/stats-ingestion-service/test-results/M0-FoundationInitial/` | Demonstrates test result summary, raw output, checklist, screenshot index, and actual screenshots. |
-| M0 tagging retest evidence | `stats/stats-ingestion-service/test-results/M0-TaggingAdded/` | Demonstrates retesting after tagged executable files changed. |
+| Initial M0 evidence | `stats/stats-ingestion-service/tests/results/M0-FoundationInitial/` | Demonstrates test result summary, raw output, checklist, screenshot index, and actual screenshots. |
+| M0 tagging retest evidence | `stats/stats-ingestion-service/tests/results/M0-TaggingAdded/` | Demonstrates retesting after tagged executable files changed. |
 
 ## Updated M0 Architecture Test Evidence
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-test-scenarios.md` | Created | Defines the updated M0 project-foundation scenarios for architecture artefacts, ignore rules, module-spec readiness, and the transitional code note. |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation_terminal_check.py` | Created | Runs direct M0 checks for required architecture paths and Git ignore hygiene. |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-test-raw-output-2026-05-23.txt` | Created | Stores the passing raw output from the direct M0 architecture verification command. |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-test-results-2026-05-23.md` | Created | Summarizes the updated M0 architecture scenario results. |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-manual-test-checklist.md` | Created | Records the manual M0 review checks for docs, template readiness, and transitional boundaries. |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-screenshot-evidence-2026-05-23.md` | Created | Indexes the retained actual Windows terminal screenshot and states what it proves. |
-| `test-results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-windows-terminal-test-2026-05-23.png` | Created | Cropped actual Windows PowerShell screenshot showing the direct M0 architecture checks passing. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-test-scenarios.md` | Created | Defines the updated M0 project-foundation scenarios for architecture artefacts, ignore rules, module-spec readiness, and the transitional code note. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation_terminal_check.py` | Created | Runs direct M0 checks for required architecture paths and Git ignore hygiene. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-test-raw-output-2026-05-23.txt` | Created | Stores the passing raw output from the direct M0 architecture verification command. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-test-results-2026-05-23.md` | Created | Summarizes the updated M0 architecture scenario results. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-manual-test-checklist.md` | Created | Records the manual M0 review checks for docs, template readiness, and transitional boundaries. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-screenshot-evidence-2026-05-23.md` | Created | Indexes the retained actual Windows terminal screenshot and states what it proves. |
+| `tests/results/M0-ArchitectureFoundation/M0-ArchitectureFoundation-windows-terminal-test-2026-05-23.png` | Created | Cropped actual Windows PowerShell screenshot showing the direct M0 architecture checks passing. |
 
 ## Verification Notes
 

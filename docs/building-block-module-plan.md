@@ -27,8 +27,7 @@ Stats will be developed as an integrating product built from reusable modules.
 |-- modules/
 |   |-- identity-access-module/          # Login, tokens, roles, access checks
 |   |-- file-validation-module/          # File validation plus upload intake, source tracking, ingestion jobs
-|   |-- ocr-extraction-module/           # OCR/text extraction from supported documents
-|   |-- document-classification-module/  # Document type classification
+|   |-- document-parsing-module/         # OCR/direct text extraction plus document classification
 |   |-- transaction-extraction-module/   # Financial field/transaction extraction
 |   |-- data-validation-module/          # Cleaning, duplicate checks, data-quality warnings
 |   `-- email-ingestion-module/          # Email attachment intake into ingestion flow
@@ -79,8 +78,8 @@ Every standalone module must provide:
 | 1 | Identity Access Module | Standalone module | User login, role claims, tokens, protected access checks | Auth/token API and token verification contract |
 | 2 | Stats Web Shell | Encompassing `.NET` app | Login UI, app navigation, service orchestration shell | Calls module APIs; no OCR/parsing logic |
 | 3-4 | File Validation and Ingestion Module | Standalone module | Validate file type, size, extension, signatures, hashes, rejection reasons, accepted-file intake, ingestion records, and handoff status | File validation request/result API plus ingestion API/status contract |
-| 5 | OCR Extraction Module | Standalone module | Extract text from PDFs/images/scans, expose extraction metadata | Text extraction API/result contract |
-| 6 | Document Classification Module | Standalone module | Classify bank statement, receipt, invoice, bill, unknown | Classification API/result contract |
+| 5 | Document Parsing Module | Standalone module | Extract text from PDFs/images/scans, classify document type, expose parse quality/evaluation metadata | Document parsing API/result contract |
+| 6 | Merged into M5 | Retired standalone slot | Former document classification scope is now part of M5 | Covered by M5 classification result |
 | 7 | Transaction Extraction Module | Standalone module | Extract financial fields and transaction candidates | Transaction extraction API/result contract |
 | 8 | Data Validation Module | Standalone module | Clean, validate, warn, and detect duplicates/incomplete records | Data-quality report contract |
 | 9 | Stats Data and Persistence | Encompassing product module | Stats database schema, migrations, persistence adapters, stored workflow results | Stats persistence contract |
@@ -98,9 +97,8 @@ flowchart LR
     User["User"] --> Web["Stats Web (.NET)"]
     Web --> Identity["Identity Access Module"]
     Web --> FileIntake["File Validation and Ingestion Module"]
-    FileIntake --> OCR["OCR Extraction Module"]
-    OCR --> Classification["Document Classification Module"]
-    Classification --> Extraction["Transaction Extraction Module"]
+    FileIntake --> Parsing["Document Parsing Module"]
+    Parsing --> Extraction["Transaction Extraction Module"]
     Extraction --> Validation["Data Validation Module"]
     Validation --> Storage["Stats Data and Persistence"]
     Storage --> Web
@@ -114,8 +112,8 @@ flowchart LR
 | User Management and Access Control | Identity Access Module plus Stats Web login/access UI |
 | Manual Document Upload | Stats Web upload UI plus the merged File Validation and Ingestion Module |
 | File validation controls | Merged File Validation and Ingestion Module |
-| OCR Processing | OCR Extraction Module |
-| Process and Data Analysis | Classification, Transaction Extraction, Data Validation |
+| OCR Processing | Merged Document Parsing Module |
+| Process and Data Analysis | M5 classification output, Transaction Extraction, Data Validation |
 | Data Storage | Stats Data and Persistence product module |
 | Dashboard and Reporting | Stats Web dashboard/reporting module |
 | Email Ingestion | Email Ingestion Module feeding the merged File Validation and Ingestion Module |
@@ -130,7 +128,7 @@ The official Capstone timeline remains six weeks. The reusable-module architectu
 | --- | --- | --- |
 | 20-26 May 2026 | Project setup and detailed design | Foundation, Identity Access spec, Stats Web shell direction, sample/contracts setup |
 | 27 May-2 June 2026 | Document ingestion | Merged File Validation and Ingestion Module, Stats upload workflow contract |
-| 3-9 June 2026 | OCR and parsing | OCR Extraction Module, Document Classification Module, Transaction Extraction Module |
+| 3-9 June 2026 | OCR and parsing | Merged Document Parsing Module, Transaction Extraction Module |
 | 10-16 June 2026 | Validation, cleaning, and storage | Data Validation Module, Stats Data and Persistence |
 | 17-23 June 2026 | Dashboard and integration | Stats Workflow Integration, Stats Dashboard and Reporting |
 | 24-30 June 2026 | Testing and finalisation | Containerization priority pass, Cloud Readiness notes, Evaluation Evidence, final fixes |
@@ -178,12 +176,11 @@ These are implemented in one reusable intake runtime:
 - File validation answers whether a file is acceptable and why.
 - File ingestion tracks accepted files entering a workflow and exposes downstream handoff/status.
 
-### OCR and Financial Extraction
+### Document Parsing and Financial Extraction
 
-These remain separate:
+M5 merges OCR/text extraction and document classification into one reusable parsing runtime:
 
-- OCR Extraction Module turns a supported document into text and extraction metadata.
-- Document Classification Module identifies the document class.
+- Document Parsing Module chooses direct PDF text or OCR, returns text, parse metadata, quality/evaluation fields, redacted evidence preview, and classification result.
 - Transaction Extraction Module interprets financial fields from text/document context.
 
 ## Suggested Per-Module Chat Prompt

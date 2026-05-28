@@ -1,4 +1,4 @@
-<!-- M2 - Stats Web Shell Start -->
+﻿<!-- M2 - Stats Web Shell Start -->
 <!-- Specifies the Stats Web encompassing app shell, navigation, identity consumption, and orchestration boundaries. -->
 
 # Module 2 Stats Web Shell Specification
@@ -64,7 +64,7 @@ The business need is to give users a stable, authenticated Stats workspace befor
 5. Define API-client configuration so later module base URLs can be supplied without editing source code.
 6. Keep M2 code and documentation tagged with the `M2 - Stats Web Shell` convention where comments are supported.
 7. Add or update automated and manual checks for shell navigation, protected access, role-aware visibility, responsive layout, and M1 regression flows.
-8. Capture M2 evidence in a named root `test-results/` evidence folder that includes raw output, checklist, and actual Windows browser/terminal screenshots where applicable.
+8. Capture M2 evidence in a named root `tests/results/` evidence folder that includes raw output, checklist, and actual Windows browser/terminal screenshots where applicable.
 
 ## Non-Goals
 
@@ -90,7 +90,7 @@ apps/stats-web/
 
 This folder owns Stats-specific Razor Pages, app layout, client-side scripts, styling, static assets, web runtime configuration, and module-local automated tests if added.
 
-M2 specifications, file inventories, project-level documentation, and assessment evidence belong under root `docs/` and root `test-results/`.
+M2 specifications, file inventories, project-level documentation, and assessment evidence belong under root `docs/` and root `tests/results/`.
 
 ### M2 Owns
 
@@ -518,7 +518,7 @@ Each completed module adds to the Stats project regression baseline.
 Use the root grouped evidence folder:
 
 ```text
-test-results/M2-StatsWebShell-M0-M1/
+tests/results/M2-StatsWebShell-M0-M1/
 ```
 
 Expected evidence artefacts:
@@ -547,7 +547,7 @@ M2 is complete when:
 - Deferred downstream features show controlled empty/unavailable states.
 - The app remains usable on desktop and mobile widths.
 - M2 evidence includes build output, browser evidence, manual checklist, and M0/M1 regression evidence.
-- M2 evidence is stored under root `test-results/`, not under `apps/stats-web/`.
+- M2 evidence is stored under root `tests/results/`, not under `apps/stats-web/`.
 - M2 code and documentation changes are traceable through file tags and a file inventory when implementation work is added.
 
 ## Deferred Items

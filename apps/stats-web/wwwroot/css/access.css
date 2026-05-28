@@ -555,6 +555,36 @@ tbody tr:last-child td {
   margin: 0;
 }
 
+/* M5 - Document Parsing Module Start */
+/* Keeps full parse JSON readable without expanding the upload layout unexpectedly. */
+.json-output {
+  border-top: 1px solid var(--line);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.json-output summary {
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.json-output pre {
+  background: rgba(7, 17, 22, 0.5);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0.75rem 0 0;
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* M5/M6 End */
+
 .deferred-state[data-tone="success"] {
   color: var(--accent-strong);
 }

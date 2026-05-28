@@ -9,7 +9,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
 
-MODULE_ROOT = Path(__file__).resolve().parents[1]
+MODULE_ROOT = Path(__file__).resolve().parents[3] / "modules" / "file-validation-module"
+for module_name in list(sys.modules):
+    if module_name == "app" or module_name.startswith("app."):
+        del sys.modules[module_name]
 if str(MODULE_ROOT) not in sys.path:
     sys.path.insert(0, str(MODULE_ROOT))
 

@@ -1,4 +1,4 @@
-<!-- M2 - Stats Web Shell Start -->
+﻿<!-- M2 - Stats Web Shell Start -->
 <!-- Documents the files created or modified for Module 2 Stats Web Shell. -->
 
 # M2 Stats Web Shell File Inventory
@@ -50,7 +50,7 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 
 | File or Folder | Change Type | Description |
 | --- | --- | --- |
-| `test-results/M2-StatsWebShell-M0-M1/` | Created | Stores M2 build/test evidence and carried-forward M0/M1 regression notes for this execution session. |
+| `tests/results/M2-StatsWebShell-M0-M1/` | Created | Stores M2 build/test evidence and carried-forward M0/M1 regression notes for this execution session. |
 
 ## Notes
 
