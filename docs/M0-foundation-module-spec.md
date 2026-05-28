@@ -218,7 +218,17 @@ Use separate commits for:
 
 ## Evidence Standard
 
-Each module evidence set should be stored in a named evidence folder near that module or under an agreed evidence path.
+All test artefacts must be stored under the repository-root `tests/` folder.
+
+Use these root-owned locations:
+
+- Automated unit tests: `tests/unit/<module>/`
+- Automated integration and contract tests: `tests/integration/`
+- Test fixtures and real local inputs: `tests/input/`
+- Evidence scripts and reusable test helpers: `tests/scripts/`
+- Test results, raw output, screenshots, checklists, and evidence summaries: `tests/results/<module-or-session>/`
+
+Do not create module-local `test-results/` folders under `modules/` or `apps/`. Module specs and READMEs may link to root `tests/results/` evidence, but evidence artefacts themselves belong under the root `tests/` tree.
 
 ### Required Evidence Types
 
@@ -286,7 +296,9 @@ M0 verification is primarily project-convention verification.
 
 ### Supporting Demonstration
 
-Early Foundation and regression evidence currently demonstrates the evidence workflow through files under:
+Earlier Foundation and regression evidence may exist outside the current root `tests/` convention as project history. New or updated test artefacts must use the root `tests/` tree.
+
+Historical example:
 
 ```text
 stats/stats-ingestion-service/tests/results/
