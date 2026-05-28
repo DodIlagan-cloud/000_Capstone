@@ -7,8 +7,8 @@ const validationResult = document.querySelector("#validation-result");
 const ingestionResult = document.querySelector("#ingestion-result");
 const uploadState = document.querySelector("#upload-state");
 const continueProcessingButton = document.querySelector("#continue-processing-button");
-const fileValidationBaseUrl = document.body.dataset.fileValidationBaseUrl || "";
-const fileIngestionBaseUrl = document.body.dataset.fileIngestionBaseUrl || fileValidationBaseUrl;
+const fileValidationBaseUrl = document.body.dataset.fileValidationBaseUrl ?? "";
+const fileIngestionBaseUrl = document.body.dataset.fileIngestionBaseUrl ?? fileValidationBaseUrl;
 
 let selectedFile = null;
 let acceptedValidation = null;
@@ -117,11 +117,6 @@ function validateFileCandidate(file) {
 }
 
 async function validateSelectedFile(file) {
-  if (!fileValidationBaseUrl) {
-    setValidationState("File validation is not configured yet.", "error");
-    return;
-  }
-
   const formData = new FormData();
   formData.append("file", file);
 
@@ -199,11 +194,6 @@ function renderIngestionResult(record) {
 async function sendAcceptedFileToProcessing() {
   if (!selectedFile || !acceptedValidation) {
     setValidationState("Choose an accepted file before sending it to processing.", "error");
-    return;
-  }
-
-  if (!fileIngestionBaseUrl) {
-    setValidationState("File ingestion is not configured yet.", "error");
     return;
   }
 

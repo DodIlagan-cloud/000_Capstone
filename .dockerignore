@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/__pycache__/
+**/.pytest_cache/
+**/test-results/
+.git/
+.qodo/
+.venv/
+venv/
+env/
+docx_render_check/
+test-results/
+test-input/
+infrastructure/compose/.env.container
