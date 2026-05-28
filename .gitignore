@@ -22,6 +22,11 @@ apps/stats-data/data/
 # Test evidence is retained locally until the final evidence check-in.
 test-results/
 
+# Local test fixtures and machine-specific test helper settings stay local.
+test-input/*
+!test-input/README.md
+tests/scripts/config/test-script-settings.local.json
+
 # Keeps local config overrides with secrets or developer-specific values out of source control.
 **/.env
 

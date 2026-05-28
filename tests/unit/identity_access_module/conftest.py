@@ -20,7 +20,11 @@ from sqlalchemy.pool import StaticPool
 
 # M1 - User Access Management Start
 # Forces tests to use local SQLite instead of requiring a PostgreSQL service.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+MODULE_ROOT = Path(__file__).resolve().parents[3] / "modules" / "identity-access-module"
+for module_name in list(sys.modules):
+    if module_name == "app" or module_name.startswith("app."):
+        del sys.modules[module_name]
+sys.path.insert(0, str(MODULE_ROOT))
 os.environ["DATABASE_URL"] = "sqlite://"
 # M1 End
 
