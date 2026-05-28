@@ -15,9 +15,9 @@ From M13 onward the Stats app is **container-first**. This boundary applies to a
 
 Host commands are allowed only for: editing files, static contract tests, fast unit tests, linting, and inspecting code. Integrated builds, runtime validation, database validation, OCR validation, cross-module regression, browser evidence, and capstone assessment evidence must run against the Docker stack.
 
-## Unit Test Layout
+## Test Artefact Layout
 
-Automated tests live under the root `tests/` directory, not inside module source folders. They are segregated by test type:
+All test artefacts live under the root `tests/` directory, not inside module or app source folders. They are segregated by test type:
 
 | Folder | Type | Scope |
 | --- | --- |
@@ -25,6 +25,11 @@ Automated tests live under the root `tests/` directory, not inside module source
 | `tests/unit/file_validation_module/` | Unit/module tests | M3/M4 File Validation and Ingestion |
 | `tests/unit/document_parsing_module/` | Unit/module tests | M5 Document Parsing |
 | `tests/integration/` | Integration/static contracts | Cross-module and infrastructure checks |
+| `tests/scripts/` | Evidence scripts and helper scripts | All modules |
+| `tests/results/` | Raw output, screenshots, JSON summaries, Markdown evidence | All modules |
+| `tests/input/` | Local real-data fixtures | Evidence and real-data tests |
+
+Do not create new module-local `test-results/` folders under `modules/` or `apps/`.
 
 Run consolidated host-side unit tests with:
 
