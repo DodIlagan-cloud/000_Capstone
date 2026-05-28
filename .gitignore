@@ -1,4 +1,4 @@
-# M0 Foundation: repository ignore rules for generated files and local-only artefacts.
+﻿# M0 Foundation: repository ignore rules for generated files and local-only artefacts.
 
 # Python
 __pycache__/
@@ -20,11 +20,11 @@ apps/stats-data/data/
 *.log
 
 # Test evidence is retained locally until the final evidence check-in.
-test-results/
+tests/results/
 
 # Local test fixtures and machine-specific test helper settings stay local.
-test-input/*
-!test-input/README.md
+tests/input/*
+!tests/input/README.md
 tests/scripts/config/test-script-settings.local.json
 
 # Keeps local config overrides with secrets or developer-specific values out of source control.

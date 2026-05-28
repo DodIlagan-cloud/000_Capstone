@@ -1,4 +1,4 @@
-# Stats Test Helpers
+﻿# Stats Test Helpers
 
 This directory contains reusable evidence, regression, and helper scripts for the Stats capstone project.
 
@@ -51,11 +51,11 @@ docker compose --file infrastructure\compose\stats-runtime.compose.yml `
 Prerequisites:
 - Docker Desktop running
 - `infrastructure\compose\.env.container` populated from `.env.container.example` (never committed)
-- `test-input\` populated with real fixture files (gitignored; only `test-input\README.md` is tracked)
+- `tests\\input\\` populated with real fixture files (gitignored; only `tests\\input\\README.md` is tracked)
 
 ## Fixture Source
 
-All acceptance and evidence scripts use `test-input\` as the required fixture directory. Do not use Google Drive paths, synthetic files, or host-installed tools as acceptance fixtures. Real source files under `test-input\` are gitignored.
+All acceptance and evidence scripts use `tests\\input\\` as the required fixture directory. Do not use Google Drive paths, synthetic files, or host-installed tools as acceptance fixtures. Real source files under `tests\\input\\` are gitignored.
 
 ## Script Folders
 
@@ -85,12 +85,12 @@ This script:
 1. Starts (or reuses) the Docker stack
 2. Verifies `stats-db` healthy and `users` table exists (M1)
 3. Verifies Stats Web pages via HTTP (M2)
-4. Validates every `test-input/` fixture through M3 File Validation
+4. Validates every `tests/input/` fixture through M3 File Validation
 5. Ingests every validated fixture through M4 File Ingestion
 6. Parses every fixture through M5 Document Parsing with Tesseract OCR
 7. Runs a cross-module validate -> ingest -> parse pipeline per fixture
-8. Writes per-module JSON evidence to `test-results/DockerRegression/M1/` through `M5/`
-9. Writes a dated summary to `test-results/DockerRegression/docker-regression-summary-YYYY-MM-DD.md`
+8. Writes per-module JSON evidence to `tests/results/DockerRegression/M1/` through `M5/`
+9. Writes a dated summary to `tests/results/DockerRegression/docker-regression-summary-YYYY-MM-DD.md`
 
 ## M13-Specific Acceptance Runner
 
@@ -116,13 +116,13 @@ Directory paths are configured in `tests/scripts/config/test-script-settings.jso
 
 | Folder | Contents |
 | --- | --- |
-| `test-results/DockerRegression/` | Full M1-M5 Docker regression evidence (primary) |
-| `test-results/DockerRegression/M1/` | M1 login and user listing JSON |
-| `test-results/DockerRegression/M2/` | M2 Stats Web HTTP status JSON |
-| `test-results/DockerRegression/M3/` | M3 file validation JSON per fixture |
-| `test-results/DockerRegression/M4/` | M4 ingestion record JSON per fixture |
-| `test-results/DockerRegression/M5/` | M5 parse result JSON per fixture |
-| `test-results/DockerRegression/cross-module/` | Cross-module pipeline summary JSON per fixture |
-| `test-results/M13-Containerization/` | M13 acceptance evidence |
+| `tests/results/DockerRegression/` | Full M1-M5 Docker regression evidence (primary) |
+| `tests/results/DockerRegression/M1/` | M1 login and user listing JSON |
+| `tests/results/DockerRegression/M2/` | M2 Stats Web HTTP status JSON |
+| `tests/results/DockerRegression/M3/` | M3 file validation JSON per fixture |
+| `tests/results/DockerRegression/M4/` | M4 ingestion record JSON per fixture |
+| `tests/results/DockerRegression/M5/` | M5 parse result JSON per fixture |
+| `tests/results/DockerRegression/cross-module/` | Cross-module pipeline summary JSON per fixture |
+| `tests/results/M13-Containerization/` | M13 acceptance evidence |
 
 Run all scripts from the repository root unless the script header says otherwise.

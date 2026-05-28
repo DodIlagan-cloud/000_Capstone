@@ -1,11 +1,11 @@
-# M13 - Containerization Start
+﻿# M13 - Containerization Start
 # Runs consolidated host-side module unit tests from root tests/unit/<module>/ folders.
 # Each module runs in a separate pytest process because service modules share the top-level Python package name "app".
 
 [CmdletBinding()]
 param(
     [string]$RepoRoot = "",
-    [string]$TestInputDir = "test-input"
+    [string]$TestInputDir = "tests/input"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +20,7 @@ if (Test-Path $testInputPath) {
     $env:STATS_PARSING_TESTDATA_DIR = (Resolve-Path $testInputPath).Path
 }
 
-$tempRoot = Join-Path $RepoRoot "test-results\pytest-tmp"
+$tempRoot = Join-Path $RepoRoot "tests\\results\\pytest-tmp"
 New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 $runId = Get-Date -Format "yyyyMMddHHmmss"
 

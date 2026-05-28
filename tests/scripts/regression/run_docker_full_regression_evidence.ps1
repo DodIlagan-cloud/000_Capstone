@@ -1,4 +1,4 @@
-# M13 - Containerization Start
+﻿# M13 - Containerization Start
 # Docker full regression evidence script: M1 through M5.
 #
 # PURPOSE:
@@ -22,13 +22,13 @@
 # MODULES COVERED:
 #   M1  Identity Access Module    -- DB init, login, token issuance, user listing
 #   M2  Stats Web Shell           -- /health, /, /Login, /Upload page presence
-#   M3  File Validation           -- validate every test-input/ fixture
-#   M4  File Ingestion            -- ingest every validated test-input/ fixture
-#   M5  Document Parsing          -- OCR/text parse every test-input/ fixture
+#   M3  File Validation           -- validate every tests/input/ fixture
+#   M4  File Ingestion            -- ingest every validated tests/input/ fixture
+#   M5  Document Parsing          -- OCR/text parse every tests/input/ fixture
 #   Cross-module: validate -> ingest -> parse pipeline per fixture file
 #
 # FIXTURE SOURCE:
-#   test-input/  (gitignored real files; only test-input/README.md is tracked)
+#   tests/input/  (gitignored real files; only tests/input/README.md is tracked)
 #   Do NOT use Google Drive paths or synthetic fallbacks.
 #
 # SECRETS:
@@ -50,8 +50,8 @@ param(
     [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..\..\.." | Select-Object -ExpandProperty Path),
     [string]$ComposeFile = "infrastructure\compose\stats-runtime.compose.yml",
     [string]$EnvFile = "infrastructure\compose\.env.container",
-    [string]$TestInputDir = "test-input",
-    [string]$EvidenceRoot = "test-results\DockerRegression",
+    [string]$TestInputDir = "tests/input",
+    [string]$EvidenceRoot = "tests\\results\\DockerRegression",
     [string]$StatsWebUrl = "http://127.0.0.1:8080",
     [int]$StartupTimeoutSeconds = 180,
     [int]$HealthPollIntervalSeconds = 5,
@@ -148,8 +148,8 @@ if (-not (Test-Path $EnvFilePath)) {
     $prereqOk = $false
 } else { Pass ".env.container exists" }
 
-if (-not (Test-Path $TestInputPath)) { Fail "test-input/ exists" ; $prereqOk = $false }
-else { Pass "test-input/ exists" }
+if (-not (Test-Path $TestInputPath)) { Fail "tests/input/ exists" ; $prereqOk = $false }
+else { Pass "tests/input/ exists" }
 
 $SupportedExtensions = @(".jpg", ".jpeg", ".png", ".pdf")
 $Fixtures = @()
@@ -159,10 +159,10 @@ if (Test-Path $TestInputPath) {
 }
 
 if ($Fixtures.Count -gt 0) {
-    Pass "test-input/ has $($Fixtures.Count) supported fixture(s)"
+    Pass "tests/input/ has $($Fixtures.Count) supported fixture(s)"
     foreach ($f in $Fixtures) { Write-Result "     $($f.Name)" }
 } else {
-    Fail "test-input/ needs at least one .jpg/.jpeg/.png/.pdf"
+    Fail "tests/input/ needs at least one .jpg/.jpeg/.png/.pdf"
     $prereqOk = $false
 }
 
@@ -375,7 +375,7 @@ Gap "M2 browser screenshots -- run manually or via Claude in Chrome; this script
 # ---------------------------------------------------------------------------
 # 6. M3 -- File Validation (per fixture)
 # ---------------------------------------------------------------------------
-Section "6. M3 -- File Validation (all test-input/ fixtures)"
+Section "6. M3 -- File Validation (all tests/input/ fixtures)"
 
 $m3Passed = 0 ; $m3Failed = 0
 foreach ($fixture in $Fixtures) {
@@ -406,7 +406,7 @@ Write-Result "  M3 totals: $m3Passed passed, $m3Failed failed"
 # ---------------------------------------------------------------------------
 # 7. M4 -- File Ingestion (per fixture, using validated status)
 # ---------------------------------------------------------------------------
-Section "7. M4 -- File Ingestion (all test-input/ fixtures)"
+Section "7. M4 -- File Ingestion (all tests/input/ fixtures)"
 
 $m4Passed = 0 ; $m4Failed = 0
 $ingestionIds = @{}   # filename -> ingestion_id, used by cross-module section
@@ -446,7 +446,7 @@ Write-Result "  M4 totals: $m4Passed passed, $m4Failed failed"
 # ---------------------------------------------------------------------------
 # 8. M5 -- Document Parsing (per fixture, with OCR forcing for PDFs)
 # ---------------------------------------------------------------------------
-Section "8. M5 -- Document Parsing (all test-input/ fixtures)"
+Section "8. M5 -- Document Parsing (all tests/input/ fixtures)"
 
 $m5Passed = 0 ; $m5Failed = 0
 
@@ -638,14 +638,14 @@ Env file: $EnvFile (never committed; contains secrets)
 
 | Module | Description | Evidence folder |
 | --- | --- | --- |
-| M1 | Identity Access -- DB init, login, user listing | test-results/DockerRegression/M1/ |
-| M2 | Stats Web Shell -- page presence via HTTP | test-results/DockerRegression/M2/ |
-| M3 | File Validation -- all test-input/ fixtures | test-results/DockerRegression/M3/ |
-| M4 | File Ingestion -- all test-input/ fixtures | test-results/DockerRegression/M4/ |
-| M5 | Document Parsing (OCR + text) -- all test-input/ fixtures | test-results/DockerRegression/M5/ |
-| Cross | Validate -> Ingest -> Parse pipeline per fixture | test-results/DockerRegression/cross-module/ |
+| M1 | Identity Access -- DB init, login, user listing | tests/results/DockerRegression/M1/ |
+| M2 | Stats Web Shell -- page presence via HTTP | tests/results/DockerRegression/M2/ |
+| M3 | File Validation -- all tests/input/ fixtures | tests/results/DockerRegression/M3/ |
+| M4 | File Ingestion -- all tests/input/ fixtures | tests/results/DockerRegression/M4/ |
+| M5 | Document Parsing (OCR + text) -- all tests/input/ fixtures | tests/results/DockerRegression/M5/ |
+| Cross | Validate -> Ingest -> Parse pipeline per fixture | tests/results/DockerRegression/cross-module/ |
 
-Raw transcript: test-results/DockerRegression/docker-regression-raw-output-$Date.txt
+Raw transcript: tests/results/DockerRegression/docker-regression-raw-output-$Date.txt
 
 ## Fixture Files Processed
 
@@ -668,7 +668,7 @@ $gapList
 
 ## Source File Policy
 
-Real source files under test-input/ are gitignored. Only test-input/README.md is tracked.
+Real source files under tests/input/ are gitignored. Only tests/input/README.md is tracked.
 Do not commit real fixture files.
 
 <!-- M13 End -->

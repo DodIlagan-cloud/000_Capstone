@@ -15,5 +15,10 @@ public class UploadModel(StatsApiOptions statsApiOptions, StatsWebShellOptions s
     // Exposes the ingestion API target for validation-gated handoff to common processing storage.
     public string FileIngestionBaseUrl { get; } = shellOptions.FileIngestionBaseUrl.TrimEnd('/');
     // M3/M4 End
+
+    // M5 - Document Parsing Module Start
+    // Exposes the parsing API target for the validate -> ingest -> parse upload flow.
+    public string DocumentParsingBaseUrl { get; } = shellOptions.DocumentParsingBaseUrl.TrimEnd('/');
+    // M5/M6 End
 }
 // M2 End

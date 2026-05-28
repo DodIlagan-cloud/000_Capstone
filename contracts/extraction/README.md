@@ -2,11 +2,35 @@
 
 <!-- M0 Foundation: target folder for extraction and classification contracts. -->
 
-This folder will hold extraction-oriented contracts such as:
+This folder holds extraction-oriented contracts such as:
 
+- document parsing result
 - text extraction result
-- extraction metadata
+- OCR/parse metadata
 - document classification result
 - extraction findings
 
-These contracts should separate OCR, classification, and downstream financial extraction responsibilities.
+## M5 Document Parsing Result
+
+M5 merges direct text extraction, OCR fallback, and document classification into one reusable contract.
+
+Primary request:
+
+- Multipart document file.
+- Optional ingestion/source identifiers.
+- Optional SHA-256 from file intake.
+- Optional direct-text, OCR fallback, language, page-limit, and classification-threshold settings.
+
+Primary result:
+
+- `parse_id` and `status`.
+- `document` trace metadata.
+- `text` and per-page text results.
+- `metadata` for extraction method, OCR engine, page counts, elapsed time, language, and page limit.
+- `strategy` decision showing the selected parse strategy and fallback readiness.
+- `classification` with document type, confidence, status, reason codes, and scores.
+- `quality` and `evaluation` fields for measurable project outcomes.
+- `evidence` preview with personal information, card numbers, and account numbers redacted.
+- `findings` for unsupported files, OCR dependency gaps, low text, or ambiguous classification.
+
+Downstream transaction extraction consumes the M5 result rather than calling a separate OCR module and classification module.

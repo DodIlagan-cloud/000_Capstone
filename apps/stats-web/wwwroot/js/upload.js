@@ -5,10 +5,11 @@ const documentDropZone = document.querySelector("#document-drop-zone");
 const selectedFileSummary = document.querySelector("#selected-file-summary");
 const validationResult = document.querySelector("#validation-result");
 const ingestionResult = document.querySelector("#ingestion-result");
+const parseResult = document.querySelector("#parse-result");
 const uploadState = document.querySelector("#upload-state");
-const continueProcessingButton = document.querySelector("#continue-processing-button");
 const fileValidationBaseUrl = document.body.dataset.fileValidationBaseUrl ?? "";
 const fileIngestionBaseUrl = document.body.dataset.fileIngestionBaseUrl ?? fileValidationBaseUrl;
+const documentParsingBaseUrl = document.body.dataset.documentParsingBaseUrl ?? "";
 
 let selectedFile = null;
 let acceptedValidation = null;
@@ -102,7 +103,7 @@ function renderValidationResult(result) {
 function validateFileCandidate(file) {
   validationResult.hidden = true;
   ingestionResult.hidden = true;
-  continueProcessingButton.disabled = true;
+  parseResult.hidden = true;
   selectedFile = file || null;
   acceptedValidation = null;
 
@@ -121,7 +122,8 @@ async function validateSelectedFile(file) {
   formData.append("file", file);
 
   validationResult.hidden = true;
-  continueProcessingButton.disabled = true;
+  ingestionResult.hidden = true;
+  parseResult.hidden = true;
   setValidationState("Validating file.", "pending");
 
   try {
@@ -139,8 +141,8 @@ async function validateSelectedFile(file) {
 
     if (result.status === "accepted") {
       acceptedValidation = result;
-      setValidationState("File accepted. Send it to processing when ready.", "success");
-      continueProcessingButton.disabled = false;
+      setValidationState("File accepted. Sending it to processing.", "pending");
+      await sendAcceptedFileToProcessing();
       return;
     }
 
@@ -191,9 +193,65 @@ function renderIngestionResult(record) {
   }
 }
 
+function renderParseResult(result) {
+  parseResult.hidden = false;
+  parseResult.dataset.status = result.status === "failed" ? "rejected" : "accepted";
+  parseResult.replaceChildren();
+
+  const heading = document.createElement("h3");
+  heading.textContent = result.status === "failed" ? "Parsing needs review" : "Parsed";
+
+  const documentInfo = result.document || {};
+  const classification = result.classification || {};
+  const text = result.text || {};
+  const strategy = result.strategy || {};
+  const details = document.createElement("dl");
+  [
+    ["Status", result.status],
+    ["Document type", classification.document_type || documentInfo.document_type || "unknown"],
+    ["Confidence", classification.confidence ?? 0],
+    ["Strategy", strategy.selected_strategy || result.evaluation?.strategy || "unknown"],
+    ["Text length", text.length ?? 0],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = String(value ?? "-");
+    row.append(term, description);
+    details.append(row);
+  });
+
+  parseResult.append(heading, details);
+
+  const findings = result.findings || [];
+  if (findings.length) {
+    const findingList = document.createElement("ul");
+    findings.forEach((finding) => {
+      const item = document.createElement("li");
+      item.textContent = finding.message || finding.code || "Parsing finding";
+      findingList.append(item);
+    });
+    parseResult.append(findingList);
+  }
+
+  const jsonDetails = document.createElement("details");
+  jsonDetails.className = "json-output";
+  jsonDetails.open = true;
+
+  const jsonSummary = document.createElement("summary");
+  jsonSummary.textContent = "View M5 JSON output";
+
+  const jsonOutput = document.createElement("pre");
+  jsonOutput.textContent = JSON.stringify(result, null, 2);
+
+  jsonDetails.append(jsonSummary, jsonOutput);
+  parseResult.append(jsonDetails);
+}
+
 async function sendAcceptedFileToProcessing() {
   if (!selectedFile || !acceptedValidation) {
-    setValidationState("Choose an accepted file before sending it to processing.", "error");
+    setValidationState("Choose an accepted file before processing.", "error");
     return;
   }
 
@@ -207,7 +265,6 @@ async function sendAcceptedFileToProcessing() {
   formData.append("source_id", "stats-web-upload");
 
   try {
-    continueProcessingButton.disabled = true;
     setValidationState("Sending accepted file to processing.", "pending");
 
     const user = await window.statsAccess.currentUser();
@@ -225,15 +282,53 @@ async function sendAcceptedFileToProcessing() {
     const record = await response.json();
     renderIngestionResult(record);
 
-    if (record.status === "queued") {
-      setValidationState("Document queued in the common processing directory.", "success");
+    if (record.status === "queued" || record.status === "duplicate") {
+      setValidationState("Document ingested. Parsing document.", "pending");
+      await parseAcceptedFile(record);
       return;
     }
 
     setValidationState("Document was not queued. Review the ingestion result.", "error");
   } catch (error) {
-    continueProcessingButton.disabled = false;
     setValidationState(error.message || "File ingestion failed.", "error");
+  }
+}
+
+async function parseAcceptedFile(record) {
+  if (!documentParsingBaseUrl) {
+    setValidationState("Document parsing service is not configured.", "error");
+    return;
+  }
+
+  const metadata = acceptedValidation.metadata || {};
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+  formData.append("ingestion_id", record.ingestion_id || "");
+  formData.append("source_type", "manual_upload");
+  formData.append("source_id", "stats-web-upload");
+  formData.append("sha256", metadata.sha256 || "");
+
+  try {
+    const response = await fetch(`${documentParsingBaseUrl}/api/v1/parses`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error("Document parsing service did not accept the request.");
+    }
+
+    const result = await response.json();
+    renderParseResult(result);
+
+    if (result.status === "failed") {
+      setValidationState("Document parsing needs review.", "error");
+      return;
+    }
+
+    setValidationState("Document validated and parsed.", "success");
+  } catch (error) {
+    setValidationState(error.message || "Document parsing failed.", "error");
   }
 }
 
@@ -284,7 +379,4 @@ documentDropZone?.addEventListener("drop", (event) => {
   validateFileCandidate(file);
 });
 
-continueProcessingButton?.addEventListener("click", () => {
-  sendAcceptedFileToProcessing();
-});
 // M3/M4 End

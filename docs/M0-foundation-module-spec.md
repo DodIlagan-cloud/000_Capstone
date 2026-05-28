@@ -1,4 +1,4 @@
-# M0 Project Foundation Specification
+﻿# M0 Project Foundation Specification
 
 <!-- M0 Foundation: project foundation specification aligned with the Stats building-block module plan. -->
 
@@ -289,7 +289,7 @@ M0 verification is primarily project-convention verification.
 Early Foundation and regression evidence currently demonstrates the evidence workflow through files under:
 
 ```text
-stats/stats-ingestion-service/test-results/
+stats/stats-ingestion-service/tests/results/
 ```
 
 That demonstration is supporting M0 evidence. It does not redefine M0 as a FastAPI service module.

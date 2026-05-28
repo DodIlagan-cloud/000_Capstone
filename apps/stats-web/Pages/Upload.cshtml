@@ -13,7 +13,7 @@
     <script src="/js/app.js" defer></script>
     <script src="/js/upload.js" defer asp-append-version="true"></script>
   </head>
-  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-file-validation-base-url="@Model.FileValidationBaseUrl" data-file-ingestion-base-url="@Model.FileIngestionBaseUrl" data-shell-area="upload">
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-file-validation-base-url="@Model.FileValidationBaseUrl" data-file-ingestion-base-url="@Model.FileIngestionBaseUrl" data-document-parsing-base-url="@Model.DocumentParsingBaseUrl" data-shell-area="upload">
     <main class="app-shell">
       <header class="app-header">
         <div>
@@ -40,8 +40,8 @@
         <section class="shell-panel" aria-labelledby="upload-title">
           <div>
             <p class="session-label">Manual upload</p>
-            <h2 id="upload-title">Validate before parsing</h2>
-            <p class="panel-copy">Choose a document and Stats will validate it automatically. Accepted files can then be sent to the common processing directory.</p>
+            <h2 id="upload-title">Validate and parse</h2>
+            <p class="panel-copy">Choose a document and Stats will validate, ingest, and parse it automatically.</p>
           </div>
 
           @* M3/M4 - File Intake Module Start *@
@@ -56,7 +56,7 @@
             <div id="selected-file-summary" class="file-summary" hidden></div>
             <div id="validation-result" class="validation-result" hidden></div>
             <div id="ingestion-result" class="validation-result" hidden></div>
-            <button id="continue-processing-button" type="button" disabled>Send to processing</button>
+            <div id="parse-result" class="validation-result" hidden></div>
             <p id="upload-state" class="deferred-state">Choose a file to validate.</p>
           </form>
           @* M3/M4 End *@

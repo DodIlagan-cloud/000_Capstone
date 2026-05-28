@@ -47,6 +47,7 @@ $RemoteDebuggingPort = [int] $Settings.runtime.m5EdgeDebugPort
 $AdminEmail = "admin.manual@example.com"
 $AdminPassword = "EvidenceAdmin123"
 $EdgePath = $Settings.localPaths.edgeExecutable
+$EvidenceDate = Get-Date -Format "yyyy-MM-dd"
 
 New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
 
@@ -237,11 +238,11 @@ try {
 })()
 "@ | Out-Null
     Wait-CdpFor -Socket $socket -Expression "location.pathname === '/' && document.querySelector('#app-message') && document.querySelector('#app-message').textContent.includes('Access granted')" -TimeoutSeconds 20
-    $signedInShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-01-signed-in-home-2026-05-27.png"
+    $signedInShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-01-signed-in-home-$EvidenceDate.png"
 
     Open-CdpPage -Socket $socket -Url "$BaseUrl/Upload"
     Wait-CdpFor -Socket $socket -Expression "document.querySelector('#document-drop-zone') && !document.querySelector('#landing-workspace').hidden" -TimeoutSeconds 20
-    $readyShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-02-upload-ready-2026-05-27.png"
+    $readyShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-02-upload-ready-$EvidenceDate.png"
 
     $pdfBase64 = [Convert]::ToBase64String((Get-Content -LiteralPath $UploadPdfPath -Encoding Byte))
     Invoke-CdpEval -Socket $socket -Expression @"
@@ -262,11 +263,11 @@ try {
 })()
 "@ | Out-Null
     Wait-CdpFor -Socket $socket -Expression "document.querySelector('#validation-result h3') && document.querySelector('#validation-result h3').textContent === 'Accepted'" -TimeoutSeconds 25
-    $validationShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-03-validated-2026-05-27.png"
+    $validationShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-03-validated-$EvidenceDate.png"
     Wait-CdpFor -Socket $socket -Expression "document.querySelector('#ingestion-result h3')" -TimeoutSeconds 25
     Wait-CdpFor -Socket $socket -Expression "document.querySelector('#parse-result h3') && document.querySelector('#parse-result h3').textContent === 'Parsed'" -TimeoutSeconds 25
     Wait-CdpFor -Socket $socket -Expression "document.querySelector('#upload-state') && document.querySelector('#upload-state').textContent.includes('validated and parsed')" -TimeoutSeconds 25
-    $parsedShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-04-validated-ingested-parsed-2026-05-27.png"
+    $parsedShot = Save-CdpScreenshot -Socket $socket -Name "M5-DocumentParsing-actual-app-04-validated-ingested-parsed-$EvidenceDate.png"
 
     $appSummary = Invoke-CdpEval -Socket $socket -Expression @"
 (() => {
@@ -294,7 +295,11 @@ try {
       document_type: parse[1],
       confidence: parse[2],
       strategy: parse[3],
-      text_length: parse[4]
+      text_length: parse[4],
+      json_visible: Boolean(document.querySelector('#parse-result .json-output pre')),
+      json_preview: document.querySelector('#parse-result .json-output pre')
+        ? document.querySelector('#parse-result .json-output pre').textContent.slice(0, 240)
+        : ''
     }
   };
 })()
@@ -305,7 +310,7 @@ try {
         screenshots = @($signedInShot, $readyShot, $validationShot, $parsedShot)
         app_summary = $appSummary
     }
-    $summaryPath = Join-Path $EvidenceDir "M5-DocumentParsing-actual-app-flow-summary-2026-05-27.json"
+    $summaryPath = Join-Path $EvidenceDir "M5-DocumentParsing-actual-app-flow-summary-$EvidenceDate.json"
     $summary | ConvertTo-Json -Depth 10 | Set-Content -Path $summaryPath -Encoding UTF8
     $summary | ConvertTo-Json -Depth 10
 } finally {

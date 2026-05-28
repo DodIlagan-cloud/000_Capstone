@@ -1,11 +1,11 @@
-<!-- M13 - Containerization Start -->
+﻿<!-- M13 - Containerization Start -->
 <!-- Specifies the single Stats runtime container that packages all module APIs, Tesseract OCR, and Stats Web. -->
 
 # Module 13 Containerization Module Specification
 
 ## Module Summary
 
-Module 13 establishes the **Containerization Module** for the Stats project. It packages the complete Stats runtime — Stats Web, all Python module APIs, Tesseract OCR, OCR language data, and PDF rendering dependencies — into a single portable container so the full system can run consistently across developer machines, CI environments, and production targets without manual dependency installation.
+Module 13 establishes the **Containerization Module** for the Stats project. It packages the complete Stats runtime â€” Stats Web, all Python module APIs, Tesseract OCR, OCR language data, and PDF rendering dependencies â€” into a single portable container so the full system can run consistently across developer machines, CI environments, and production targets without manual dependency installation.
 
 M13 is the prerequisite for enabling live Tesseract OCR in M5. Until M13 is in place, OCR is intentionally disabled locally (`ALLOW_OCR_FALLBACK=false`) and document parsing falls back to direct PDF text extraction only. After M13, image files and scanned PDFs can be parsed end-to-end through the containerized runtime.
 
@@ -30,7 +30,7 @@ The building-block plan defines this module as:
 | Main responsibility | Local containers, Compose, service health checks, dependencies |
 | Reusable output | Dockerfiles and Compose profiles |
 
-M13 starts early relative to its roadmap position because M5 OCR requires Tesseract to be available in a portable runtime. M13 is not moved forward as a full cloud deployment module — it is scoped here to the single Stats runtime container that enables OCR and consistent local execution.
+M13 starts early relative to its roadmap position because M5 OCR requires Tesseract to be available in a portable runtime. M13 is not moved forward as a full cloud deployment module â€” it is scoped here to the single Stats runtime container that enables OCR and consistent local execution.
 
 ## Goals
 
@@ -38,10 +38,10 @@ M13 starts early relative to its roadmap position because M5 OCR requires Tesser
 - Enable Tesseract OCR for M5 document parsing inside the container runtime.
 - Start module APIs in dependency order and confirm their health before Stats Web starts.
 - Expose Stats Web on a configurable container port so the browser-facing app is the single entry point.
-- Keep all runtime values — ports, hosts, OCR paths, database URLs, API base URLs, token settings — configurable through environment variables and config files rather than hardcoded in the container image.
+- Keep all runtime values â€” ports, hosts, OCR paths, database URLs, API base URLs, token settings â€” configurable through environment variables and config files rather than hardcoded in the container image.
 - Provide a local Compose file so the full Stats runtime can be started and stopped with one command.
 - Provide health check definitions for every packaged service.
-- Enable M5 OCR end-to-end testing against the project-root `test-input/` fixtures inside the container.
+- Enable M5 OCR end-to-end testing against the project-root `tests/input/` fixtures inside the container.
 
 ## Non-Goals
 
@@ -76,9 +76,9 @@ The single Stats runtime container must include:
 | Component | Source | Purpose |
 | --- | --- | --- |
 | Stats Web | `apps/stats-web/` | .NET encompassing front end and orchestration shell |
-| Identity Access API | `modules/identity-access-module/` | Login, tokens, role checks — port 8013 |
-| File Validation API | `modules/file-validation-module/` | File validation and ingestion — port 8014 |
-| Document Parsing API | `modules/document-parsing-module/` | OCR/text extraction and classification — port 8015 |
+| Identity Access API | `modules/identity-access-module/` | Login, tokens, role checks â€” port 8013 |
+| File Validation API | `modules/file-validation-module/` | File validation and ingestion â€” port 8014 |
+| Document Parsing API | `modules/document-parsing-module/` | OCR/text extraction and classification â€” port 8015 |
 | Tesseract OCR | System package | OCR engine required by M5 |
 | OCR language data | `tesseract-ocr-eng` or equivalent | English language tessdata required by M5 |
 | PyMuPDF | Python package | PDF rendering for scanned PDF OCR in M5 |
@@ -89,7 +89,7 @@ The single Stats runtime container must include:
 
 | Service | Internal Port | Notes |
 | --- | --- | --- |
-| Stats Web | 8080 (container) → configurable host port | Browser entry point |
+| Stats Web | 8080 (container) â†’ configurable host port | Browser entry point |
 | Identity Access API | 8013 | Internal only; not exposed directly to host |
 | File Validation API | 8014 | Internal only; not exposed directly to host |
 | Document Parsing API | 8015 | Internal only; not exposed directly to host |
@@ -153,10 +153,10 @@ The health wait must use a configurable timeout and fail clearly if a dependency
 
 - Define a `stats-db` PostgreSQL service with a `stats-db-data` persistent volume.
 - Define the `stats` service using the built Stats runtime image with `depends_on: stats-db: condition: service_healthy`.
-- Wire `DATABASE_URL` inside the `stats` service to point to the `stats-db` Compose service — not to `host.docker.internal`.
+- Wire `DATABASE_URL` inside the `stats` service to point to the `stats-db` Compose service â€” not to `host.docker.internal`.
 - Map the Stats Web container port to a configurable host port.
 - Pass runtime environment variables through to the container using an `.env.container` file.
-- Mount no source code volumes — the container must be self-contained for production-like validation.
+- Mount no source code volumes â€” the container must be self-contained for production-like validation.
 - Include a `healthcheck` definition against the Stats Web `/health` endpoint.
 
 **Architectural note:** M13 owns the runtime wiring of `stats-db` inside the Compose stack. M9 (Stats Data and Persistence) owns the full Stats schema, migrations, and persistence adapters. The `stats-db` service here satisfies the M1 identity persistence requirement; M9 will expand the schema when implemented.
@@ -216,28 +216,28 @@ Each service exposes a `/health` endpoint. The startup script polls each endpoin
 
 Stats Web exposes `/health` via a `MapGet` minimal endpoint added in `Program.cs` specifically for M13 container and Compose health check support.
 
-The Document Parsing API health check is the most critical — it must confirm `ocr.enabled: true` inside the container, proving Tesseract is configured and available.
+The Document Parsing API health check is the most critical â€” it must confirm `ocr.enabled: true` inside the container, proving Tesseract is configured and available.
 
 ## M5 OCR Validation Inside Container
 
-After M13 is running, M5 OCR must be validated with the project-root `test-input/` fixtures:
+After M13 is running, M5 OCR must be validated with the project-root `tests/input/` fixtures:
 
-- Copy every supported file from `test-input/` into the running `stats-runtime` container for the evidence run.
+- Copy every supported file from `tests/input/` into the running `stats-runtime` container for the evidence run.
 - Confirm JPEG, PNG, and scanned/no-text PDF files use the OCR path.
 - Confirm image parse results use `strategy: tesseract_ocr`.
 - Confirm forced-PDF-OCR results use `method: ocr`.
 - Confirm the parse status is `completed` or `completed_with_warnings`.
 - Confirm extracted text is non-empty.
 
-This validates the container OCR path: local project fixture → `stats-runtime` → Document Parsing → PyMuPDF/Tesseract → classification result.
+This validates the container OCR path: local project fixture â†’ `stats-runtime` â†’ Document Parsing â†’ PyMuPDF/Tesseract â†’ classification result.
 
 Real local test fixtures for this validation:
 
 ```text
-C:\000_Capstone\test-input
+C:\000_Capstone\tests/input
 ```
 
-Every supported file in `test-input/` must be used by the M13 evidence runner. Supported fixture extensions are `.jpg`, `.jpeg`, `.png`, and `.pdf`. Source documents in this folder are local-only and ignored by Git.
+Every supported file in `tests/input/` must be used by the M13 evidence runner. Supported fixture extensions are `.jpg`, `.jpeg`, `.png`, and `.pdf`. Source documents in this folder are local-only and ignored by Git.
 
 ## Testing Boundary
 
@@ -273,8 +273,8 @@ After building and starting the container:
 - Document Parsing `/health` reports `ocr.enabled: true`.
 - Stats Web is reachable on the configured host port.
 - A text-layer PDF uploaded through Stats Web parses with `strategy: pdf_text`.
-- Every image file (JPEG or PNG) in `test-input/` parses with `strategy: tesseract_ocr`.
-- Every PDF in `test-input/` is forced through OCR for the evidence run and returns non-empty text.
+- Every image file (JPEG or PNG) in `tests/input/` parses with `strategy: tesseract_ocr`.
+- Every PDF in `tests/input/` is forced through OCR for the evidence run and returns non-empty text.
 
 ### Evidence
 
@@ -282,7 +282,7 @@ M13 evidence must include:
 
 - Raw container build output confirming Tesseract was installed.
 - Raw container startup log showing each service health check passed.
-- M5 parse response for every supported file in `test-input/`.
+- M5 parse response for every supported file in `tests/input/`.
 - JPEG/PNG responses showing `strategy: tesseract_ocr` and non-empty text.
 - PDF forced-OCR responses showing `method: ocr` and non-empty text.
 - Stats Web browser screenshot showing a successfully parsed image or scanned document result.

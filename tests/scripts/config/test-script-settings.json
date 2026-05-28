@@ -1,16 +1,16 @@
-{
+﻿{
   "evidenceFolders": {
-    "M0ArchitectureFoundation": "test-results/M0-ArchitectureFoundation",
-    "M1AdminUserFlow": "test-results/RegTest-AdminUserFlow-M0-M1/M1-UserAccessManagementRegression",
-    "M1ConfigRuntime": "test-results/RegTest-ConfigDrivenRuntime-M0-M1/M1-UserAccessManagementRegression",
-    "M2StatsWebShell": "test-results/M2-StatsWebShell-M0-M1",
-    "M2StatsWebOrchestration": "test-results/M2-StatsWebShell-Orchestration-M0-M1",
-    "M3M4MergedModule": "test-results/MergedFileIntake-ModuleEvidence-2026-05-26",
-    "M3M4AppFlow": "test-results/MergedFileIntake-AppFlow-2026-05-26",
-    "M5DocumentParsing": "test-results/M5-DocumentParsing-M0-M4",
-    "CrossModuleRegressionM3M4": "test-results/RegTest-MergedFileIntake-M0-M1-M2-M3M4-2026-05-26",
-    "M13Containerization": "test-results/M13-Containerization",
-    "TempBuild": "test-results/tmp-build"
+    "M0ArchitectureFoundation": "tests/results/M0-ArchitectureFoundation",
+    "M1AdminUserFlow": "tests/results/RegTest-AdminUserFlow-M0-M1/M1-UserAccessManagementRegression",
+    "M1ConfigRuntime": "tests/results/RegTest-ConfigDrivenRuntime-M0-M1/M1-UserAccessManagementRegression",
+    "M2StatsWebShell": "tests/results/M2-StatsWebShell-M0-M1",
+    "M2StatsWebOrchestration": "tests/results/M2-StatsWebShell-Orchestration-M0-M1",
+    "M3M4MergedModule": "tests/results/MergedFileIntake-ModuleEvidence-2026-05-26",
+    "M3M4AppFlow": "tests/results/MergedFileIntake-AppFlow-2026-05-26",
+    "M5DocumentParsing": "tests/results/M5-DocumentParsing-M0-M4",
+    "CrossModuleRegressionM3M4": "tests/results/RegTest-MergedFileIntake-M0-M1-M2-M3M4-2026-05-26",
+    "M13Containerization": "tests/results/M13-Containerization",
+    "TempBuild": "tests/results/tmp-build"
   },
   "moduleFolders": {
     "IdentityAccess": "modules/identity-access-module",
@@ -26,7 +26,7 @@
   },
   "localPaths": {
     "testDataDir": "",
-    "testInputDir": "test-input",
+    "testInputDir": "tests/input",
     "m3M4AppFlowPdfName": "202311_BPICCBE20231108.pdf",
     "m5AppFlowPdfName": "202311_BPICCBE20231108.pdf",
     "edgeExecutable": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
@@ -48,8 +48,8 @@
     "composeFile": "infrastructure/compose/stats-runtime.compose.yml",
     "statsServiceName": "stats",
     "dbServiceName": "stats-db",
-    "testInputDir": "test-input",
-    "evidenceFolder": "test-results/M13-Containerization",
+    "testInputDir": "tests/input",
+    "evidenceFolder": "tests/results/M13-Containerization",
     "note": "Internal module ports 8013/8014/8015 are container-internal only. External entry point is Stats Web on port 8080. All acceptance and evidence runs target the Docker stack, not the local host runtime."
   }
 }

@@ -1,4 +1,4 @@
-# M13 - Containerization Start
+﻿# M13 - Containerization Start
 # Verifies the M13 single Stats runtime container contract.
 # Checks that required infrastructure files exist and contain the expected content.
 #
@@ -15,7 +15,7 @@ STARTUP_SCRIPT  = REPO_ROOT / "infrastructure" / "containers" / "stats" / "start
 COMPOSE_FILE    = REPO_ROOT / "infrastructure" / "compose" / "stats-runtime.compose.yml"
 ENV_EXAMPLE     = REPO_ROOT / "infrastructure" / "containers" / "stats" / ".env.container.example"
 STATS_WEB_PROGRAM = REPO_ROOT / "apps" / "stats-web" / "Program.cs"
-TEST_INPUT_DIR  = REPO_ROOT / "test-input"
+TEST_INPUT_DIR  = REPO_ROOT / "tests/input"
 EVIDENCE_RUNNER = REPO_ROOT / "tests/scripts" / "M13-Containerization" / "run_docker_acceptance_evidence.ps1"
 REGRESSION_RUNNER = REPO_ROOT / "tests/scripts" / "regression" / "run_docker_full_regression_evidence.ps1"
 
@@ -200,20 +200,20 @@ def test_env_example_documents_secret_key():
 
 def test_m13_evidence_runner_uses_project_test_input():
     content = EVIDENCE_RUNNER.read_text()
-    assert "test-input" in content
+    assert "tests/input" in content
     assert "docker cp" in content
     assert "stats-runtime" in content
     assert "/api/v1/parses" in content
 
 
 def test_project_test_input_contains_real_files():
-    assert TEST_INPUT_DIR.exists(), f"Required test-input directory not found at {TEST_INPUT_DIR}"
+    assert TEST_INPUT_DIR.exists(), f"Required tests/input directory not found at {TEST_INPUT_DIR}"
     supported = {".jpg", ".jpeg", ".png", ".pdf"}
     files = [
         path for path in TEST_INPUT_DIR.iterdir()
         if path.is_file() and path.suffix.lower() in supported
     ]
-    assert files, "test-input must contain at least one JPG, PNG, or PDF fixture"
+    assert files, "tests/input must contain at least one JPG, PNG, or PDF fixture"
 
 
 # -- Docker full regression evidence runner -----------------------------------
@@ -237,8 +237,8 @@ def test_docker_regression_runner_targets_stats_db():
 
 def test_docker_regression_runner_uses_test_input():
     content = REGRESSION_RUNNER.read_text()
-    assert "test-input" in content, \
-        "Regression script must use test-input/ as the fixture source"
+    assert "tests/input" in content, \
+        "Regression script must use tests/input/ as the fixture source"
 
 
 def test_docker_regression_runner_targets_stats_web_port():

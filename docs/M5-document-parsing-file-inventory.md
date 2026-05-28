@@ -1,4 +1,4 @@
-<!-- M5 - Document Parsing Module Start -->
+﻿<!-- M5 - Document Parsing Module Start -->
 <!-- Documents planned and completed files for the M5 Document Parsing Module. -->
 
 # M5 Document Parsing File Inventory
@@ -15,9 +15,9 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 | --- | --- | --- |
 | `docs/M5-document-parsing-module-spec.md` | Created | Defines M5 goals, boundaries, runtime configuration, API contract, OCR strategy rules, classification output, redaction, testing, M13 runtime alignment, and acceptance criteria. |
 | `docs/M5-document-parsing-file-inventory.md` | Created | Documents planned and completed files for M5. |
-| `docs/building-block-module-plan.md` | Planned Modified | Aligns the roadmap so M5 is the merged Document Parsing module and former M6 classification is included in M5. |
-| `docs/building-block-module-io-map.md` | Planned Modified | Defines the M5 input/output contract from file intake to transaction processing. |
-| `contracts/extraction/README.md` | Planned Modified | Adds the concrete M5 Document Parsing request/result contract summary. |
+| `docs/building-block-module-plan.md` | Modified | Aligns the roadmap so M5 is the merged Document Parsing module and former M6 classification is included in M5. |
+| `docs/building-block-module-io-map.md` | Modified | Defines the M5 input/output contract from file intake to transaction processing. |
+| `contracts/extraction/README.md` | Modified | Adds the concrete M5 Document Parsing request/result contract summary. |
 
 ## Standalone Module
 
@@ -64,20 +64,20 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `modules/document-parsing-module/tests/conftest.py` | Created | Provides FastAPI test client fixtures and approved TestData lookup. |
-| `modules/document-parsing-module/tests/test_foundation.py` | Created | Verifies app import, health/root endpoints, OCR readiness, and settings defaults. |
-| `modules/document-parsing-module/tests/test_parsing_service.py` | Created | Verifies PDF text extraction, OCR paths, unavailable dependency behavior, classification, redaction, and evaluation fields. |
-| `modules/document-parsing-module/tests/test_parsing_api.py` | Created | Verifies the multipart parsing API and trace metadata behavior. |
+| `tests/unit/document_parsing_module/conftest.py` | Created | Provides FastAPI test client fixtures and approved actual-data lookup. |
+| `tests/unit/document_parsing_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, OCR readiness, and settings defaults. |
+| `tests/unit/document_parsing_module/test_parsing_service.py` | Created | Verifies PDF text extraction, OCR paths, unavailable dependency behavior, classification, redaction, and evaluation fields. |
+| `tests/unit/document_parsing_module/test_parsing_api.py` | Created | Verifies the multipart parsing API and trace metadata behavior. |
 
 ## Evidence
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `test-results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-test-results-YYYY-MM-DD.md` | Planned Created | Summarizes M5 automated, real-data, app-flow, and targeted regression verification. |
-| `test-results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-test-raw-output-YYYY-MM-DD.txt` | Planned Created | Stores raw `pytest` output for the M5 module. |
-| `test-results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-manual-test-checklist.md` | Planned Created | Tracks M5 manual/API/UI/evidence expectations. |
-| `test-results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-screenshot-evidence-YYYY-MM-DD.md` | Planned Created | Indexes retained browser, terminal, app-flow, and JSON-output screenshots. |
-| `test-results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-actual-app-flow-summary-YYYY-MM-DD.json` | Planned Created | Stores app-flow metadata using approved TestData without copying full sensitive document text into Markdown evidence. |
+| `tests/results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-test-results-2026-05-28.md` | Created | Summarizes M5 automated, actual-data, app-flow, and targeted regression verification. |
+| `tests/results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-test-raw-output-2026-05-28.txt` | Created | Stores raw `pytest` output for the M5 module. |
+| `tests/results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-manual-test-checklist.md` | Created/Modified | Tracks M5 manual/API/UI/evidence expectations. |
+| `tests/results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-screenshot-evidence-2026-05-28.md` | Created | Indexes retained app-flow and JSON-output screenshots. |
+| `tests/results/M5-DocumentParsing-M0-M4/M5-DocumentParsing-actual-app-flow-summary-2026-05-28.json` | Created | Stores app-flow metadata using actual project test data without copying full sensitive document text into Markdown evidence. |
 
 
 ## Testing Boundary (M13)
@@ -96,8 +96,9 @@ Local unit tests remain the fast development feedback path and must not be remov
 Executed module test command:
 
 ```powershell
-cd $env:STATS_DOCUMENT_PARSING_MODULE_DIR
-pytest
+cd C:\000_Capstone
+$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests/input'
+pytest tests\unit\document_parsing_module
 ```
 
 Result: **16 passed, 1 cache warning**.
@@ -113,8 +114,9 @@ Result: **4 passed, 1 cache warning**.
 Executed touched File Intake regression with approved TestData:
 
 ```powershell
-cd $env:STATS_FILE_VALIDATION_MODULE_DIR
-pytest tests
+cd C:\000_Capstone
+$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests/input'
+pytest tests\unit\file_validation_module
 ```
 
 Result: **17 passed, 1 cache warning**.
@@ -122,11 +124,19 @@ Result: **17 passed, 1 cache warning**.
 Executed Stats Web compile check:
 
 ```powershell
-cd $env:STATS_WEB_DIR
-dotnet build -o $env:STATS_M5_EVIDENCE_DIR\stats-web-build-check
+dotnet build C:\000_Capstone\apps\stats-web\stats.Web.csproj -o C:\000_Capstone\tests\\results\\M5-DocumentParsing-M0-M4\stats-web-build-check-2026-05-28
 ```
 
 Result: **build succeeded, 0 warnings, 0 errors**.
+
+Executed actual app-flow evidence:
+
+```powershell
+$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests/input'
+powershell -ExecutionPolicy Bypass -File tests\scripts\M5-DocumentParsing\run_m5_actual_app_flow_evidence.ps1
+```
+
+Result: **validated, ingested, parsed, and displayed full M5 JSON output**.
 
 M13 containerization contract tests remain pending until the M13 single-container runtime files are implemented.
 

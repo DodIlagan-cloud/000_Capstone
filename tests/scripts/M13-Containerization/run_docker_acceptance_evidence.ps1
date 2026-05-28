@@ -1,7 +1,7 @@
-# M13 - Containerization Start
+﻿# M13 - Containerization Start
 # Docker acceptance evidence script for M13.
 # Starts the full Stats runtime stack, verifies container health, and parses every
-# supported test-input fixture through M5 inside Docker. Local pytest remains for
+# supported tests/input fixture through M5 inside Docker. Local pytest remains for
 # fast unit/static checks; this script is the acceptance/evidence path.
 # M13 End
 
@@ -9,8 +9,8 @@ param(
     [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..\..\.." | Select-Object -ExpandProperty Path),
     [string]$ComposeFile = "infrastructure\compose\stats-runtime.compose.yml",
     [string]$EnvFile = "infrastructure\compose\.env.container",
-    [string]$TestInputDir = "test-input",
-    [string]$EvidenceDir = "test-results\M13-Containerization",
+    [string]$TestInputDir = "tests/input",
+    [string]$EvidenceDir = "tests\\results\\M13-Containerization",
     [string]$StatsWebUrl = "http://127.0.0.1:8080",
     [int]$StartupTimeoutSeconds = 180,
     [int]$HealthPollIntervalSeconds = 5,
@@ -30,7 +30,7 @@ $ResultFile = Join-Path $EvidenceDirFull "M13-docker-acceptance-results-$Date.tx
 $JsonDir = Join-Path $EvidenceDirFull "json-$Date"
 $StatsContainer = "stats-runtime"
 $DbContainer = "stats-db"
-$ContainerInputDir = "/tmp/m13-test-input"
+$ContainerInputDir = "/tmp/m13-tests/input"
 
 if (-not (Test-Path $EvidenceDirFull)) {
     New-Item -ItemType Directory -Path $EvidenceDirFull -Force | Out-Null
@@ -110,7 +110,7 @@ Section "1. Prerequisites"
 
 if (Test-Path $ComposeFilePath) { Pass "Compose file exists" } else { Fail "Compose file exists" $ComposeFilePath }
 if (Test-Path $EnvFilePath) { Pass "container env file exists" } else { Fail "container env file exists" $EnvFilePath }
-if (Test-Path $TestInputPath) { Pass "test-input directory exists" } else { Fail "test-input directory exists" $TestInputPath }
+if (Test-Path $TestInputPath) { Pass "tests/input directory exists" } else { Fail "tests/input directory exists" $TestInputPath }
 
 $SupportedExtensions = @(".jpg", ".jpeg", ".png", ".pdf")
 $FixtureFiles = @()
@@ -121,12 +121,12 @@ if (Test-Path $TestInputPath) {
 }
 
 if ($FixtureFiles.Count -gt 0) {
-    Pass "test-input contains $($FixtureFiles.Count) supported fixture file(s)"
+    Pass "tests/input contains $($FixtureFiles.Count) supported fixture file(s)"
     foreach ($fixture in $FixtureFiles) {
         Write-Result "     - $($fixture.Name) ($($fixture.Length) bytes)"
     }
 } else {
-    Fail "test-input must contain at least one JPG, JPEG, PNG, or PDF fixture"
+    Fail "tests/input must contain at least one JPG, JPEG, PNG, or PDF fixture"
 }
 
 if ($Failed -gt 0) {
@@ -228,7 +228,7 @@ if ($LASTEXITCODE -eq 0 -and (($PgOutput -join "`n") -match "\b1\b")) {
     Fail "stats-db public.users table exists" "psql exit code $LASTEXITCODE"
 }
 
-Section "6. M5 OCR parse for every test-input fixture"
+Section "6. M5 OCR parse for every tests/input fixture"
 
 docker exec $StatsContainer mkdir -p $ContainerInputDir | Out-Null
 

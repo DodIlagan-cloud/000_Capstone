@@ -19,9 +19,8 @@ flowchart LR
     Identity["Identity Access Module"]
     UploadSource["Manual Upload Source"] --> FileIntake["File Validation and Ingestion Module"]
     Email["Email Ingestion Module"] --> FileIntake
-    FileIntake --> OCR["OCR Extraction Module"]
-    OCR --> Classification["Document Classification Module"]
-    Classification --> TransactionExtraction["Transaction Extraction Module"]
+    FileIntake --> Parsing["Document Parsing Module"]
+    Parsing --> TransactionExtraction["Transaction Extraction Module"]
     TransactionExtraction --> DataValidation["Data Validation Module"]
 ```
 
@@ -30,9 +29,8 @@ flowchart LR
 | Module | Primary Input | Primary Output | Output Used By |
 | --- | --- | --- | --- |
 | Identity Access Module | Login credentials, token validation request, role/permission check request | Auth token/session result, user identity claims, authorization decision, auth error | Any module or UI needing protected access |
-| File Validation and Ingestion Module | Uploaded file or file reference, validation policy, source context, ingestion options | Accepted/rejected validation result, ingestion record/status, normalized document handoff | OCR Extraction Module and workflow coordinator |
-| OCR Extraction Module | Ingested document reference/content and OCR/extraction options | Extracted text, page/image metadata, extraction method, confidence/quality metadata, extraction errors | Document Classification Module and later extraction modules |
-| Document Classification Module | Extracted text and document metadata | Document type label, confidence, classification reasons/features where useful, unknown result | Transaction Extraction Module and workflow coordinator |
+| File Validation and Ingestion Module | Uploaded file or file reference, validation policy, source context, ingestion options | Accepted/rejected validation result, ingestion record/status, normalized document handoff | Document Parsing Module and workflow coordinator |
+| Document Parsing Module | Ingested document reference/content and OCR/parsing options | Extracted text, page/image metadata, parse strategy, OCR readiness, redacted evidence preview, document type label, confidence, quality/evaluation metadata, findings | Transaction Extraction Module and workflow coordinator |
 | Transaction Extraction Module | Extracted text, document type, document metadata, extraction rules/options | Transaction candidates and financial field candidates with source/confidence metadata | Data Validation Module |
 | Data Validation Module | Transaction candidates, document context, data-quality rules/options | Cleaned/normalized records, validation warnings/errors, duplicate flags, completeness/quality report | Stats workflow, reporting, and Stats persistence layer |
 | Email Ingestion Module | Authorized mailbox/source config, email search/fetch request | Attachment candidates, email source metadata, ingestion-ready file handoff, email intake status/errors | File Validation and Ingestion Module |
@@ -101,7 +99,7 @@ flowchart LR
 - Duplicate/idempotent submission.
 - Downstream handoff failure.
 
-### OCR Extraction Module
+### Document Parsing Module
 
 **Input**
 
@@ -109,44 +107,28 @@ flowchart LR
 | --- | --- |
 | Document Content or Reference | PDF/image/scanned document accepted for processing. |
 | Document Metadata | Filename, page/image details if known, detected media type, source. |
-| Extraction Options | Direct text allowed, OCR fallback allowed, language/options, timeout limits. |
+| Parsing Options | Direct text allowed, OCR fallback allowed, language/options, page limits, classification threshold. |
 
 **Output**
 
 | Output Item | Description |
 | --- | --- |
 | Extracted Text | Text extracted from the document. |
-| Extraction Metadata | Page count, extraction method, OCR engine, processing time. |
-| Quality Metadata | Confidence or quality indicators where available. |
-| Extraction Findings | No text, unreadable file, OCR timeout, unsupported document/image condition. |
+| Parse Metadata | Page count, pages processed, extraction method, OCR engine where used, processing time. |
+| Strategy Decision | Direct PDF text, Tesseract OCR, OCR disabled, unsupported, or failed decision with reason. |
+| Document Type | Bank statement, receipt, invoice, utility bill, or unknown. |
+| Confidence | Classification confidence or certainty level. |
+| Redacted Evidence | Short preview and counts with personal information, card numbers, and account numbers masked. |
+| Parse Findings | No text, unreadable file, OCR timeout/unavailable, unsupported document/image condition, ambiguous classification. |
+| Evaluation Metadata | Document ID, strategy, status, page/text counts, finding counts, redaction flag, predicted type, and confidence. |
 
 **Minimum test fixtures**
 
 - Text PDF.
 - Scanned/image PDF.
+- Image document.
 - Low-quality or blank document.
 - Unsupported/corrupt document.
-
-### Document Classification Module
-
-**Input**
-
-| Input Item | Description |
-| --- | --- |
-| Extracted Text | Text from OCR/direct extraction. |
-| Document Metadata | Filename/source/type hints/page metadata. |
-| Classification Options | Supported document classes and thresholds. |
-
-**Output**
-
-| Output Item | Description |
-| --- | --- |
-| Document Type | Bank statement, receipt, invoice, utility bill, or unknown. |
-| Confidence | Classification confidence or certainty level. |
-| Classification Findings | Reasons/features, ambiguous result, unsupported class result. |
-
-**Minimum test fixtures**
-
 - Bank statement text.
 - Receipt text.
 - Invoice text.
@@ -243,8 +225,7 @@ flowchart LR
 | File Candidate Contract | File content/reference and source metadata before processing. |
 | File Validation Result Contract | Accepted/rejected file and validation findings. |
 | Ingestion Handoff Contract | Ingestion ID, normalized document metadata, downstream handoff. |
-| Text Extraction Result Contract | Extracted text and OCR/extraction metadata. |
-| Document Classification Result Contract | Document type and confidence. |
+| Document Parsing Result Contract | Extracted text, OCR/parse metadata, strategy decision, document classification, redacted evidence, quality/evaluation metadata, and findings. |
 | Transaction Candidate Contract | Parsed transaction/financial field candidates before cleaning. |
 | Data Quality Result Contract | Clean records plus warnings/errors/quality summary. |
 
@@ -253,11 +234,10 @@ flowchart LR
 | Step | Producer | Output | Consumer |
 | --- | --- | --- | --- |
 | 1 | Manual upload source or Email Ingestion Module | File candidate plus source context | File Validation and Ingestion Module |
-| 2 | File Validation and Ingestion Module | Normalized document handoff | OCR Extraction Module |
-| 3 | OCR Extraction Module | Text extraction result | Document Classification Module |
-| 4 | Document Classification Module | Classification result plus text context | Transaction Extraction Module |
-| 5 | Transaction Extraction Module | Transaction candidates | Data Validation Module |
-| 6 | Data Validation Module | Cleaned records and quality report | Stats workflow, Stats reporting, and Stats persistence layer |
+| 2 | File Validation and Ingestion Module | Normalized document handoff | Document Parsing Module |
+| 3 | Document Parsing Module | Extracted text, parse metadata, and classification result | Transaction Extraction Module |
+| 4 | Transaction Extraction Module | Transaction candidates | Data Validation Module |
+| 5 | Data Validation Module | Cleaned records and quality report | Stats workflow, Stats reporting, and Stats persistence layer |
 
 ## Boundary Notes
 

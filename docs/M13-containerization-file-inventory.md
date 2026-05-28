@@ -1,4 +1,4 @@
-<!-- M13 - Containerization Start -->
+﻿<!-- M13 - Containerization Start -->
 <!-- Documents the files created or modified for M13 Containerization. -->
 
 # M13 Containerization File Inventory
@@ -7,13 +7,13 @@
 
 This document lists the files created or modified for **M13 Containerization**. M13 packages the full Stats runtime into a single container with a companion `stats-db` PostgreSQL service, enabling Tesseract OCR for M5 and consistent local execution across environments.
 
-Current status: **implementation complete** for all container infrastructure files, startup orchestration, Compose profile with `stats-db`, environment example, Stats Web `/health` endpoint, and integration contract tests (41 checks). Full Docker regression evidence runner (M1-M5) added. Testing boundary documentation applied to all module READMEs, specs, and file inventories. The M13 evidence runner requires project-root `test-input/` fixtures for every OCR evidence run.
+Current status: **implementation complete** for all container infrastructure files, startup orchestration, Compose profile with `stats-db`, environment example, Stats Web `/health` endpoint, and integration contract tests (41 checks). Full Docker regression evidence runner (M1-M5) added. Testing boundary documentation applied to all module READMEs, specs, and file inventories. The M13 evidence runner requires project-root `tests/input/` fixtures for every OCR evidence run.
 
 ## Specification and Documentation
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `docs/M13-containerization-module-spec.md` | Created / Updated | Defines M13 goals, non-goals, what gets packaged, container structure including `stats-db`, startup orchestration order, Dockerfile build-time verification, runtime config, health check table, OCR validation requirements, testing, and acceptance criteria. Updated to require project-root `test-input/` fixtures for every OCR evidence run. |
+| `docs/M13-containerization-module-spec.md` | Created / Updated | Defines M13 goals, non-goals, what gets packaged, container structure including `stats-db`, startup orchestration order, Dockerfile build-time verification, runtime config, health check table, OCR validation requirements, testing, and acceptance criteria. Updated to require project-root `tests/input/` fixtures for every OCR evidence run. |
 | `docs/M13-containerization-file-inventory.md` | Created / Updated | This file. Updated to include all files touched in both the initial implementation and the architectural correction pass. |
 
 ## Container Infrastructure
@@ -35,17 +35,17 @@ Current status: **implementation complete** for all container infrastructure fil
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `tests/integration/test_m13_containerization_contract.py` | Created / Updated | Contract checks cover `stats-db` service in Compose, `stats-db-data` volume, `DATABASE_URL` pointing to `stats-db`, `depends_on`, Dockerfile build-time verification steps for Tesseract/PyMuPDF/pytesseract/Pillow, startup script database wait and `init_db`, Stats Web `/health`, and the required `test-input/` evidence runner policy. |
-| `test-results/M13-Containerization/M13_containerization_terminal_check.py` | Created / Updated | Evidence runner for live container validation. It now requires `test-input/`, copies every supported local fixture into `stats-runtime`, parses each file through M5, requires image files to use `strategy: tesseract_ocr`, and forces PDFs through OCR to exercise PyMuPDF plus Tesseract. |
-| `test-input/README.md` | Created | Documents the local fixture directory contract. Real source files in this folder stay local-only and are ignored by Git. |
-| `.gitignore` | Updated | Ignores local source files under `test-input/` while allowing `test-input/README.md` to be committed. |
-| `.dockerignore` | Updated | Excludes local `test-input/` source files from Docker build context; evidence runs copy fixtures into the running container explicitly. |
+| `tests/integration/test_m13_containerization_contract.py` | Created / Updated | Contract checks cover `stats-db` service in Compose, `stats-db-data` volume, `DATABASE_URL` pointing to `stats-db`, `depends_on`, Dockerfile build-time verification steps for Tesseract/PyMuPDF/pytesseract/Pillow, startup script database wait and `init_db`, Stats Web `/health`, and the required `tests/input/` evidence runner policy. |
+| `tests/results/M13-Containerization/M13_containerization_terminal_check.py` | Created / Updated | Evidence runner for live container validation. It now requires `tests/input/`, copies every supported local fixture into `stats-runtime`, parses each file through M5, requires image files to use `strategy: tesseract_ocr`, and forces PDFs through OCR to exercise PyMuPDF plus Tesseract. |
+| `tests/input/README.md` | Created | Documents the local fixture directory contract. Real source files in this folder stay local-only and are ignored by Git. |
+| `.gitignore` | Updated | Ignores local source files under `tests/input/` while allowing `tests/input/README.md` to be committed. |
+| `.dockerignore` | Updated | Excludes local `tests/input/` source files from Docker build context; evidence runs copy fixtures into the running container explicitly. |
 
 ## Docker Acceptance Evidence Infrastructure
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `tests/scripts/M13-Containerization/run_docker_acceptance_evidence.ps1` | Created | Main Docker acceptance evidence script. Starts the full Stats runtime stack via Compose, waits for Stats Web health, verifies all module API health endpoints via `docker exec`, checks that Document Parsing reports `ocr.enabled: true`, verifies the `users` table exists in `stats-db`, runs M5 OCR evidence against every supported file in `test-input/`, collects a container log snapshot, and writes a dated results summary. |
+| `tests/scripts/M13-Containerization/run_docker_acceptance_evidence.ps1` | Created | Main Docker acceptance evidence script. Starts the full Stats runtime stack via Compose, waits for Stats Web health, verifies all module API health endpoints via `docker exec`, checks that Document Parsing reports `ocr.enabled: true`, verifies the `users` table exists in `stats-db`, runs M5 OCR evidence against every supported file in `tests/input/`, collects a container log snapshot, and writes a dated results summary. |
 | `tests/scripts/config/test-script-settings.json` | Modified | Added `M13Containerization` evidence folder and script folder entries. Added `testInputDir` to `localPaths`. Added a `docker` section with `statsWebBaseUrl` pointing to port 8080, Compose file reference, service names, evidence folder, and a note that internal module ports 8013/8014/8015 are container-internal only. |
 | `tests/scripts/M5-DocumentParsing/run_m5_actual_app_flow_evidence.ps1` | Modified | Added testing boundary header comment noting local runtime scope and directing capstone/assessment evidence runs to the M13 Docker acceptance script. |
 | `tests/scripts/M3-M4-FileValidationIngestion/run_app_flow_evidence.ps1` | Modified | Added testing boundary header comment noting local runtime scope and directing capstone/assessment evidence runs to the M13 Docker acceptance script. |
@@ -68,16 +68,16 @@ Current status: **implementation complete** for all container infrastructure fil
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `tests/scripts/regression/run_docker_full_regression_evidence.ps1` | Created | Primary M1-M5 Docker regression evidence runner. Covers: M1 DB init/login/user listing, M2 Stats Web page presence, M3 per-fixture validation, M4 per-fixture ingestion, M5 per-fixture OCR/text parsing, and cross-module validate→ingest→parse pipeline. Writes dated JSON evidence per module and a Markdown summary report. |
-| `test-results/DockerRegression/` | Created | Evidence root for Docker full regression runs. |
-| `test-results/DockerRegression/M1/` | Created | M1 login and user listing JSON evidence. |
-| `test-results/DockerRegression/M2/` | Created | M2 Stats Web HTTP status JSON evidence. |
-| `test-results/DockerRegression/M3/` | Created | M3 file validation JSON per fixture. |
-| `test-results/DockerRegression/M4/` | Created | M4 ingestion record JSON per fixture. |
-| `test-results/DockerRegression/M5/` | Created | M5 parse result JSON per fixture. |
-| `test-results/DockerRegression/cross-module/` | Created | Cross-module pipeline summary JSON per fixture. |
+| `tests/scripts/regression/run_docker_full_regression_evidence.ps1` | Created | Primary M1-M5 Docker regression evidence runner. Covers: M1 DB init/login/user listing, M2 Stats Web page presence, M3 per-fixture validation, M4 per-fixture ingestion, M5 per-fixture OCR/text parsing, and cross-module validateâ†’ingestâ†’parse pipeline. Writes dated JSON evidence per module and a Markdown summary report. |
+| `tests/results/DockerRegression/` | Created | Evidence root for Docker full regression runs. |
+| `tests/results/DockerRegression/M1/` | Created | M1 login and user listing JSON evidence. |
+| `tests/results/DockerRegression/M2/` | Created | M2 Stats Web HTTP status JSON evidence. |
+| `tests/results/DockerRegression/M3/` | Created | M3 file validation JSON per fixture. |
+| `tests/results/DockerRegression/M4/` | Created | M4 ingestion record JSON per fixture. |
+| `tests/results/DockerRegression/M5/` | Created | M5 parse result JSON per fixture. |
+| `tests/results/DockerRegression/cross-module/` | Created | Cross-module pipeline summary JSON per fixture. |
 | `tests/scripts/README.md` | Modified | Full rewrite to document the Docker-first testing standard. Added testing boundary table, Docker stack instructions, fixture source policy, script folder directory, and evidence output paths. |
-| `tests/integration/test_m13_containerization_contract.py` | Modified | Added 10 new checks for the Docker regression runner: file existence, stats-runtime/stats-db references, test-input usage, Stats Web port, /api/v1/parses endpoint, M1-M5 coverage, .env.container reference, token truncation, and testing boundary documentation. Total: 41 checks. |
+| `tests/integration/test_m13_containerization_contract.py` | Modified | Added 10 new checks for the Docker regression runner: file existence, stats-runtime/stats-db references, tests/input usage, Stats Web port, /api/v1/parses endpoint, M1-M5 coverage, .env.container reference, token truncation, and testing boundary documentation. Total: 41 checks. |
 
 ## Module READMEs Updated (Regression Pass)
 
@@ -108,10 +108,10 @@ Current status: **implementation complete** for all container infrastructure fil
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `test-results/M13-Containerization/M13-containerization-contract-raw-output-2026-05-28.txt` | Created | Raw output from the M13 contract check. |
-| `test-results/M13-Containerization/M13-containerization-test-results-2026-05-28.md` | Created / Updated | Summarizes the M13 validation results and documents the required `test-input/` policy for future OCR runs. |
-| `test-results/M13-Containerization/M13-containerization-manual-test-checklist.md` | Updated | Updated with checklist items for `stats-db`, DB init, Stats Web `/health`, build-time verification, and required `test-input/` use. |
-| `test-results/M13-Containerization/M13-containerization-screenshot-evidence-2026-05-28.md` | Created / Updated | Screenshot evidence index. Notes that the next capture should show real `test-input/` parse results. |
+| `tests/results/M13-Containerization/M13-containerization-contract-raw-output-2026-05-28.txt` | Created | Raw output from the M13 contract check. |
+| `tests/results/M13-Containerization/M13-containerization-test-results-2026-05-28.md` | Created / Updated | Summarizes the M13 validation results and documents the required `tests/input/` policy for future OCR runs. |
+| `tests/results/M13-Containerization/M13-containerization-manual-test-checklist.md` | Updated | Updated with checklist items for `stats-db`, DB init, Stats Web `/health`, build-time verification, and required `tests/input/` use. |
+| `tests/results/M13-Containerization/M13-containerization-screenshot-evidence-2026-05-28.md` | Created / Updated | Screenshot evidence index. Notes that the next capture should show real `tests/input/` parse results. |
 
 ## Verification
 
@@ -129,6 +129,6 @@ Live OCR and full M1-M5 regression evidence uses:
 .\tests\scripts\regression\run_docker_full_regression_evidence.ps1
 ```
 
-Fixture source: `C:\000_Capstone\test-input` (gitignored real files).
+Fixture source: `C:\000_Capstone\tests/input` (gitignored real files).
 
 <!-- M13 End -->
