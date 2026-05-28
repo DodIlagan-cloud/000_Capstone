@@ -1,0 +1,55 @@
+{
+  "evidenceFolders": {
+    "M0ArchitectureFoundation": "test-results/M0-ArchitectureFoundation",
+    "M1AdminUserFlow": "test-results/RegTest-AdminUserFlow-M0-M1/M1-UserAccessManagementRegression",
+    "M1ConfigRuntime": "test-results/RegTest-ConfigDrivenRuntime-M0-M1/M1-UserAccessManagementRegression",
+    "M2StatsWebShell": "test-results/M2-StatsWebShell-M0-M1",
+    "M2StatsWebOrchestration": "test-results/M2-StatsWebShell-Orchestration-M0-M1",
+    "M3M4MergedModule": "test-results/MergedFileIntake-ModuleEvidence-2026-05-26",
+    "M3M4AppFlow": "test-results/MergedFileIntake-AppFlow-2026-05-26",
+    "M5DocumentParsing": "test-results/M5-DocumentParsing-M0-M4",
+    "CrossModuleRegressionM3M4": "test-results/RegTest-MergedFileIntake-M0-M1-M2-M3M4-2026-05-26",
+    "M13Containerization": "test-results/M13-Containerization",
+    "TempBuild": "test-results/tmp-build"
+  },
+  "moduleFolders": {
+    "IdentityAccess": "modules/identity-access-module",
+    "FileValidation": "modules/file-validation-module",
+    "DocumentParsing": "modules/document-parsing-module",
+    "StatsWeb": "apps/stats-web"
+  },
+  "scriptFolders": {
+    "M1IdentityAccessManagement": "tests/scripts/M1-IdentityAccessManagement",
+    "M2StatsWebShell": "tests/scripts/M2-StatsWebShell",
+    "M3M4FileValidationIngestion": "tests/scripts/M3-M4-FileValidationIngestion",
+    "M13Containerization": "tests/scripts/M13-Containerization"
+  },
+  "localPaths": {
+    "testDataDir": "",
+    "testInputDir": "test-input",
+    "m3M4AppFlowPdfName": "202311_BPICCBE20231108.pdf",
+    "m5AppFlowPdfName": "202311_BPICCBE20231108.pdf",
+    "edgeExecutable": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+  },
+  "runtime": {
+    "statsWebBaseUrl": "http://127.0.0.1:5013",
+    "identityBaseUrl": "http://127.0.0.1:8013",
+    "fileIntakeBaseUrl": "http://127.0.0.1:8014",
+    "identityHost": "127.0.0.1",
+    "identityPort": "8013",
+    "fileIntakeHost": "127.0.0.1",
+    "fileIntakePort": "8014",
+    "m1EdgeDebugPort": 9223,
+    "m3M4EdgeDebugPort": 9225,
+    "m5EdgeDebugPort": 9235
+  },
+  "docker": {
+    "statsWebBaseUrl": "http://127.0.0.1:8080",
+    "composeFile": "infrastructure/compose/stats-runtime.compose.yml",
+    "statsServiceName": "stats",
+    "dbServiceName": "stats-db",
+    "testInputDir": "test-input",
+    "evidenceFolder": "test-results/M13-Containerization",
+    "note": "Internal module ports 8013/8014/8015 are container-internal only. External entry point is Stats Web on port 8080. All acceptance and evidence runs target the Docker stack, not the local host runtime."
+  }
+}
