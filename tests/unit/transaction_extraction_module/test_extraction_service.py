@@ -151,6 +151,55 @@ def test_m5_weak_ocr_quality_is_carried_as_input_quality_warning():
     assert result.evaluation.finding_counts["NO_TRANSACTION_CANDIDATES"] == 1
 
 
+def test_single_line_invoice_ocr_extracts_invoice_and_gst_fields(single_line_invoice_ocr_text):
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="invoice",
+            text=single_line_invoice_ocr_text,
+        )
+    )
+
+    field_values = {field.field_name: field.normalized_value for field in result.financial_field_candidates}
+
+    assert result.status == "completed"
+    assert result.summary.transaction_candidate_count == 1
+    assert field_values["invoice_number"] == "384590"
+    assert field_values["total_gst"] == "29.61"
+
+
+def test_single_line_pharmacy_receipt_ocr_extracts_total_gst_and_purchase(single_line_pharmacy_receipt_ocr_text):
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text=single_line_pharmacy_receipt_ocr_text,
+        )
+    )
+
+    fields = {field.field_name: field for field in result.financial_field_candidates}
+
+    assert result.status == "completed"
+    assert result.summary.transaction_candidate_count == 1
+    assert fields["receipt_total"].normalized_value == "94.25"
+    assert fields["gst_amount"].normalized_value == "12.29"
+    assert fields["purchase_amount"].normalized_value == "94.25"
+
+
+def test_single_line_card_receipt_ocr_extracts_card_amount(single_line_card_receipt_ocr_text):
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text=single_line_card_receipt_ocr_text,
+        )
+    )
+
+    fields = {field.field_name: field for field in result.financial_field_candidates}
+
+    assert result.status == "completed"
+    assert result.summary.transaction_candidate_count == 1
+    assert fields["card_receipt_amount"].normalized_value == "227.00"
+    assert fields["card_receipt_amount"].currency == "NZD"
+
+
 def test_text_without_financial_values_returns_no_candidate_findings():
     result = extract_transactions(
         TransactionExtractionRequest(

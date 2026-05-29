@@ -49,3 +49,30 @@ def proof_of_payment_text() -> str:
             "Transfer from CHECKING 1234",
         ]
     )
+
+
+@pytest.fixture()
+def single_line_invoice_ocr_text() -> str:
+    return (
+        "Invoice AwanuiLabs Auckland Issued: 18/04/2026 09:36:20 "
+        "Tax Invoice no.: 384590 CC CRE - Creatinine $25.00 "
+        "Total GST $29.61 Payment History Paid 18/04/2026 09:36:20 - EFTPOS"
+    )
+
+
+@pytest.fixture()
+def single_line_pharmacy_receipt_ocr_text() -> str:
+    return (
+        "3 Kings Plaza Pharmacy 18-May-2026 11:35am "
+        "Product Unit Qty Total Rx Item $15.70 $15.70 "
+        "Tax invoice: Total $94.25 Includes GST of $12.29 "
+        "EFTPOS PURCHASE NZD94. 25 TOTAL NZD94.25 APPROVED"
+    )
+
+
+@pytest.fixture()
+def single_line_card_receipt_ocr_text() -> str:
+    return (
+        "Awanui Mt Wellington TRAN CREDIT RRN 16693501018 "
+        "Visa Credit PURCHASE > 1714. 227.00 NZ$ 227,00 APPROVED"
+    )

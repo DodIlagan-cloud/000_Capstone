@@ -20,9 +20,12 @@ from app.models.extraction import (
 )
 
 
-AMOUNT_PATTERN = re.compile(r"(?:(PHP|USD|AUD|NZD)\s*)?([+-]?\d{1,3}(?:,\d{3})*(?:\.\d{2})|[+-]?\d+\.\d{2})", re.IGNORECASE)
+AMOUNT_PATTERN = re.compile(
+    r"(?:(PHP|USD|AUD|NZD|NZ\$|\$)\s*)?([+-]?\d{1,3}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2})|[+-]?\d+(?:\.\s?\d{2}|,\d{2}))",
+    re.IGNORECASE,
+)
 DATE_PATTERN = re.compile(
-    r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})\b",
+    r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[-\s](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*[-\s]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})\b",
     re.IGNORECASE,
 )
 FIELD_PATTERNS = {
@@ -33,6 +36,12 @@ FIELD_PATTERNS = {
     "transfer_amount": re.compile(r"\btransfer\s+amount\s+(?:PHP\s*)?([0-9,]+\.\d{2})", re.IGNORECASE),
     "confirmation_number": re.compile(r"\bconfirmation\s+no\.?\s+([A-Z0-9-]+)", re.IGNORECASE),
     "reference_number": re.compile(r"\bre(?:f|ference)\.?\s+no\.?\s+([A-Z0-9-]+)", re.IGNORECASE),
+    "invoice_number": re.compile(r"\b(?:tax\s+)?invoice\s+no\.?:?\s+([A-Z0-9-]+)", re.IGNORECASE),
+    "receipt_total": re.compile(r"\b(?:tax\s+invoice:\s*)?total\s+(?!GST\b)(?:NZD|NZ\$|\$|PHP\s*)?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE),
+    "total_gst": re.compile(r"\btotal\s+GST\s+\$?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE),
+    "gst_amount": re.compile(r"\bincludes\s+GST\s+of\s+\$?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE),
+    "purchase_amount": re.compile(r"\bpurchase\s+(?:NZD|NZ\$|\$|PHP\s*)?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE),
+    "card_receipt_amount": re.compile(r"\bNZ\$\s*([0-9,]+,\d{2})", re.IGNORECASE),
 }
 
 
@@ -205,12 +214,17 @@ def _extract_financial_fields(
             currency = None
             reason_codes = ["FIELD_LABEL_DETECTED"]
             if amount_match:
-                currency = (amount_match.group(1) or settings.default_currency).upper()
+                currency = _currency_code(amount_match.group(1))
+                if currency == settings.default_currency and "NZ$" in line.text.upper():
+                    currency = "NZD"
                 normalized_value = f"{_parse_amount(amount_match.group(2)):.2f}"
                 reason_codes.append("AMOUNT_DETECTED")
             elif DATE_PATTERN.search(value_text):
                 normalized_value = DATE_PATTERN.search(value_text).group(0)
                 reason_codes.append("DATE_DETECTED")
+            else:
+                normalized_value = value_text
+                reason_codes.append("IDENTIFIER_DETECTED")
 
             candidates.append(
                 FinancialFieldCandidate(
@@ -301,11 +315,25 @@ def _line_references(request: TransactionExtractionRequest, text: str) -> list[S
 
 
 def _amounts(text: str) -> list[tuple[str | None, float]]:
-    return [(match.group(1), _parse_amount(match.group(2))) for match in AMOUNT_PATTERN.finditer(text)]
+    return [(_currency_code(match.group(1)), _parse_amount(match.group(2))) for match in AMOUNT_PATTERN.finditer(text)]
 
 
 def _parse_amount(value: str) -> float:
-    return float(value.replace(",", ""))
+    normalized = value.replace(" ", "")
+    if "," in normalized and "." not in normalized and re.search(r",\d{2}$", normalized):
+        normalized = normalized.replace(",", ".")
+    else:
+        normalized = normalized.replace(",", "")
+    return float(normalized)
+
+
+def _currency_code(value: str | None) -> str:
+    if not value:
+        return settings.default_currency
+    normalized = value.upper()
+    if normalized in {"$", "NZ$"}:
+        return "NZD" if normalized == "NZ$" else settings.default_currency
+    return normalized
 
 
 def _description_without_amounts(text: str) -> str:
