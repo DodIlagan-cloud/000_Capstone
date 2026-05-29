@@ -1,8 +1,8 @@
 ﻿# M13 - Containerization Start
-# Docker full regression evidence script: M1 through M5.
+# Docker full regression evidence script: M1 through M8.
 #
 # PURPOSE:
-#   Provides production-like regression evidence for modules M1-M5 against the
+#   Provides production-like regression evidence for modules M1-M8 against the
 #   containerized Stats runtime. This is the authoritative evidence runner from
 #   M13 onward. All acceptance, OCR, database, and cross-module evidence must
 #   run through this script, not against host-started processes.
@@ -17,7 +17,7 @@
 #                  up --build --detach
 #   Entry point:  http://127.0.0.1:8080
 #   DB service:   stats-db (PostgreSQL 16)
-#   App service:  stats-runtime (Stats Web + M1/M3/M4/M5 APIs + Tesseract OCR)
+#   App service:  stats-runtime (Stats Web + M1/M3/M4/M5/M7/M8 APIs + Tesseract OCR)
 #
 # MODULES COVERED:
 #   M1  Identity Access Module    -- DB init, login, token issuance, user listing
@@ -25,7 +25,13 @@
 #   M3  File Validation           -- validate every tests/input/ fixture
 #   M4  File Ingestion            -- ingest every validated tests/input/ fixture
 #   M5  Document Parsing          -- OCR/text parse every tests/input/ fixture
-#   Cross-module: validate -> ingest -> parse pipeline per fixture file
+# M7 - Transaction Extraction Start
+#   M7  Transaction Extraction    -- extract transaction candidates from M5 output
+# M7 End
+# M8 - Data Validation Module Start
+#   M8  Data Validation           -- normalize/check M7 transaction candidates
+# M8 End
+#   Cross-module: validate -> ingest -> parse -> extract -> validate pipeline per fixture file
 #
 # FIXTURE SOURCE:
 #   tests/input/  (gitignored real files; only tests/input/README.md is tracked)
@@ -37,7 +43,7 @@
 #   evidence files.
 #
 # USAGE:
-#   cd C:\000_Capstone
+#   cd $env:STATS_APP_ROOT
 #   .\tests\scripts\regression\run_docker_full_regression_evidence.ps1
 #
 #   Optional parameters:
@@ -77,9 +83,15 @@ $M2Dir  = Join-Path $EvidenceRootFull "M2"
 $M3Dir  = Join-Path $EvidenceRootFull "M3"
 $M4Dir  = Join-Path $EvidenceRootFull "M4"
 $M5Dir  = Join-Path $EvidenceRootFull "M5"
+# M7 - Transaction Extraction Start
+$M7Dir  = Join-Path $EvidenceRootFull "M7"
+# M7 End
+# M8 - Data Validation Module Start
+$M8Dir  = Join-Path $EvidenceRootFull "M8"
+# M8 End
 $CrossDir = Join-Path $EvidenceRootFull "cross-module"
 
-foreach ($Dir in @($EvidenceRootFull, $M1Dir, $M2Dir, $M3Dir, $M4Dir, $M5Dir, $CrossDir)) {
+foreach ($Dir in @($EvidenceRootFull, $M1Dir, $M2Dir, $M3Dir, $M4Dir, $M5Dir, $M7Dir, $M8Dir, $CrossDir)) {
     if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
 }
 
@@ -115,6 +127,16 @@ function First-NonEmpty {
         if ($null -ne $value -and "$value" -ne "") { return $value }
     }
     return "(missing)"
+}
+function Safe-FileStem {
+    param([string]$Name)
+    return ($Name -replace '[^A-Za-z0-9._-]', '_')
+}
+function As-JsonArray {
+    param($Value)
+    if ($null -eq $Value) { return @() }
+    if ($Value -is [System.Array]) { return $Value }
+    return @($Value)
 }
 function Get-EnvFileValue {
     param([string]$Name)
@@ -239,7 +261,13 @@ try {
 $ModuleApis = @(
     @{Name="Identity Access API"  ; Port=8013 ; Path="/health"},
     @{Name="File Validation API"  ; Port=8014 ; Path="/health"},
-    @{Name="Document Parsing API" ; Port=8015 ; Path="/health"}
+    @{Name="Document Parsing API" ; Port=8015 ; Path="/health"},
+    # M7 - Transaction Extraction Start
+    @{Name="Transaction Extraction API" ; Port=8016 ; Path="/health"},
+    # M7 End
+    # M8 - Data Validation Module Start
+    @{Name="Data Validation API" ; Port=8017 ; Path="/health"}
+    # M8 End
 )
 foreach ($api in $ModuleApis) {
     $res = Invoke-ContainerCurl ":$($api.Port)$($api.Path)"
@@ -449,6 +477,7 @@ Write-Result "  M4 totals: $m4Passed passed, $m4Failed failed"
 Section "8. M5 -- Document Parsing (all tests/input/ fixtures)"
 
 $m5Passed = 0 ; $m5Failed = 0
+$parseFiles = @{}
 
 foreach ($fixture in $Fixtures) {
     $fileName = $fixture.Name
@@ -512,15 +541,141 @@ foreach ($fixture in $Fixtures) {
         else                  { Fail "M5: $fileName extracted_text is empty" ; $fileOk = $false }
 
         if ($fileOk) { $m5Passed++ } else { $m5Failed++ }
-        $rawOut | Set-Content (Join-Path $M5Dir "m5-parse-$(($fileName -replace '\.','-'))-$Date.json") -Encoding UTF8
+        $parseEvidenceFile = Join-Path $M5Dir "m5-parse-$(($fileName -replace '\.','-'))-$Date.json"
+        $rawOut | Set-Content $parseEvidenceFile -Encoding UTF8
+        $parseFiles[$fileName] = $parseEvidenceFile
     } catch { Fail "M5: parse $fileName" $_.Exception.Message ; $m5Failed++ }
 }
 Write-Result "  M5 totals: $m5Passed passed, $m5Failed failed"
 
 # ---------------------------------------------------------------------------
-# 9. Cross-module pipeline evidence
+# M7 - Transaction Extraction Start
+# 9. M7 -- Transaction Extraction (from M5 parse output)
 # ---------------------------------------------------------------------------
-Section "9. Cross-module pipeline (validate -> ingest -> parse per fixture)"
+Section "9. M7 -- Transaction Extraction (from M5 parse output)"
+
+$m7Passed = 0 ; $m7Failed = 0
+$extractionFiles = @{}
+
+foreach ($fixture in $Fixtures) {
+    $fileName = $fixture.Name
+    Write-Result "  Fixture: $fileName"
+    if (-not $parseFiles.ContainsKey($fileName)) {
+        Fail "M7: extract $fileName" "missing M5 parse evidence"
+        $m7Failed++
+        continue
+    }
+
+    try {
+        $parseResult = Get-Content -Path $parseFiles[$fileName] -Raw | ConvertFrom-Json
+        $m7Request = [ordered]@{
+            parse_id = Get-JsonProperty $parseResult "parse_id"
+            document = Get-JsonProperty $parseResult "document"
+            document_type = First-NonEmpty (Get-JsonProperty (Get-JsonProperty $parseResult "classification") "document_type") "unknown"
+            classification = Get-JsonProperty $parseResult "classification"
+            text = First-NonEmpty (Get-JsonProperty $parseResult "text") ""
+            pages = @(As-JsonArray (Get-JsonProperty $parseResult "pages"))
+            metadata = First-NonEmpty (Get-JsonProperty $parseResult "metadata") @{}
+            quality = Get-JsonProperty $parseResult "quality"
+            findings = @(As-JsonArray (Get-JsonProperty $parseResult "findings"))
+        }
+
+        $safeName = Safe-FileStem $fileName
+        $requestFile = Join-Path $M7Dir "m7-request-$safeName-$Date.json"
+        $resultFile = Join-Path $M7Dir "m7-extract-$safeName-$Date.json"
+        $m7Request | ConvertTo-Json -Depth 80 | Set-Content $requestFile -Encoding UTF8
+        docker cp $requestFile "stats-runtime:/tmp/m7-request-$safeName.json" 2>&1 | Out-Null
+        $rawOut = docker exec stats-runtime sh -lc "curl -sf -X POST http://localhost:8016/api/v1/extractions -H 'Content-Type: application/json' --data-binary @/tmp/m7-request-$safeName.json" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Fail "M7: extract $fileName" "exit $LASTEXITCODE"
+            Write-Result "  $rawOut"
+            $m7Failed++
+            continue
+        }
+
+        $extractResult = $rawOut | ConvertFrom-Json
+        $status = First-NonEmpty (Get-JsonProperty $extractResult "status")
+        $candidateCount = First-NonEmpty (Get-JsonProperty (Get-JsonProperty $extractResult "summary") "transaction_candidate_count") 0
+        Write-Result "  status=$status transaction_candidates=$candidateCount"
+        if ($status -in @("completed", "completed_with_warnings")) {
+            Pass "M7: $fileName extraction completed"
+            $m7Passed++
+        } else {
+            Fail "M7: $fileName extraction status" "got $status"
+            $m7Failed++
+        }
+        $rawOut | Set-Content $resultFile -Encoding UTF8
+        $extractionFiles[$fileName] = $resultFile
+    } catch { Fail "M7: extract $fileName" $_.Exception.Message ; $m7Failed++ }
+}
+Write-Result "  M7 totals: $m7Passed passed, $m7Failed failed"
+# M7 End
+
+# ---------------------------------------------------------------------------
+# M8 - Data Validation Module Start
+# 10. M8 -- Data Validation (from M7 extraction output)
+# ---------------------------------------------------------------------------
+Section "10. M8 -- Data Validation (from M7 extraction output)"
+
+$m8Passed = 0 ; $m8Failed = 0
+$validationFiles = @{}
+
+foreach ($fixture in $Fixtures) {
+    $fileName = $fixture.Name
+    Write-Result "  Fixture: $fileName"
+    if (-not $extractionFiles.ContainsKey($fileName)) {
+        Fail "M8: validate $fileName" "missing M7 extraction evidence"
+        $m8Failed++
+        continue
+    }
+
+    try {
+        $extractResult = Get-Content -Path $extractionFiles[$fileName] -Raw | ConvertFrom-Json
+        $m8Request = [ordered]@{
+            extraction_id = Get-JsonProperty $extractResult "extraction_id"
+            parse_id = Get-JsonProperty $extractResult "parse_id"
+            document = Get-JsonProperty $extractResult "document"
+            document_type = First-NonEmpty (Get-JsonProperty $extractResult "document_type") "unknown"
+            transaction_candidates = @(As-JsonArray (Get-JsonProperty $extractResult "transaction_candidates"))
+            financial_field_candidates = @(As-JsonArray (Get-JsonProperty $extractResult "financial_field_candidates"))
+            findings = @(As-JsonArray (Get-JsonProperty $extractResult "findings"))
+        }
+
+        $safeName = Safe-FileStem $fileName
+        $requestFile = Join-Path $M8Dir "m8-request-$safeName-$Date.json"
+        $resultFile = Join-Path $M8Dir "m8-validate-$safeName-$Date.json"
+        $m8Request | ConvertTo-Json -Depth 80 | Set-Content $requestFile -Encoding UTF8
+        docker cp $requestFile "stats-runtime:/tmp/m8-request-$safeName.json" 2>&1 | Out-Null
+        $rawOut = docker exec stats-runtime sh -lc "curl -sf -X POST http://localhost:8017/api/v1/validations -H 'Content-Type: application/json' --data-binary @/tmp/m8-request-$safeName.json" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Fail "M8: validate $fileName" "exit $LASTEXITCODE"
+            Write-Result "  $rawOut"
+            $m8Failed++
+            continue
+        }
+
+        $validationResult = $rawOut | ConvertFrom-Json
+        $status = First-NonEmpty (Get-JsonProperty $validationResult "status")
+        $recordCount = First-NonEmpty (Get-JsonProperty (Get-JsonProperty $validationResult "summary") "normalized_record_count") 0
+        Write-Result "  status=$status normalized_records=$recordCount"
+        if ($status -in @("completed", "completed_with_warnings")) {
+            Pass "M8: $fileName validation completed"
+            $m8Passed++
+        } else {
+            Fail "M8: $fileName validation status" "got $status"
+            $m8Failed++
+        }
+        $rawOut | Set-Content $resultFile -Encoding UTF8
+        $validationFiles[$fileName] = $resultFile
+    } catch { Fail "M8: validate $fileName" $_.Exception.Message ; $m8Failed++ }
+}
+Write-Result "  M8 totals: $m8Passed passed, $m8Failed failed"
+# M8 End
+
+# ---------------------------------------------------------------------------
+# 11. Cross-module pipeline evidence
+# ---------------------------------------------------------------------------
+Section "11. Cross-module pipeline (validate -> ingest -> parse -> extract -> validate per fixture)"
 
 $xPassed = 0 ; $xFailed = 0
 
@@ -533,10 +688,14 @@ foreach ($fixture in $Fixtures) {
     $m3File   = Join-Path $M3Dir "m3-validate-$(($fileName -replace '\.','-'))-$Date.json"
     $m4File   = Join-Path $M4Dir "m4-ingest-$(($fileName -replace '\.','-'))-$Date.json"
     $m5File   = Join-Path $M5Dir "m5-parse-$(($fileName -replace '\.','-'))-$Date.json"
+    $m7File   = if ($extractionFiles.ContainsKey($fileName)) { $extractionFiles[$fileName] } else { "" }
+    $m8File   = if ($validationFiles.ContainsKey($fileName)) { $validationFiles[$fileName] } else { "" }
 
     $m3Ok = Test-Path $m3File
     $m4Ok = Test-Path $m4File
     $m5Ok = Test-Path $m5File
+    $m7Ok = $m7File -and (Test-Path $m7File)
+    $m8Ok = $m8File -and (Test-Path $m8File)
 
     $summary = [ordered]@{
         file          = $fileName
@@ -544,18 +703,22 @@ foreach ($fixture in $Fixtures) {
         ingest_ok     = $m4Ok
         ingestion_id  = $(if ($ingId) { $ingId } else { "(not captured)" })
         parse_ok      = $m5Ok
-        pipeline_pass = ($m3Ok -and $m4Ok -and $m5Ok)
+        extract_ok    = $m7Ok
+        validation_ok = $m8Ok
+        pipeline_pass = ($m3Ok -and $m4Ok -and $m5Ok -and $m7Ok -and $m8Ok)
         note          = "Each stage JSON is in its module subfolder."
     }
 
     if ($summary.pipeline_pass) {
-        Pass "Cross-module: $fileName -- validate/ingest/parse all produced evidence"
+        Pass "Cross-module: $fileName -- validate/ingest/parse/extract/validate all produced evidence"
         $xPassed++
     } else {
         $missing = @()
         if (-not $m3Ok) { $missing += "M3-validate" }
         if (-not $m4Ok) { $missing += "M4-ingest" }
         if (-not $m5Ok) { $missing += "M5-parse" }
+        if (-not $m7Ok) { $missing += "M7-extract" }
+        if (-not $m8Ok) { $missing += "M8-validate" }
         Fail "Cross-module: $fileName -- missing: $($missing -join ', ')" ; $xFailed++
     }
 
@@ -567,9 +730,9 @@ if ($ingestionIds.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
-# 10. Container log snapshot
+# 12. Container log snapshot
 # ---------------------------------------------------------------------------
-Section "10. Container log snapshot (last 40 lines)"
+Section "12. Container log snapshot (last 40 lines)"
 
 try {
     $logArgs = @("--file", $ComposeFilePath, "logs", "--tail=40", "stats")
@@ -580,10 +743,10 @@ try {
 } catch { Fail "Container logs" $_.Exception.Message }
 
 # ---------------------------------------------------------------------------
-# 11. Teardown
+# 13. Teardown
 # ---------------------------------------------------------------------------
 if (-not $LeaveStackRunning) {
-    Section "11. Teardown"
+    Section "13. Teardown"
     try {
         docker compose --file $ComposeFilePath down | Out-Null
         Pass "docker compose down completed"
@@ -643,7 +806,9 @@ Env file: $EnvFile (never committed; contains secrets)
 | M3 | File Validation -- all tests/input/ fixtures | tests/results/DockerRegression/M3/ |
 | M4 | File Ingestion -- all tests/input/ fixtures | tests/results/DockerRegression/M4/ |
 | M5 | Document Parsing (OCR + text) -- all tests/input/ fixtures | tests/results/DockerRegression/M5/ |
-| Cross | Validate -> Ingest -> Parse pipeline per fixture | tests/results/DockerRegression/cross-module/ |
+| M7 | Transaction Extraction -- M5 parse output to candidate records | tests/results/DockerRegression/M7/ |
+| M8 | Data Validation -- M7 candidates to normalized/checkable records | tests/results/DockerRegression/M8/ |
+| Cross | Validate -> Ingest -> Parse -> Extract -> Validate pipeline per fixture | tests/results/DockerRegression/cross-module/ |
 
 Raw transcript: tests/results/DockerRegression/docker-regression-raw-output-$Date.txt
 

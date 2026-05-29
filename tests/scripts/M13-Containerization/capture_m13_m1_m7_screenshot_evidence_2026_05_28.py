@@ -20,13 +20,13 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageGrab
 
 
-ROOT = Path(r"C:\000_Capstone")
+ROOT = Path(os.environ.get("STATS_APP_ROOT", ".")).resolve()
 DATE = "2026-05-29"
 EVIDENCE = ROOT / "tests" / "results" / "M13-Containerization" / f"M13-M1-M7-screenshots-{DATE}"
 PROFILE = EVIDENCE / f"edge-m13-m1-m7-profile-{DATE}"
 PORT = 9257
 BASE_URL = "http://127.0.0.1:8080"
-EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+EDGE = os.environ.get("STATS_EDGE_EXECUTABLE", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 COMPOSE = ROOT / "infrastructure" / "compose" / "stats-runtime.compose.yml"
 ENV_FILE = ROOT / "infrastructure" / "compose" / ".env.container"
 INPUT_DIR = ROOT / "tests" / "input"

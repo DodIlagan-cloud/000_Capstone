@@ -29,6 +29,8 @@ tests/scripts/config/test-script-settings.local.json
 
 # Keeps local config overrides with secrets or developer-specific values out of source control.
 **/.env
+infrastructure/compose/.env.container
+~$*.xlsx
 
 # .NET build output
 **/bin/

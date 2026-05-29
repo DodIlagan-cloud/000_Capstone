@@ -30,6 +30,11 @@ def test_startup_script_exists():
     assert STARTUP_SCRIPT.exists(), f"Startup script not found at {STARTUP_SCRIPT}"
 
 
+def test_startup_script_uses_lf_line_endings():
+    content = STARTUP_SCRIPT.read_bytes()
+    assert b"\r\n" not in content, "Startup script must use LF line endings for Linux container execution"
+
+
 def test_compose_file_exists():
     assert COMPOSE_FILE.exists(), f"Compose file not found at {COMPOSE_FILE}"
 
@@ -83,11 +88,18 @@ def test_dockerfile_verifies_pillow_at_build_time():
 def test_dockerfile_copies_tests_for_container_execution():
     content = DOCKERFILE.read_text()
     assert "COPY tests/" in content, "Dockerfile must copy test code into the Stats runtime image"
+    assert "COPY apps/stats-web/appsettings.json /app/apps/stats-web/appsettings.json" in content, \
+        "Dockerfile must copy Stats Web appsettings for container-executed M2 config checks"
 
 
 def test_dockerfile_packages_transaction_extraction_module():
     content = DOCKERFILE.read_text()
     assert "transaction-extraction-module" in content, "Dockerfile must package M7 in the Stats runtime image"
+
+
+def test_dockerfile_packages_data_validation_module():
+    content = DOCKERFILE.read_text()
+    assert "data-validation-module" in content, "Dockerfile must package M8 in the Stats runtime image"
 
 
 # -- Startup script content ---------------------------------------------------
@@ -116,6 +128,10 @@ def test_startup_script_starts_document_parsing_api():
 
 def test_startup_script_starts_transaction_extraction_api():
     assert "8016" in STARTUP_SCRIPT.read_text()
+
+
+def test_startup_script_starts_data_validation_api():
+    assert "8017" in STARTUP_SCRIPT.read_text()
 
 
 def test_startup_script_performs_health_checks():
@@ -160,6 +176,10 @@ def test_compose_exposes_stats_web_port():
     assert "8080" in COMPOSE_FILE.read_text()
 
 
+def test_compose_configures_data_validation_port():
+    assert "DATA_VALIDATION_PORT" in COMPOSE_FILE.read_text()
+
+
 def test_compose_references_dockerfile():
     assert "Dockerfile" in COMPOSE_FILE.read_text()
 
@@ -177,6 +197,8 @@ def test_stats_web_proxies_browser_api_calls():
     assert "StatsWebApiProxy.ProxyApiRequestAsync" in content
     assert "StatsWeb:Proxy:IdentityBaseUrl" in content
     assert "StatsWeb:Proxy:DocumentParsingBaseUrl" in content
+    assert "StatsWeb:Proxy:TransactionExtractionBaseUrl" in content
+    assert "StatsWeb:Proxy:DataValidationBaseUrl" in content
 
 
 def test_startup_script_keeps_browser_api_base_urls_same_origin():
@@ -188,6 +210,16 @@ def test_startup_script_keeps_browser_api_base_urls_same_origin():
     assert "--StatsWeb:Proxy:IdentityBaseUrl" in content
     assert "--StatsWeb:Proxy:FileValidationBaseUrl" in content
     assert "--StatsWeb:Proxy:DocumentParsingBaseUrl" in content
+    assert "--StatsWeb:Proxy:TransactionExtractionBaseUrl" in content
+    assert "--StatsWeb:Proxy:DataValidationBaseUrl" in content
+
+
+def test_stats_web_proxies_m7_and_m8_api_calls():
+    content = STATS_WEB_PROGRAM.read_text()
+    assert "path.StartsWith(\"extractions\"" in content
+    assert "path.StartsWith(\"validations\"" in content
+    assert "TransactionExtractionBaseUrl" in content
+    assert "DataValidationBaseUrl" in content
 
 
 # -- Env example content ------------------------------------------------------
@@ -248,6 +280,7 @@ def test_container_module_unit_runner_uses_docker_exec():
     assert "pytest" in content
     assert "/app/tests/input" in content
     assert "docker cp" in content
+    assert "data_validation_module" in content
 
 
 def test_docker_regression_runner_targets_stats_runtime():

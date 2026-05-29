@@ -38,10 +38,11 @@ M13 starts early relative to its roadmap position because M5 OCR requires Tesser
 - Enable Tesseract OCR for M5 document parsing inside the container runtime.
 - Start module APIs in dependency order and confirm their health before Stats Web starts.
 - Expose Stats Web on a configurable container port so the browser-facing app is the single entry point.
-- Keep all runtime values â€” ports, hosts, OCR paths, database URLs, API base URLs, token settings â€” configurable through environment variables and config files rather than hardcoded in the container image.
+- Keep all runtime values â€” ports, hosts, OCR paths, directory roots, database URLs, API base URLs, token settings â€” configurable through environment variables and config files rather than hardcoded in the container image.
+- Apply the central logging contract so all packaged services write redacted logs to stdout/stderr for Docker, CI, and later cloud collection.
 - Provide a local Compose file so the full Stats runtime can be started and stopped with one command.
 - Provide health check definitions for every packaged service.
-- Enable M5 OCR end-to-end testing against the project-root `tests/input/` fixtures inside the container.
+- Enable M5 OCR end-to-end testing against the configured project fixture path, currently the logical `tests/input/` path resolved from `STATS_APP_ROOT`, inside the container.
 
 ## Non-Goals
 
@@ -79,6 +80,8 @@ The single Stats runtime container must include:
 | Identity Access API | `modules/identity-access-module/` | Login, tokens, role checks â€” port 8013 |
 | File Validation API | `modules/file-validation-module/` | File validation and ingestion â€” port 8014 |
 | Document Parsing API | `modules/document-parsing-module/` | OCR/text extraction and classification â€” port 8015 |
+| Transaction Extraction API | `modules/transaction-extraction-module/` | Transaction candidate extraction â€” port 8016 |
+| Data Validation API | `modules/data-validation-module/` | Transaction normalization and validation checks â€” port 8017 |
 | Tesseract OCR | System package | OCR engine required by M5 |
 | OCR language data | `tesseract-ocr-eng` or equivalent | English language tessdata required by M5 |
 | PyMuPDF | Python package | PDF rendering for scanned PDF OCR in M5 |
@@ -93,6 +96,8 @@ The single Stats runtime container must include:
 | Identity Access API | 8013 | Internal only; not exposed directly to host |
 | File Validation API | 8014 | Internal only; not exposed directly to host |
 | Document Parsing API | 8015 | Internal only; not exposed directly to host |
+| Transaction Extraction API | 8016 | Internal only; not exposed directly to host |
+| Data Validation API | 8017 | Internal only; not exposed directly to host |
 
 ## Container Structure
 
@@ -120,6 +125,7 @@ The Dockerfile must:
 - Copy `start-stats-runtime.sh` and set it as the container entrypoint.
 - Expose the Stats Web port.
 - Not hardcode environment-dependent values such as database URLs, token secrets, or Stats Web base URLs.
+- Use `STATS_APP_ROOT` and logical directory variables for runtime paths that may change between local, container, and cloud environments. Stable Docker build-context source paths may remain in `COPY` instructions, but application startup and evidence execution must not depend on a developer machine root.
 
 ### Dockerfile Requirements
 
@@ -141,9 +147,11 @@ RUN tesseract --version \
 3. Start the Identity Access API (`uvicorn`) on port 8013 in the background.
 4. Start the File Validation API (`uvicorn`) on port 8014 in the background.
 5. Start the Document Parsing API (`uvicorn`) on port 8015 in the background.
-6. Wait for each API to pass its `/health` endpoint before continuing.
-7. Start Stats Web (`dotnet`) in the foreground as the final process.
-8. Log each startup step clearly so container startup issues are visible in container logs.
+6. Start the Transaction Extraction API (`uvicorn`) on port 8016 in the background.
+7. Start the Data Validation API (`uvicorn`) on port 8017 in the background.
+8. Wait for each API to pass its `/health` endpoint before continuing.
+9. Start Stats Web (`dotnet`) in the foreground as the final process.
+10. Log each startup step clearly so container startup issues are visible in container logs.
 
 The health wait must use a configurable timeout and fail clearly if a dependency does not become ready within the timeout window.
 
@@ -169,6 +177,17 @@ Expected container environment variables:
 
 | Variable | Purpose |
 | --- | --- |
+| `STATS_APP_ROOT` | Physical root of the Stats runtime in the current environment, default `/app` in the container |
+| `STATS_RUNTIME_CONFIG` | Path to the central runtime configuration registry, default `/app/config/stats.runtime.json` in the container |
+| `STATS_PATHS_CONFIG` | Path to the central logical path map, default `/app/config/stats.paths.json` in the container |
+| `STATS_LOGGING_CONFIG` | Path to the central logging registry, default `/app/config/stats.logging.json` in the container |
+| `STATS_STORAGE_PROVIDER` | Storage provider selector, default `LocalFileSystem`; future cloud value may be `AzureBlobStorage` |
+| `IDENTITY_MODULE_DIR` | Resolved Identity Access module directory inside the runtime |
+| `FILE_VALIDATION_MODULE_DIR` | Resolved File Validation module directory inside the runtime |
+| `DOCUMENT_PARSING_MODULE_DIR` | Resolved Document Parsing module directory inside the runtime |
+| `TRANSACTION_EXTRACTION_MODULE_DIR` | Resolved Transaction Extraction module directory inside the runtime |
+| `DATA_VALIDATION_MODULE_DIR` | Resolved Data Validation module directory inside the runtime |
+| `STATS_WEB_DIR` | Resolved published Stats Web directory inside the runtime |
 | `DATABASE_URL` | Stats PostgreSQL connection string for M1 identity persistence |
 | `ACCESS_TOKEN_SECRET_KEY` | JWT signing secret for M1 |
 | `DEFAULT_ADMIN_EMAIL` | Optional seed administrator email |
@@ -184,10 +203,28 @@ Expected container environment variables:
 | `StatsWeb__Downstream__FileValidationBaseUrl` | Stats Web override for File Validation API base URL |
 | `StatsWeb__Downstream__FileIngestionBaseUrl` | Stats Web override for File Ingestion API base URL |
 | `StatsWeb__Downstream__DocumentParsingBaseUrl` | Stats Web override for Document Parsing API base URL |
+| `StatsWeb__Downstream__TransactionExtractionBaseUrl` | Stats Web override for Transaction Extraction API base URL |
+| `StatsWeb__Downstream__DataValidationBaseUrl` | Stats Web override for Data Validation API base URL |
 
 Inside the container, module API base URLs should point to `localhost` with their respective ports since all services share the same network namespace.
 
 A committed `.env.container.example` should document the expected container environment variable names without real secrets.
+
+## Logging Configuration
+
+M13 packages services so their logs can be collected consistently. All packaged services must follow `config/stats.logging.json`.
+
+Expected logging environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `LOG_LEVEL` | Minimum application log level, default `INFO` |
+| `LOG_FORMAT` | Log output format, default `json` |
+| `LOG_INCLUDE_CORRELATION_ID` | Include request or correlation identifiers when available |
+| `LOG_REDACT_SENSITIVE_VALUES` | Redact known sensitive values before logging |
+| `LOG_DESTINATION` | Runtime destination, currently `stdout` |
+
+The container must not require file-based log scraping. Docker, CI, and later Azure logging should collect application logs from stdout/stderr.
 
 ## OCR Configuration in Container
 
@@ -212,6 +249,8 @@ Each service exposes a `/health` endpoint. The startup script polls each endpoin
 | Identity Access API | `http://localhost:8013/health` | `{"status": "healthy"}` |
 | File Validation API | `http://localhost:8014/health` | `{"status": "healthy"}` |
 | Document Parsing API | `http://localhost:8015/health` | `{"status": "healthy", "ocr": {"enabled": true}}` |
+| Transaction Extraction API | `http://localhost:8016/health` | `{"status": "healthy"}` |
+| Data Validation API | `http://localhost:8017/health` | `{"status": "healthy"}` |
 | Stats Web | `http://localhost:{STATS_WEB_PORT}/health` | `{"status": "healthy", "service": "Stats Web"}` |
 
 Stats Web exposes `/health` via a `MapGet` minimal endpoint added in `Program.cs` specifically for M13 container and Compose health check support.
@@ -220,7 +259,7 @@ The Document Parsing API health check is the most critical â€” it must conf
 
 ## M5 OCR Validation Inside Container
 
-After M13 is running, M5 OCR must be validated with the project-root `tests/input/` fixtures:
+After M13 is running, M5 OCR must be validated with the configured project fixture path. The current logical path is `tests/input/`, resolved from `STATS_APP_ROOT` on the host or copied into the configured container fixture directory for evidence execution:
 
 - Copy every supported file from `tests/input/` into the running `stats-runtime` container for the evidence run.
 - Confirm JPEG, PNG, and scanned/no-text PDF files use the OCR path.
@@ -231,13 +270,13 @@ After M13 is running, M5 OCR must be validated with the project-root `tests/inpu
 
 This validates the container OCR path: local project fixture â†’ `stats-runtime` â†’ Document Parsing â†’ PyMuPDF/Tesseract â†’ classification result.
 
-Real local test fixtures for this validation:
+Real local test fixtures for this validation use the central path convention:
 
 ```text
-C:\000_Capstone\tests/input
+STATS_APP_ROOT + tests/input
 ```
 
-Every supported file in `tests/input/` must be used by the M13 evidence runner. Supported fixture extensions are `.jpg`, `.jpeg`, `.png`, and `.pdf`. Source documents in this folder are local-only and ignored by Git.
+Every supported file in the configured `tests/input/` logical path must be used by the M13 evidence runner. Supported fixture extensions are `.jpg`, `.jpeg`, `.png`, and `.pdf`. Source documents in this folder are local-only and ignored by Git.
 
 ## Testing Boundary
 

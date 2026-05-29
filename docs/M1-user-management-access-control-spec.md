@@ -26,12 +26,12 @@ The building-block plan defines this module as:
 | Main responsibility | User login, role claims, tokens, protected access checks |
 | Reusable contract | Auth/token API and token verification contract |
 
-The current implementation already demonstrates the desired behavior through a FastAPI identity API and a consuming ASP.NET Core Stats Web access flow. This specification preserves that behavior while separating ownership:
+The active implementation demonstrates the desired behavior through a FastAPI identity API and a consuming ASP.NET Core Stats Web access flow. This specification preserves that behavior while separating ownership:
 
 - M1 owns reusable identity/access rules, endpoints, identity account data requirements, token behavior, role checks, and identity contracts.
 - Stats Web owns product-specific login, user-management, navigation, and landing-page presentation as a consumer of the M1 identity API.
 - Stats Data and Persistence owns the Stats database schema, migrations, and product persistence adapters when that encompassing product module is implemented.
-- Cross-boundary frontend verification may remain in the M1 evidence set while the current implementation is being reorganized, because it proves that Stats can consume the identity contract.
+- Cross-boundary frontend verification may remain in the M1 evidence set when it proves that Stats Web consumes the identity contract.
 
 ## Business Analysis Alignment
 
@@ -47,7 +47,7 @@ The business need is to ensure that financial document processing is only availa
 ## Goals
 
 - Define the account, credential, claims, and authorization data required by an identity consumer.
-- Keep the current Stats PostgreSQL-backed identity implementation working while the Stats Data boundary is introduced.
+- Keep the Stats PostgreSQL-backed identity implementation working while the Stats Data boundary is introduced.
 - Provide secure password hashing and verification.
 - Implement login with token-based authenticated access.
 - Expose a reusable identity contract that Stats Web and later protected modules can call.
@@ -93,6 +93,10 @@ This folder owns reusable identity/access code, module-local automated tests, co
 
 M1 specifications, file inventories, project-level documentation, and assessment evidence belong under root `docs/` and root `tests/results/`.
 
+<!-- M13 - Containerization Start -->
+Authoritative M1 automated tests live under root `tests/unit/identity_access_module/` and execute inside `stats-runtime`.
+<!-- M13 End -->
+
 ### Current Implementation Surface
 
 The M1 identity implementation has been migrated to:
@@ -132,11 +136,11 @@ apps/stats-data/
 
 `apps/stats-data/` owns Stats database schema, migrations, persistence adapters, dashboard/reporting queries, and associations between users and later document workflow results. The reusable Identity Access Module defines identity account data needs and identity API behavior; it does not own the whole Stats database direction.
 
-### Current Transitional Persistence
+### Current Persistence
 
-The current working Stats implementation uses one PostgreSQL database named `stats` and stores M1 user access data there through SQLAlchemy.
+The current Stats implementation uses one PostgreSQL-compatible database named `stats` and stores M1 user access data there through SQLAlchemy.
 
-- `DATABASE_URL` currently identifies the Stats PostgreSQL database used by the transitional identity API.
+- `DATABASE_URL` identifies the Stats PostgreSQL database used by the identity API.
 - The current `users` table satisfies the identity account data requirements described in this spec.
 - Test databases may remain isolated from local PostgreSQL.
 - Current SQLAlchemy persistence should remain behind identity services and contracts so a future Stats persistence adapter can be separated without changing login/token behavior.
@@ -148,11 +152,11 @@ The current working Stats implementation uses one PostgreSQL database named `sta
 - Other projects that reuse Identity Access may supply a different persistence adapter or database strategy.
 - M1 code must avoid exposing password hashes, database sessions, or Stats-specific persistence internals to consumers.
 
-### Current Local Database Assumptions
+### Local Database Assumptions
 
 - Current local Stats database: PostgreSQL database `stats`.
 - Current database connection setting: `DATABASE_URL`.
-- Current persistence library: SQLAlchemy in the transitional FastAPI implementation.
+- Current persistence library: SQLAlchemy in the FastAPI implementation.
 - PostgreSQL-specific raw SQL should be avoided so the identity behavior remains portable across future persistence decisions.
 
 ### Future Deployment Note
@@ -219,7 +223,7 @@ apps/stats-web/
       users.js
 ```
 
-Existing transitional files under `stats/` may remain until a later cleanup removes or archives the old mixed service surface. The migrated paths above are the active architecture-aligned locations for new M1 work.
+The paths above are the active architecture-aligned locations for M1 work.
 
 ## Identity Input and Output Contract
 
@@ -308,7 +312,7 @@ def get_current_active_user(...):
 
 ```python
 # M1 - User Access Management Start
-# Changes the current transitional identity persistence target to a configured Stats database.
+# Changes the configured identity persistence target to the Stats database.
 # database_url: str = "sqlite:///./stats_ingestion.db"
 database_url = _config_value(config_values, "DATABASE_URL")
 # M1 End
@@ -327,7 +331,7 @@ The same convention should be adapted for later modules by changing the module l
 
 ## Configuration
 
-Identity authentication configuration must be centralized through the M1 module settings pattern and follow the M0 project-wide runtime configuration standard. Runtime values used by M1 and its current Stats Web consumer must be read from config files or supported environment overrides rather than being hardcoded in application code. The current transitional implementation also keeps its Stats PostgreSQL persistence setting behind the backend settings loader until the Stats Data persistence boundary is executed.
+Identity authentication configuration must be centralized through the M1 module settings pattern and follow the M0 project-wide runtime configuration standard. Runtime values used by M1 and its Stats Web consumer must be read from config files or supported environment overrides rather than being hardcoded in application code. The Stats PostgreSQL persistence setting remains behind the backend settings loader until the Stats Data persistence boundary is executed.
 
 ### Current Config Files
 
@@ -344,7 +348,7 @@ Environment variables override backend config values. Stats Web may override `St
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `database_url` | `postgresql+psycopg://postgres:postgres@localhost:5432/stats` | Current Stats PostgreSQL connection URL used by the transitional identity persistence |
+| `database_url` | `postgresql+psycopg://postgres:postgres@localhost:5432/stats` | Current Stats PostgreSQL connection URL used by identity persistence |
 | `api_host` | `0.0.0.0` | Backend bind host for direct Python startup |
 | `api_port` | `8000` | Backend bind port for direct Python startup |
 | `cors_allowed_origins` | `*` | Comma-separated origins allowed to call the current API from browser consumers |
@@ -547,7 +551,7 @@ A fresh database has no administrator account. Module 1 must provide a local com
 
 ### Current Bootstrap Command
 
-The current transitional implementation provides this bootstrap command from:
+The active implementation provides this bootstrap command from:
 
 ```text
 modules/identity-access-module
@@ -752,7 +756,7 @@ Schemas should avoid exposing `hashed_password` or other internal security field
 
 ## Error Handling Contract
 
-The current M1 API must return controlled error shapes for identity and authorization failures. The transitional FastAPI implementation currently reuses this response convention:
+The current M1 API must return controlled error shapes for identity and authorization failures. The FastAPI implementation uses this response convention:
 
 ```json
 {
@@ -792,12 +796,12 @@ The current implementation may reuse existing API error helpers and should add a
 
 ## Current Schema and Future Migration Boundary
 
-The current transitional implementation must remain able to create the identity user table for local and test execution.
+The current implementation must remain able to create the identity user table for local and test execution.
 
-- If Alembic is introduced before Stats Data and Persistence is executed, it must clearly state that it covers the transitional identity table placement.
+- If Alembic is introduced before Stats Data and Persistence is executed, it must clearly state that it covers the current identity table placement.
 - Once `apps/stats-data/` owns the Stats database lifecycle, Stats-specific schema migrations and persistence adapters belong there.
 - Identity Access tests must keep a test database setup that does not depend on production credentials.
-- If Alembic is deferred in the current transitional implementation, `init_db()` may create the current identity user table for local and test execution and the deferral must remain documented.
+- If Alembic is deferred, `init_db()` may create the current identity user table for local and test execution and the deferral must remain documented.
 
 ## Testing
 
@@ -851,35 +855,17 @@ Each completed module adds to the Stats project regression baseline.
 
 The current `modules/identity-access-module/` runtime defines its own run command, test command, and configuration sample. From M13 onward, official verification runs through the Stats container.
 
-### Current Transitional Runtime
+<!-- M13 - Containerization Start -->
+### Container Runtime Boundary
 
-The current identity API remains runnable locally with:
-
-```powershell
-uvicorn app.main:app --reload
-```
-
-from the current transitional implementation path:
-
-```text
-modules/identity-access-module
-```
+M1 official runtime verification and tests run inside the Stats runtime container. Host-started `uvicorn` runs are diagnostics only and must not be recorded as module completion, regression, database validation, or capstone evidence.
 
 The current M1 identity API must connect to the Stats PostgreSQL database when `DATABASE_URL` is configured. That current connection does not make M1 the owner of the future Stats database schema lifecycle.
 
-The current Stats Web consumer remains runnable locally with:
-
-```powershell
-dotnet run
-```
-
-from:
-
-```text
-apps/stats-web
-```
+The current Stats Web consumer is verified through the Docker stack entry point at `http://127.0.0.1:8080` for official evidence.
 
 The Stats Web consumer must read `StatsApi:BaseUrl` from `appsettings.json` or a supported override such as `STATS_API_BASE_URL` before it starts.
+<!-- M13 End -->
 
 ## Dependencies
 
@@ -892,9 +878,9 @@ Module 1 requires these additional or confirmed dependencies:
 - `email-validator`
 - Container-executed module tests
 - `httpx`
-- `alembic` if transitional identity migrations are introduced before Stats Data owns the Stats schema lifecycle
+- `alembic` if identity migrations are introduced before Stats Data owns the Stats schema lifecycle
 
-PDF-specific dependencies that remain in the current transitional backend do not belong to the reusable Identity Access Module contract and must not expand M1 behavior.
+PDF-specific dependencies do not belong to the reusable Identity Access Module contract and must not expand M1 behavior.
 
 ## Acceptance Criteria
 
@@ -925,10 +911,10 @@ Module 1 is complete when:
 
 ## Implementation Notes
 
-- Prefer the current SQLAlchemy ORM/service split over raw SQL while the identity persistence code remains in the transitional FastAPI implementation.
+- Prefer the current SQLAlchemy ORM/service split over raw SQL while the identity persistence code remains in the FastAPI implementation.
 - Keep authentication logic in service and utility modules rather than embedding it directly in route handlers.
 - Keep route handlers thin and focused on request/response behavior.
-- Use current settings, database, error, logging, and router patterns while the code remains under the transitional FastAPI surface.
+- Use current settings, database, error, logging, and router patterns within the active FastAPI module surface.
 - Keep Stats Web consumer behaviour focused on login, first-login password setup, landing-page access, user management, auth error feedback, and sign out until the Stats Web Shell spec refines the app UI.
 - Reusable identity code and module-local automated tests now live under `modules/identity-access-module/`; Stats-specific Razor Pages now live under `apps/stats-web/`; project documentation and evidence live under root `docs/` and `tests/results/`.
 - Avoid implementing document-specific ownership rules until Stats Data and the relevant workflow specs define document models and user associations.
