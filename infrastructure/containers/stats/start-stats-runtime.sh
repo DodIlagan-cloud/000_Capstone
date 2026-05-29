@@ -1,7 +1,7 @@
 #!/bin/bash
 # M13 - Containerization Start
 # Starts all Stats module APIs in order, waits for health checks, then starts Stats Web.
-# Order: database ready -> identity DB init -> Identity API -> File Validation API -> Document Parsing API -> Stats Web
+# Order: database ready -> identity DB init -> Identity API -> File Validation API -> Document Parsing API -> Transaction Extraction API -> Stats Web
 
 set -e
 
@@ -11,6 +11,7 @@ STATS_WEB_PORT=${STATS_WEB_PORT:-8080}
 IDENTITY_PORT=${IDENTITY_PORT:-8013}
 FILE_VALIDATION_PORT=${FILE_VALIDATION_PORT:-8014}
 DOCUMENT_PARSING_PORT=${DOCUMENT_PARSING_PORT:-8015}
+TRANSACTION_EXTRACTION_PORT=${TRANSACTION_EXTRACTION_PORT:-8016}
 
 # stats-db connection details (used for readiness check)
 DB_HOST=${DB_HOST:-stats-db}
@@ -84,10 +85,16 @@ cd /app/modules/document-parsing-module
 API_HOST=0.0.0.0 API_PORT=${DOCUMENT_PARSING_PORT} \
     python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${DOCUMENT_PARSING_PORT}" &
 
+echo "[M13] Starting Transaction Extraction API on port ${TRANSACTION_EXTRACTION_PORT} ..."
+cd /app/modules/transaction-extraction-module
+API_HOST=0.0.0.0 API_PORT=${TRANSACTION_EXTRACTION_PORT} \
+    python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${TRANSACTION_EXTRACTION_PORT}" &
+
 # -- Step 4: Wait for module API health ---------------------------------------
 wait_for_health "Identity Access API"   "http://localhost:${IDENTITY_PORT}/health"
 wait_for_health "File Validation API"   "http://localhost:${FILE_VALIDATION_PORT}/health"
 wait_for_health "Document Parsing API"  "http://localhost:${DOCUMENT_PARSING_PORT}/health"
+wait_for_health "Transaction Extraction API" "http://localhost:${TRANSACTION_EXTRACTION_PORT}/health"
 
 # -- Step 5: Start Stats Web --------------------------------------------------
 echo "[M13] All module APIs healthy. Starting Stats Web on port ${STATS_WEB_PORT} ..."

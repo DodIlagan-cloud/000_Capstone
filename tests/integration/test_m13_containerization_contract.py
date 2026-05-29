@@ -3,9 +3,8 @@
 # Checks that required infrastructure files exist and contain the expected content.
 #
 # TESTING BOUNDARY:
-#   This file runs on the host with pytest -- no Docker or network required.
-#   Runtime acceptance evidence (OCR, DB, cross-module) runs via:
-#     tests/scripts/regression/run_docker_full_regression_evidence.ps1
+#   From M13 onward, official execution of this contract belongs inside the
+#   Stats runtime container via tests/scripts/regression/run_module_unit_tests.ps1.
 
 from pathlib import Path
 
@@ -18,6 +17,7 @@ STATS_WEB_PROGRAM = REPO_ROOT / "apps" / "stats-web" / "Program.cs"
 TEST_INPUT_DIR  = REPO_ROOT / "tests/input"
 EVIDENCE_RUNNER = REPO_ROOT / "tests/scripts" / "M13-Containerization" / "run_docker_acceptance_evidence.ps1"
 REGRESSION_RUNNER = REPO_ROOT / "tests/scripts" / "regression" / "run_docker_full_regression_evidence.ps1"
+MODULE_UNIT_RUNNER = REPO_ROOT / "tests/scripts" / "regression" / "run_module_unit_tests.ps1"
 
 
 # -- File existence -----------------------------------------------------------
@@ -80,6 +80,16 @@ def test_dockerfile_verifies_pillow_at_build_time():
         "Dockerfile must verify Pillow at build time"
 
 
+def test_dockerfile_copies_tests_for_container_execution():
+    content = DOCKERFILE.read_text()
+    assert "COPY tests/" in content, "Dockerfile must copy test code into the Stats runtime image"
+
+
+def test_dockerfile_packages_transaction_extraction_module():
+    content = DOCKERFILE.read_text()
+    assert "transaction-extraction-module" in content, "Dockerfile must package M7 in the Stats runtime image"
+
+
 # -- Startup script content ---------------------------------------------------
 
 def test_startup_script_waits_for_database():
@@ -102,6 +112,10 @@ def test_startup_script_starts_file_validation_api():
 
 def test_startup_script_starts_document_parsing_api():
     assert "8015" in STARTUP_SCRIPT.read_text()
+
+
+def test_startup_script_starts_transaction_extraction_api():
+    assert "8016" in STARTUP_SCRIPT.read_text()
 
 
 def test_startup_script_performs_health_checks():
@@ -223,6 +237,19 @@ def test_docker_regression_runner_exists():
         f"Docker full regression evidence script not found at {REGRESSION_RUNNER}"
 
 
+def test_container_module_unit_runner_exists():
+    assert MODULE_UNIT_RUNNER.exists(), \
+        f"Container module unit runner not found at {MODULE_UNIT_RUNNER}"
+
+
+def test_container_module_unit_runner_uses_docker_exec():
+    content = MODULE_UNIT_RUNNER.read_text()
+    assert "docker exec stats-runtime" in content
+    assert "pytest" in content
+    assert "/app/tests/input" in content
+    assert "docker cp" in content
+
+
 def test_docker_regression_runner_targets_stats_runtime():
     content = REGRESSION_RUNNER.read_text()
     assert "stats-runtime" in content, \
@@ -274,6 +301,6 @@ def test_docker_regression_runner_does_not_expose_secrets():
 def test_docker_regression_runner_documents_testing_boundary():
     content = REGRESSION_RUNNER.read_text()
     assert "TESTING BOUNDARY" in content, \
-        "Regression script must document the unit-test vs Docker-evidence testing boundary"
+        "Regression script must document the container-first testing boundary"
 
 # M13 End

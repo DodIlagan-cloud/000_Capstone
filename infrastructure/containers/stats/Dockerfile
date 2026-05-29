@@ -31,16 +31,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY modules/identity-access-module/requirements.txt /requirements/identity.txt
 COPY modules/file-validation-module/requirements.txt /requirements/file-validation.txt
 COPY modules/document-parsing-module/requirements.txt /requirements/document-parsing.txt
+COPY modules/transaction-extraction-module/requirements.txt /requirements/transaction-extraction.txt
 
 RUN python3 -m venv /opt/stats/runtime \
     && /opt/stats/runtime/bin/pip install --no-cache-dir \
         -r /requirements/identity.txt \
         -r /requirements/file-validation.txt \
-        -r /requirements/document-parsing.txt
+        -r /requirements/document-parsing.txt \
+        -r /requirements/transaction-extraction.txt
 
 COPY modules/identity-access-module/ /app/modules/identity-access-module/
 COPY modules/file-validation-module/ /app/modules/file-validation-module/
 COPY modules/document-parsing-module/ /app/modules/document-parsing-module/
+COPY modules/transaction-extraction-module/ /app/modules/transaction-extraction-module/
+COPY tests/ /app/tests/
 COPY --from=dotnet-build /app/stats-web /app/stats-web
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/start-stats-runtime.sh
 
