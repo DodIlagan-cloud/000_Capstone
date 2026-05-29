@@ -1,3 +1,9 @@
+# M13 - Containerization Start
+# Historical host-side cross-module diagnostic runner.
+# Official cross-module regression evidence runs through
+# tests\scripts\regression\run_docker_full_regression_evidence.ps1 after M13.
+# M13 End
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")

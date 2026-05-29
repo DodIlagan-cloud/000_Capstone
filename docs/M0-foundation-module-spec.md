@@ -31,7 +31,7 @@ The architecture direction established by M0 is:
 - Stats Data and Persistence is the encompassing Stats product module for database schema, migrations, persistence adapters, and stored workflow results.
 - Backend capabilities are segregated into standalone modules that can be reused outside Stats.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
-- Each later module owns its own spec, contract, tests, evidence, configuration sample, runtime instructions, and container path when containerization is reached.
+- Each later module owns its own spec, contract, tests, evidence, configuration sample, runtime instructions, and container wiring. From M13 onward, official module tests and evidence run through the Stats container.
 
 ## Goals
 
@@ -132,7 +132,7 @@ Every later standalone module must provide:
 4. Module-local automated tests.
 5. Evidence for acceptance tests.
 6. A configuration example with no secrets committed.
-7. A Dockerfile or container plan before cloud deployment.
+7. Container runtime wiring before official module acceptance after M13.
 8. Failure behavior visible to callers through explicit errors or status results.
 9. Config-driven real-data automated/evidence tests when the module processes realistic files, records, messages, or external-style inputs.
 

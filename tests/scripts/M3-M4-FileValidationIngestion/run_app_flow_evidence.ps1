@@ -1,11 +1,10 @@
-# M3/M4 - File Validation and Ingestion: Local app-flow evidence script
+# M3/M4 - File Validation and Ingestion: historical local app-flow diagnostic script
 #
 # TESTING BOUNDARY (established in M13):
-#   Unit tests:             run on the host with pytest (fast development feedback)
-#   Acceptance / evidence:  run in Docker using tests\scripts\M13-Containerization\run_docker_acceptance_evidence.ps1
+#   Official tests and evidence run in Docker using tests\scripts\M13-Containerization\run_docker_acceptance_evidence.ps1
 #
 # This script targets the LOCAL runtime (Stats Web on port 5013, file intake on 8014).
-# It is suitable for development-time evidence only. For assessment/capstone evidence,
+# It is suitable for development diagnostics only. For assessment/capstone evidence,
 # use the M13 Docker acceptance script which exercises the full containerized runtime.
 #
 # PREREQUISITE: Stats Web and the File Validation API must be running locally before executing this script.

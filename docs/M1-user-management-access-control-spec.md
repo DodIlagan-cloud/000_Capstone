@@ -839,7 +839,7 @@ Each completed module adds to the Stats project regression baseline.
 
 ### Test Tooling
 
-- Use `pytest`.
+- From M13 onward, run module tests inside the Stats runtime container.
 - Use FastAPI `TestClient` for endpoint tests.
 - Use a test database configuration isolated from development data.
 - Use fixtures in module tests for users, tokens, and database sessions where practical.
@@ -849,7 +849,7 @@ Each completed module adds to the Stats project regression baseline.
 
 ### Current Module Runtime
 
-The current `modules/identity-access-module/` runtime defines its own local run command, test command, and configuration sample. A container path remains deferred until containerization is reached.
+The current `modules/identity-access-module/` runtime defines its own run command, test command, and configuration sample. From M13 onward, official verification runs through the Stats container.
 
 ### Current Transitional Runtime
 
@@ -890,7 +890,7 @@ Module 1 requires these additional or confirmed dependencies:
 - `passlib[bcrypt]` or equivalent password hashing library
 - `python-jose[cryptography]` or equivalent JWT library
 - `email-validator`
-- `pytest`
+- Container-executed module tests
 - `httpx`
 - `alembic` if transitional identity migrations are introduced before Stats Data owns the Stats schema lifecycle
 

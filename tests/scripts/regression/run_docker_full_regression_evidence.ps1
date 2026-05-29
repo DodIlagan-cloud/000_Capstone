@@ -8,8 +8,8 @@
 #   run through this script, not against host-started processes.
 #
 # TESTING BOUNDARY:
-#   Local unit/static tests  ->  host pytest (fast developer feedback)
-#   Acceptance, OCR, DB, cross-module regression  ->  this script (Docker stack)
+#   Official module tests, acceptance, OCR, DB, and cross-module regression run through Docker.
+#   Host-side checks are development diagnostics only after M13.
 #
 # DOCKER STACK:
 #   docker compose --file infrastructure\compose\stats-runtime.compose.yml \

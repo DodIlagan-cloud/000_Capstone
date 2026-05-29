@@ -241,20 +241,20 @@ Every supported file in `tests/input/` must be used by the M13 evidence runner. 
 
 ## Testing Boundary
 
-M13 establishes a two-tier testing boundary that applies to all modules:
+M13 establishes the container-first testing boundary that applies to all modules and future module work:
 
 | Tier | What runs | Where | Tool |
 | --- | --- | --- | --- |
-| Unit / contract | Fast module-level checks, file/content assertions | Host machine | `pytest` |
+| Unit / contract | Module-level checks, file/content assertions, static contracts | Stats runtime container | `tests\scripts\regression\run_module_unit_tests.ps1` |
 | Acceptance / evidence | Full runtime validation with Tesseract OCR, real fixture files, live DB | Docker stack | `tests\scripts\M13-Containerization\run_docker_acceptance_evidence.ps1` |
 
-Local `pytest` is the fast development feedback loop. It does not require Docker or Tesseract and must not be removed. Docker is the required path for acceptance evidence, capstone assessment artefacts, and any test that depends on the full containerized runtime.
+Host-side checks are development diagnostics only after M13. Any result used for module completion, regression, capstone assessment artefacts, or runtime acceptance must be produced inside the containerized Stats runtime.
 
 ## Testing
 
 ### Integration Contract Tests
 
-`tests/integration/test_m13_containerization_contract.py` must verify:
+Container-executed contract checks must verify:
 
 - The Dockerfile exists at the expected path.
 - The startup script exists and is executable.
@@ -264,6 +264,8 @@ Local `pytest` is the fast development feedback loop. It does not require Docker
 - The startup script starts each module API before Stats Web.
 - The startup script performs health checks before proceeding.
 - The `.env.container.example` documents the required OCR environment variables.
+- The container image copies test code/scripts, while evidence runners copy gitignored `tests/input` fixtures into the running container before execution.
+- Future modules are added to the single Stats runtime container before their official tests are accepted.
 
 ### Container Runtime Tests
 

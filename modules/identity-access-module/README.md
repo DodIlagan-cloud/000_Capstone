@@ -16,19 +16,21 @@ It owns reusable identity behavior:
 
 Stats-specific Razor Pages remain outside this module in `apps/stats-web/`.
 
-## Local Runtime
+## Runtime
 
 ```powershell
-cd C:\000_Capstone\modules\identity-access-module
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8013
+docker compose --file infrastructure\compose\stats-runtime.compose.yml --env-file infrastructure\compose\.env.container up --build --detach
 ```
 
-## Local Tests
+Official runtime verification runs inside the M13 Stats container.
+
+## Tests
 
 ```powershell
-cd C:\000_Capstone\modules\identity-access-module
-pytest
+.\tests\scripts\regression\run_module_unit_tests.ps1
 ```
+
+Host-side runs are development diagnostics only after M13.
 
 ## Configuration
 

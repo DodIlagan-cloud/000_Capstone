@@ -8,12 +8,14 @@ Stats will be developed as an integrating product built from reusable modules.
 - Backend capabilities are segregated into standalone modules that can be tested, containerized, versioned, and reused in other projects.
 - A reusable module should not depend on Stats UI code or Stats-specific page flows.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
-- Each module gets its own spec, folder, README, tests, evidence, configuration sample, and container path when containerization is reached.
+- Each module gets its own spec, folder, README, tests, evidence, configuration sample, and container wiring. From M13 onward, official module tests and evidence run through the Stats container.
 
 <!-- M0 Foundation Start -->
 <!-- Defines the project-wide configuration boundary for every later building block. -->
 - Runtime values must be supplied through config files or supported environment/secret providers instead of being hardcoded in source code.
 - Committed configuration must contain only safe defaults or examples; real secrets and local developer overrides stay uncommitted.
+- Testing must be part of the build loop. Each module change must identify its unit, API, integration, E2E/browser, container, and evidence checks before it is treated as complete.
+- Privacy, security, and data governance must be part of the build loop for modules that handle users, files, OCR text, transactions, logs, screenshots, evidence, database records, or runtime secrets.
 <!-- M0 Foundation End -->
 
 ## Proposed Repository Segregation
@@ -61,9 +63,11 @@ Every standalone module must provide:
 4. Module-local automated tests.
 5. Evidence for its acceptance tests.
 6. A configuration example with no secrets committed.
-7. A Dockerfile or container plan before cloud deployment.
+7. Container runtime wiring before official module acceptance after M13.
 8. Failure behavior that is visible to callers through explicit errors or status results.
 9. Config-driven real-data tests and evidence when a module processes user-like files, records, extracted text, transactions, emails, or stored workflow artefacts.
+10. A build-loop test path that states which unit, API, integration, E2E/browser, container, and evidence checks are required for acceptance.
+11. A privacy/security/data handling note when the module processes sensitive users, files, OCR text, financial values, logs, screenshots, evidence, or secrets.
 
 <!-- M0 Foundation Start -->
 <!-- Requires modules to keep runtime configuration outside source literals. -->

@@ -1,8 +1,8 @@
 ﻿# M13 - Containerization Start
 # Docker acceptance evidence script for M13.
 # Starts the full Stats runtime stack, verifies container health, and parses every
-# supported tests/input fixture through M5 inside Docker. Local pytest remains for
-# fast unit/static checks; this script is the acceptance/evidence path.
+# supported tests/input fixture through M5 inside Docker. Official module tests
+# and evidence run through the container after M13.
 # M13 End
 
 param(

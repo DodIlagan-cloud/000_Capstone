@@ -155,7 +155,7 @@ M3 is complete when:
 - The expected UI behavior is automatic validation on file selection: rejected files show findings, accepted files are prepared for the next parsing/ingestion step.
 - Runtime limits, allowed policy values, workflow defaults, and storage path are configurable.
 - Real PDF automated/evidence tests pass when `STATS_TESTDATA_DIR` points to the shared real application test-data directory, and fail with a clear setup message when that variable is unavailable.
-- Module-local tests pass with `pytest`.
+- Module tests pass inside the M13 Stats runtime container.
 - Contracts and file inventory are documented under root `docs/` and `contracts/`.
 
 <!-- M3 End -->
