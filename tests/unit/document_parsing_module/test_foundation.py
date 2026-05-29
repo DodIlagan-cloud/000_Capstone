@@ -18,8 +18,8 @@ def test_health_endpoint(client):
     assert payload["status"] == "healthy"
     assert payload["service"] == "Document Parsing Module"
     assert payload["version"] == "1.0.0"
-    assert payload["ocr"]["enabled"] is False
-    assert payload["ocr"]["engine"] == "none"
+    assert isinstance(payload["ocr"]["enabled"], bool)
+    assert payload["ocr"]["engine"] in {"none", "tesseract"}
     assert payload["ocr"]["renderer"] == "PyMuPDF"
     assert "tesseract_available" in payload["ocr"]
     assert "renderer_available" in payload["ocr"]

@@ -482,7 +482,7 @@ M2 must not add OCR, document parsing, database, or Python processing dependenci
 
 ## Testing
 
-M2 verification must include automated build checks, browser-level manual or scripted checks, and regression checks for previously completed modules.
+M2 verification must include build checks, browser-level scripted checks, and regression checks for previously completed modules. From M13 onward, official verification must run through the Stats container.
 
 ### Carry-Forward Regression Rule
 
@@ -497,7 +497,7 @@ Each completed module adds to the Stats project regression baseline.
 
 | Check | Level | Evidence |
 | --- | --- | --- |
-| Stats Web builds successfully | Automated | `dotnet build` raw output. |
+| Stats Web builds successfully | Container | Container build or container-executed build output. |
 | Stats Web starts with configured API base URL | Direct/manual | Terminal output and browser screenshot. |
 | `/Login` renders and submits credentials to M1 | Browser integration | Browser screenshot plus capture output. |
 | Required password setup still blocks ordinary shell access | Browser integration | Browser screenshot and checklist result. |
@@ -535,7 +535,7 @@ Expected evidence artefacts:
 M2 is complete when:
 
 - `apps/stats-web/` is explicitly documented as the Stats Web Shell owner folder.
-- The app builds successfully with `dotnet build`.
+- The app builds successfully in the Stats container build/runtime path.
 - Runtime service targets and shell feature switches are configurable without source edits.
 - Existing M1 login, password setup, authenticated landing, sign out, and administrator user-management flows still work from Stats Web.
 - Authenticated users can reach the main Stats shell after completing required password setup.

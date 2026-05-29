@@ -23,6 +23,10 @@ def test_parse_endpoint_returns_trace_classification_and_evaluation(client, monk
     assert payload["classification"]["document_type"] == "bank_statement"
     assert payload["evaluation"]["document_id"] == "ing_api_1"
     assert payload["strategy"]["selected_strategy"] == "pdf_text"
+    assert payload["m7_handoff"]["parse_id"] == payload["parse_id"]
+    assert payload["m7_handoff"]["strategy"] == "pdf_text"
+    assert payload["m7_handoff"]["m7_ready"] is True
+    assert payload["m7_handoff"]["transaction_signal_count"] > 0
 
 
 def test_real_pdf_can_be_parsed_when_configured(client, real_pdf_file):

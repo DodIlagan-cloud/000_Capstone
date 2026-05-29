@@ -12,8 +12,14 @@ Use these foundation documents before starting a module:
 - `docs/building-block-module-plan.md`
 - `docs/building-block-module-io-map.md`
 - `docs/specs/module-spec-template.md`
+- `docs/testing-build-loop-policy.md`
+- `docs/privacy-security-data-governance-policy.md`
 
 The building-block plan is the architecture boundary. Each later module should refine its own spec, contracts, tests, evidence, configuration sample, and runtime path before implementation grows.
+
+Testing is part of the build loop. Each module change must identify and run the appropriate tests during implementation, with official acceptance evidence running through the M13 Stats container from M13 onward.
+
+Privacy, security, and data governance are also part of the build loop. Financial documents, OCR text, extracted data, credentials, logs, screenshots, and evidence must be handled according to the project privacy and data-governance policy.
 
 <!-- M0 Foundation Start -->
 <!-- Applies the project-wide runtime configuration rule to all Stats modules and apps. -->

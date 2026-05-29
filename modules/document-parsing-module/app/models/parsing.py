@@ -54,6 +54,11 @@ class ParseMetadata(BaseModel):
     elapsed_ms: int
     language: str
     page_limit: int
+    ocr_quality_score: Optional[float] = None
+    ocr_mean_confidence: Optional[float] = None
+    ocr_selected_orientation: Optional[int] = None
+    ocr_selected_psm: Optional[int] = None
+    ocr_attempt_count: int = 0
 
 
 class StrategyDecision(BaseModel):
@@ -105,6 +110,29 @@ class RedactedEvidencePreview(BaseModel):
     redaction_applied: bool
 
 
+class M7HandoffAudit(BaseModel):
+    parse_id: str
+    document_id: str
+    filename: str
+    strategy: str
+    extraction_method: str
+    ocr_engine: Optional[str] = None
+    ocr_attempted: bool
+    tesseract_available: bool
+    status: ParseStatus
+    confidence: float
+    text_length: int
+    page_count: int
+    pages_processed: int
+    warnings: list[str] = Field(default_factory=list)
+    m7_ready: bool
+    m7_readiness_reason_codes: list[str] = Field(default_factory=list)
+    transaction_signal_count: int
+    redacted_preview: str
+    redaction_summary: dict[str, int]
+    redaction_applied: bool
+
+
 class DocumentParseResult(BaseModel):
     parse_id: str
     status: ParseStatus
@@ -117,4 +145,5 @@ class DocumentParseResult(BaseModel):
     quality: QualityMetadata
     evaluation: EvaluationMetadata
     evidence: RedactedEvidencePreview
+    m7_handoff: M7HandoffAudit
     findings: list[ParseFinding] = Field(default_factory=list)

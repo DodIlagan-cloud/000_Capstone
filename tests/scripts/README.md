@@ -2,18 +2,22 @@
 
 This directory contains reusable evidence, regression, and helper scripts for the Stats capstone project.
 
+Project testing follows the build-loop policy in `docs/testing-build-loop-policy.md`: tests are defined and run as features are built, not bolted on after implementation.
+
+Evidence scripts must also follow `docs/privacy-security-data-governance-policy.md`: keep real fixture files local, avoid committing secrets or private paths, and prefer redacted summaries over full sensitive OCR text.
+
 ## Testing Boundary (established in M13)
 
-From M13 onward the Stats app is **container-first**. This boundary applies to all modules:
+From M13 onward the Stats app is **container-first**. This boundary applies to all modules and all future module work:
 
 | Tier | Purpose | Where to run | Tool |
 | --- | --- | --- | --- |
-| Unit / static tests | Fast developer feedback, module-level assertions, contract checks | Host machine | `pytest` under root `tests/unit/<module>/` or `tests/integration/` |
-| Acceptance, OCR, DB, cross-module regression | Production-like evidence against the full runtime | Docker stack | Scripts in this directory |
+| Module unit/contract tests | Module-level assertions and contract checks | Stats runtime container | `tests/scripts/regression/run_module_unit_tests.ps1` |
+| Acceptance, OCR, DB, cross-module regression | Production-like evidence against the full runtime | Stats runtime container / Docker stack | Scripts in this directory |
 
-**Local unit tests are developer feedback. Docker evidence is the source of truth.**
+**Container evidence is the source of truth.**
 
-Host commands are allowed only for: editing files, static contract tests, fast unit tests, linting, and inspecting code. Integrated builds, runtime validation, database validation, OCR validation, cross-module regression, browser evidence, and capstone assessment evidence must run against the Docker stack.
+Host commands are allowed only for editing files and inspecting code. Any test result used for module completion, regression, runtime validation, database validation, OCR validation, browser evidence, or capstone assessment evidence must run against the Docker stack.
 
 ## Test Artefact Layout
 
@@ -31,13 +35,13 @@ All test artefacts live under the root `tests/` directory, not inside module or 
 
 Do not create new module-local `test-results/` folders under `modules/` or `apps/`.
 
-Run consolidated host-side unit tests with:
+Run consolidated module unit tests inside the container with:
 
 ```powershell
 .\tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
-The runner invokes each module folder in a separate pytest process because each Python service owns a top-level package named `app`.
+The runner starts the M13 Docker stack and invokes each module folder inside `stats-runtime` in a separate pytest process because each Python service owns a top-level package named `app`.
 
 ## Docker Stack (required for acceptance evidence)
 
@@ -69,15 +73,15 @@ All acceptance and evidence scripts use `tests\\input\\` as the required fixture
 | `regression/` | M1-M5 | **Primary Docker regression evidence runner** (start here for capstone evidence) |
 | `M13-Containerization/` | M13 | M13-specific Docker acceptance evidence (OCR, container health) |
 | `M0-ArchitectureFoundation/` | M0 | Foundation architecture verification helpers |
-| `M1-IdentityAccessManagement/` | M1 | Identity and user-access evidence helpers (local runtime) |
-| `M2-StatsWebShell/` | M2 | Stats Web shell evidence helpers (local runtime) |
-| `M3-M4-FileValidationIngestion/` | M3/M4 | File validation and ingestion evidence helpers (local runtime) |
-| `M5-DocumentParsing/` | M5 | Document parsing evidence helpers (local runtime) |
+| `M1-IdentityAccessManagement/` | M1 | Historical/development helpers; official evidence must use Docker regression |
+| `M2-StatsWebShell/` | M2 | Historical/development helpers; official evidence must use Docker regression |
+| `M3-M4-FileValidationIngestion/` | M3/M4 | Historical/development helpers; official evidence must use Docker regression |
+| `M5-DocumentParsing/` | M5 | Historical/development helpers; official evidence must use Docker regression |
 | `cross-module-regression/` | M1-M5 | Cross-module regression helpers |
 | `common/` | All | Shared utilities used by evidence scripts |
 | `config/` | All | Settings JSON (shared and local-override) |
 
-Scripts in `M1-*` through `M5-*` target the **local runtime** and are suitable for development-time evidence only. For capstone/assessment evidence use the Docker regression runner.
+Scripts in `M1-*` through `M5-*` that target local processes are historical/development helpers only. For module completion, regression, and capstone/assessment evidence use the Docker regression runner.
 
 ## Primary Evidence Runner
 
@@ -105,13 +109,13 @@ This script:
 
 Covers: Docker build, all service health checks, Document Parsing `ocr.enabled=true`, per-fixture OCR parse evidence. Use this to validate a fresh container build.
 
-## Static Contract Tests (host only)
+## Container Contract Tests
 
 ```powershell
-pytest tests\integration\test_m13_containerization_contract.py
+.\tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
-Verifies that all required infrastructure files exist and contain the expected content. Does not require Docker or network access.
+Runs module and contract checks inside the Stats runtime container. Static host inspection may be useful during editing, but it is not official evidence after M13.
 
 ## Configuration
 

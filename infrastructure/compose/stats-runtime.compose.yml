@@ -51,6 +51,7 @@ services:
       ALLOW_OCR_FALLBACK: "true"
       OCR_ENGINE: "tesseract"
       STATS_WEB_PORT: "8080"
+      TRANSACTION_EXTRACTION_PORT: "8016"
       # Wire DATABASE_URL to the stats-db Compose service
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-stats}:${POSTGRES_PASSWORD:-statspass}@stats-db:5432/${POSTGRES_DB:-stats}"
       DB_HOST: "stats-db"

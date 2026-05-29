@@ -70,6 +70,11 @@ class Settings:
     tesseract_cmd: str
     tessdata_prefix: str
     ocr_languages: List[str]
+    ocr_psm_values: List[int]
+    ocr_retry_orientations: bool
+    ocr_min_confidence: float
+    ocr_min_quality_score: float
+    ocr_min_alnum_ratio: float
     supported_document_types: List[str]
     classification_confidence_threshold: float
     classification_allow_unknown: bool
@@ -108,6 +113,11 @@ class Settings:
         self.tesseract_cmd = _config_value(config_values, "TESSERACT_CMD")
         self.tessdata_prefix = config_values.get("TESSDATA_PREFIX", "")
         self.ocr_languages = self._parse_csv_values(_config_value(config_values, "OCR_LANGUAGES"))
+        self.ocr_psm_values = self._parse_csv_int_values(config_values.get("OCR_PSM_VALUES", "6,11,4"))
+        self.ocr_retry_orientations = _parse_bool(config_values.get("OCR_RETRY_ORIENTATIONS"), True)
+        self.ocr_min_confidence = _parse_float(config_values.get("OCR_MIN_CONFIDENCE"), 35.0)
+        self.ocr_min_quality_score = _parse_float(config_values.get("OCR_MIN_QUALITY_SCORE"), 0.35)
+        self.ocr_min_alnum_ratio = _parse_float(config_values.get("OCR_MIN_ALNUM_RATIO"), 0.35)
         self.supported_document_types = self._parse_csv_values(
             _config_value(config_values, "SUPPORTED_DOCUMENT_TYPES"),
             lowercase=True,
@@ -154,6 +164,20 @@ class Settings:
                 normalized_value = normalized_value.lower()
             if normalized_value:
                 values.append(normalized_value)
+
+        return values
+
+    @staticmethod
+    def _parse_csv_int_values(value: str | None) -> List[int]:
+        if not value:
+            return []
+
+        values = []
+        for configured_value in value.split(","):
+            try:
+                values.append(int(configured_value.strip()))
+            except ValueError:
+                continue
 
         return values
 

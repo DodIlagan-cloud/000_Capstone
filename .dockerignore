@@ -10,5 +10,4 @@ venv/
 env/
 docx_render_check/
 tests/results/
-tests/input/
 infrastructure/compose/.env.container

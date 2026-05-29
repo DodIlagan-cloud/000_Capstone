@@ -26,11 +26,11 @@ Primary result:
 - `parse_id` and `status`.
 - `document` trace metadata.
 - `text` and per-page text results.
-- `metadata` for extraction method, OCR engine, page counts, elapsed time, language, and page limit.
+- `metadata` for extraction method, OCR engine, page counts, elapsed time, language, page limit, OCR quality score, OCR mean confidence, selected orientation, selected PSM, and OCR attempt count.
 - `strategy` decision showing the selected parse strategy and fallback readiness.
 - `classification` with document type, confidence, status, reason codes, and scores.
 - `quality` and `evaluation` fields for measurable project outcomes.
 - `evidence` preview with personal information, card numbers, and account numbers redacted.
-- `findings` for unsupported files, OCR dependency gaps, low text, or ambiguous classification.
+- `findings` for unsupported files, OCR dependency gaps, OCR retry/quality signals, low text, or ambiguous classification.
 
 Downstream transaction extraction consumes the M5 result rather than calling a separate OCR module and classification module.

@@ -345,6 +345,7 @@ public static class StatsWebApiProxy
         try
         {
             var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromMinutes(5);
             using var responseMessage = await client.SendAsync(
                 requestMessage,
                 HttpCompletionOption.ResponseHeadersRead,

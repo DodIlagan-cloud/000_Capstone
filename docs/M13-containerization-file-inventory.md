@@ -7,23 +7,25 @@
 
 This document lists the files created or modified for **M13 Containerization**. M13 packages the full Stats runtime into a single container with a companion `stats-db` PostgreSQL service, enabling Tesseract OCR for M5 and consistent local execution across environments.
 
-Current status: **implementation complete** for all container infrastructure files, startup orchestration, Compose profile with `stats-db`, environment example, Stats Web `/health` endpoint, and integration contract tests (41 checks). Full Docker regression evidence runner (M1-M5) added. Testing boundary documentation applied to all module READMEs, specs, and file inventories. The M13 evidence runner requires project-root `tests/input/` fixtures for every OCR evidence run.
+Current status: **implementation updated** for project-wide container-first testing. The Stats runtime container packages module source, test scripts, and test inputs so official module tests, acceptance, regression, OCR, database, and evidence runs execute through Docker from M13 onward. Host-side results are historical/development diagnostics only.
 
 ## Specification and Documentation
 
 | File | Change Type | Description |
 | --- | --- | --- |
 | `docs/M13-containerization-module-spec.md` | Created / Updated | Defines M13 goals, non-goals, what gets packaged, container structure including `stats-db`, startup orchestration order, Dockerfile build-time verification, runtime config, health check table, OCR validation requirements, testing, and acceptance criteria. Updated to require project-root `tests/input/` fixtures for every OCR evidence run. |
+| `docs/M13-container-first-testing-policy.md` | Created | Defines the project-wide policy that official module tests and evidence run through the container after M13. |
+| `docs/M13-container-first-testing-file-inventory.md` | Created | Dedicated inventory for the project-wide container-first testing correction, including affected files, validation plan, and pending evidence status before commit. |
 | `docs/M13-containerization-file-inventory.md` | Created / Updated | This file. Updated to include all files touched in both the initial implementation and the architectural correction pass. |
 
 ## Container Infrastructure
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `infrastructure/containers/stats/Dockerfile` | Created / Updated | Multi-stage build: Stage 1 publishes Stats Web using the .NET 9 SDK. Stage 2 builds the final runtime on `python:3.13-slim`, installs Tesseract OCR and English tessdata, installs the .NET ASP.NET Core 9 runtime, installs all Python module dependencies, runs build-time verification of Tesseract/PyMuPDF/pytesseract/Pillow, copies module source and Stats Web build output, sets OCR environment variables, and sets the startup script as the container entrypoint. All box-drawing characters replaced with plain ASCII. |
-| `infrastructure/containers/stats/start-stats-runtime.sh` | Created / Updated | Startup orchestration script. Waits for `stats-db` PostgreSQL to be reachable, runs identity DB init (`init_db()`), starts Identity Access API (8013) / File Validation API (8014) / Document Parsing API (8015) in background, waits for each `/health` endpoint, then starts Stats Web in the foreground. |
+| `infrastructure/containers/stats/Dockerfile` | Created / Updated | Multi-stage build: publishes Stats Web, installs Tesseract OCR and English tessdata, installs Python module dependencies, copies M1/M3-M4/M5/M7 module source, copies root test scripts/tests, verifies OCR dependencies, sets OCR environment variables, and sets the startup script as the container entrypoint. Real `tests/input` fixtures remain excluded from image build and are copied into the running container by evidence runners. |
+| `infrastructure/containers/stats/start-stats-runtime.sh` | Created / Updated | Startup orchestration script. Waits for `stats-db`, runs identity DB init, starts Identity Access API (8013), File Validation API (8014), Document Parsing API (8015), and Transaction Extraction API (8016), waits for each `/health`, then starts Stats Web in the foreground. |
 | `infrastructure/containers/stats/.env.container.example` | Created / Updated | Documents all required container environment variables. Updated to use `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` for the `stats-db` service and to clarify that `DATABASE_URL` is wired automatically in the Compose file to point to `stats-db`. |
-| `infrastructure/compose/stats-runtime.compose.yml` | Created / Updated | Local full-stack Compose profile. Defines `stats-db` (PostgreSQL 16, persistent `stats-db-data` volume, `pg_isready` health check) and `stats` (single Stats runtime image, `depends_on: stats-db: service_healthy`, `DATABASE_URL` pointing to `stats-db`, Stats Web port mapping, Compose-level health check against `/health`). |
+| `infrastructure/compose/stats-runtime.compose.yml` | Created / Updated | Full-stack Compose profile. Defines `stats-db` and the single `stats` runtime image, wires `DATABASE_URL`, enables OCR, configures `TRANSACTION_EXTRACTION_PORT`, maps Stats Web, and runs the Compose-level health check. |
 
 ## Stats Web
 
@@ -69,6 +71,7 @@ Current status: **implementation complete** for all container infrastructure fil
 | File | Change Type | Description |
 | --- | --- | --- |
 | `tests/scripts/regression/run_docker_full_regression_evidence.ps1` | Created | Primary M1-M5 Docker regression evidence runner. Covers: M1 DB init/login/user listing, M2 Stats Web page presence, M3 per-fixture validation, M4 per-fixture ingestion, M5 per-fixture OCR/text parsing, and cross-module validateâ†’ingestâ†’parse pipeline. Writes dated JSON evidence per module and a Markdown summary report. |
+| `tests/scripts/regression/run_module_unit_tests.ps1` | Modified | Runs consolidated module unit tests inside `stats-runtime` using `docker compose` and `docker exec`, copies approved `tests/input` fixtures into the running container, and replaces host-side `pytest` as the official module unit/contract path. |
 | `tests/results/DockerRegression/` | Created | Evidence root for Docker full regression runs. |
 | `tests/results/DockerRegression/M1/` | Created | M1 login and user listing JSON evidence. |
 | `tests/results/DockerRegression/M2/` | Created | M2 Stats Web HTTP status JSON evidence. |
@@ -76,7 +79,7 @@ Current status: **implementation complete** for all container infrastructure fil
 | `tests/results/DockerRegression/M4/` | Created | M4 ingestion record JSON per fixture. |
 | `tests/results/DockerRegression/M5/` | Created | M5 parse result JSON per fixture. |
 | `tests/results/DockerRegression/cross-module/` | Created | Cross-module pipeline summary JSON per fixture. |
-| `tests/scripts/README.md` | Modified | Full rewrite to document the Docker-first testing standard. Added testing boundary table, Docker stack instructions, fixture source policy, script folder directory, and evidence output paths. |
+| `tests/scripts/README.md` | Modified | Documents the container-first testing standard. Official module unit/contract, acceptance, OCR, DB, browser, and regression evidence must run through Docker. |
 | `tests/integration/test_m13_containerization_contract.py` | Modified | Added 10 new checks for the Docker regression runner: file existence, stats-runtime/stats-db references, tests/input usage, Stats Web port, /api/v1/parses endpoint, M1-M5 coverage, .env.container reference, token truncation, and testing boundary documentation. Total: 41 checks. |
 
 ## Module READMEs Updated (Regression Pass)

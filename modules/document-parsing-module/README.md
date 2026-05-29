@@ -9,36 +9,35 @@ It owns reusable document parsing behavior:
 
 - direct PDF text extraction
 - Tesseract OCR fallback for scanned PDFs and supported images when configured
+- EXIF-aware image normalization, orientation retry, OCR preprocessing, and OCR quality scoring
 - document classification as bank statement, receipt, invoice, utility bill, or unknown
 - parse quality and evaluation metadata
 - redacted evidence previews for ethical data handling
 
 File validation, ingestion records, transaction extraction, Stats persistence, dashboards, and email retrieval remain outside this module.
 
-## Local Runtime
+## Runtime
 
 ```powershell
-cd $env:STATS_DOCUMENT_PARSING_MODULE_DIR
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8015
+docker compose --file infrastructure\compose\stats-runtime.compose.yml --env-file infrastructure\compose\.env.container up --build --detach
 ```
 
-## Local Tests
+M5 runs inside the M13 Stats runtime container for official verification.
+
+## Tests
 
 ```powershell
-cd $env:STATS_DOCUMENT_PARSING_MODULE_DIR
-pytest
+.\tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
 ## Testing Boundary (M13)
 
 | Test type | Where to run | Tool |
 | --- | --- | --- |
-| Unit and contract tests | Host machine | `pytest` in this module directory |
+| Unit and contract tests | Stats runtime container | `tests\scripts\regression\run_module_unit_tests.ps1` |
 | Acceptance / evidence (OCR end-to-end) | Docker stack | `tests\scripts\M13-Containerization\run_docker_acceptance_evidence.ps1` |
 
-Local `pytest` runs fast and gives immediate feedback during development. OCR is disabled locally by default (`ALLOW_OCR_FALLBACK=false`), so unit tests run without requiring a Tesseract installation on the host.
-
-Full OCR acceptance evidence (JPEG/PNG → `strategy: tesseract_ocr`, scanned PDF → `method: ocr`) requires the M13 containerized runtime where Tesseract and all dependencies are installed. Run the Docker acceptance script from the project root after building the Stats runtime container.
+Host-side runs are development diagnostics only. Full OCR acceptance evidence for image files and scanned PDFs requires the M13 containerized runtime where Tesseract and all dependencies are installed.
 
 ## Configuration
 
@@ -50,6 +49,8 @@ config/defaults.env
 
 Local override values may be placed in `.env`, which should remain uncommitted.
 
-Tesseract is a Stats runtime dependency made available to this module when OCR fallback is enabled. Local development may point to a desktop Tesseract install through `.env`; cloud/runtime portability belongs to the M13 top-level Stats container.
+Tesseract is a Stats runtime dependency made available to this module when OCR fallback is enabled. Cloud/runtime portability belongs to the M13 top-level Stats container.
+
+Image OCR can be tuned through `OCR_PSM_VALUES`, `OCR_RETRY_ORIENTATIONS`, `OCR_MIN_CONFIDENCE`, `OCR_MIN_QUALITY_SCORE`, and `OCR_MIN_ALNUM_RATIO`. M5 records the selected orientation, selected PSM, attempt count, mean confidence, and quality score in parse metadata so downstream modules can evaluate OCR reliability.
 
 <!-- M5/M6 End -->

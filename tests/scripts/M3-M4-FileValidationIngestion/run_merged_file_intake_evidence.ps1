@@ -1,3 +1,8 @@
+# M3/M4 - File Validation and Ingestion Start
+# Historical host-side diagnostic runner. Official tests and evidence run through
+# the M13 Stats container after M13.
+# M3/M4 End
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
