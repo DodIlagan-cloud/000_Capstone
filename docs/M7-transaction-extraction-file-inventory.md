@@ -23,7 +23,7 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `modules/transaction-extraction-module/README.md` | Created | Documents module responsibility, local run command, local test command, and configuration boundary. |
+| `modules/transaction-extraction-module/README.md` | Created | Documents module responsibility and the M13 container-first runtime/test boundary. |
 | `modules/transaction-extraction-module/requirements.txt` | Created | Lists FastAPI runtime dependencies. |
 | `modules/transaction-extraction-module/.env.example` | Created | Provides safe local override examples. |
 | `modules/transaction-extraction-module/config/defaults.env` | Created | Provides committed safe runtime defaults. |
@@ -59,43 +59,19 @@ All M7 test artefacts are stored under root `tests/` paths.
 
 ## Verification
 
-Host-side diagnostic M7 unit tests:
+Official container-first M7 unit/contract tests:
 
 ```powershell
-pytest tests\unit\transaction_extraction_module --basetemp tests\results\pytest-tmp\transaction-extraction-receipt-rules-final
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
-Result:
-
-```text
-18 passed, 1 cache warning
-```
-
-Host-side adjacent M5 diagnostic:
+Official full regression/evidence command:
 
 ```powershell
-$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests\input'
-$env:STATS_PARSING_TESTDATA_DIR='C:\000_Capstone\tests\input'
-pytest tests\unit\document_parsing_module --basetemp tests\results\pytest-tmp\document-parsing-after-m7-receipt-rules
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_docker_full_regression_evidence.ps1
 ```
 
-Result:
-
-```text
-20 passed, 1 cache warning
-```
-
-Host-side integration contract/orchestration diagnostic:
-
-```powershell
-pytest tests\integration\test_m13_containerization_contract.py tests\integration\test_stats_web_orchestration_config.py --basetemp tests\results\pytest-tmp\integration-after-m7-receipt-rules
-```
-
-Result:
-
-```text
-52 passed, 1 cache warning
-```
+Historical host-side results from earlier development are retained only as development history. From M13 onward, official M7 acceptance and regression evidence must run inside `stats-runtime` through the container-first runners above.
 
 M7 evidence against saved M5 outputs:
 

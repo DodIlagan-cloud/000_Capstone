@@ -34,6 +34,8 @@
     }
   },
   "logging": {
+    "authority": "config/stats.logging.json",
+    "note": "The central logging registry is the source of truth for logging variable defaults and allowed values. This section keeps logging environment keys discoverable in the overall runtime registry.",
     "LOG_LEVEL": {
       "purpose": "Minimum application log level.",
       "default": "INFO",
@@ -74,7 +76,8 @@
     },
     "DOCUMENT_REFERENCE_ROOTS": {
       "purpose": "Allowed source roots for document parsing references.",
-      "default": "modules/file-validation-module data/intake equivalent or configured Stats storage root",
+      "default": null,
+      "note": "Resolve from configured Stats storage roots or explicit module environment overrides. Do not parse this note as a filesystem path.",
       "secret": false
     }
   },
@@ -139,7 +142,12 @@
   },
   "network": {
     "STATS_WEB_PORT": {
-      "purpose": "External Stats Web host port for local/container runtime.",
+      "purpose": "Stats Web container bind port for local/container runtime.",
+      "default": "8080",
+      "secret": false
+    },
+    "STATS_WEB_HOST_PORT": {
+      "purpose": "External Stats Web host port mapped by Docker Compose.",
       "default": "8080",
       "secret": false
     },
@@ -164,11 +172,31 @@
     }
   },
   "modulePorts": {
-    "IDENTITY_PORT": "8013",
-    "FILE_VALIDATION_PORT": "8014",
-    "DOCUMENT_PARSING_PORT": "8015",
-    "TRANSACTION_EXTRACTION_PORT": "8016",
-    "DATA_VALIDATION_PORT": "8017"
+    "IDENTITY_PORT": {
+      "purpose": "Identity Access API container-local port.",
+      "default": "8013",
+      "secret": false
+    },
+    "FILE_VALIDATION_PORT": {
+      "purpose": "File Validation and Ingestion API container-local port.",
+      "default": "8014",
+      "secret": false
+    },
+    "DOCUMENT_PARSING_PORT": {
+      "purpose": "Document Parsing API container-local port.",
+      "default": "8015",
+      "secret": false
+    },
+    "TRANSACTION_EXTRACTION_PORT": {
+      "purpose": "Transaction Extraction API container-local port.",
+      "default": "8016",
+      "secret": false
+    },
+    "DATA_VALIDATION_PORT": {
+      "purpose": "Data Validation API container-local port.",
+      "default": "8017",
+      "secret": false
+    }
   },
   "moduleDefaults": {
     "APP_NAME": {"purpose": "Module display name.", "secret": false},

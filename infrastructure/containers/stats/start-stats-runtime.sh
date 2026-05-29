@@ -123,6 +123,8 @@ exec dotnet stats.Web.dll \
     --StatsWeb:Downstream:FileValidationBaseUrl "" \
     --StatsWeb:Downstream:FileIngestionBaseUrl "" \
     --StatsWeb:Downstream:DocumentParsingBaseUrl "" \
+    --StatsWeb:Downstream:TransactionExtractionBaseUrl "" \
+    --StatsWeb:Downstream:DataValidationBaseUrl "" \
     --StatsWeb:Proxy:IdentityBaseUrl "http://localhost:${IDENTITY_PORT}" \
     --StatsWeb:Proxy:FileValidationBaseUrl "http://localhost:${FILE_VALIDATION_PORT}" \
     --StatsWeb:Proxy:FileIngestionBaseUrl "http://localhost:${FILE_VALIDATION_PORT}" \

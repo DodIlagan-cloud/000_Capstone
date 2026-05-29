@@ -351,7 +351,7 @@ Environment variables override backend config values. Stats Web may override `St
 | `database_url` | `postgresql+psycopg://postgres:postgres@localhost:5432/stats` | Current Stats PostgreSQL connection URL used by identity persistence |
 | `api_host` | `0.0.0.0` | Backend bind host for direct Python startup |
 | `api_port` | `8000` | Backend bind port for direct Python startup |
-| `cors_allowed_origins` | `*` | Comma-separated origins allowed to call the current API from browser consumers |
+| `cors_allowed_origins` | `http://localhost:8080,http://127.0.0.1:8080` | Comma-separated origins allowed to call the current API from browser consumers |
 | `access_token_secret_key` | development-only value | Secret used to sign access tokens |
 | `access_token_algorithm` | `HS256` | JWT signing algorithm |
 | `access_token_expire_minutes` | `60` | Access token expiry window |

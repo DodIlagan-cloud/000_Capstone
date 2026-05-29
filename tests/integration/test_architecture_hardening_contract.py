@@ -8,6 +8,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_CONFIG = REPO_ROOT / "config" / "stats.runtime.json"
 PATHS_CONFIG = REPO_ROOT / "config" / "stats.paths.json"
 LOGGING_CONFIG = REPO_ROOT / "config" / "stats.logging.json"
+ARCHITECTURE_BASELINE = REPO_ROOT / "docs" / "architecture-hardening" / "current-baseline.md"
+HARDENING_PASS = REPO_ROOT / "docs" / "architecture-hardening" / "passes" / "2026-05-30-architecture-config-logging"
+REVIEW_FILES = [
+    HARDENING_PASS / "reviews" / "qodo-review.md",
+    HARDENING_PASS / "reviews" / "copilot-review.md",
+    HARDENING_PASS / "reviews" / "claude-review.md",
+    HARDENING_PASS / "reviews" / "review-triage.md",
+]
 
 ACTIVE_SPEC_FILES = [
     REPO_ROOT / "README.md",
@@ -75,6 +83,18 @@ def test_central_config_registries_exist_and_parse():
     assert logging["environmentVariables"]["LOG_LEVEL"]["default"] == "INFO"
 
 
+def test_runtime_registry_uses_consistent_metadata_shapes():
+    runtime = _load_json(RUNTIME_CONFIG)
+
+    for key, value in runtime["modulePorts"].items():
+        assert isinstance(value, dict), f"modulePorts.{key} must use metadata object shape"
+        assert value["default"].isdigit()
+        assert value["secret"] is False
+
+    assert runtime["storage"]["DOCUMENT_REFERENCE_ROOTS"]["default"] is None
+    assert runtime["logging"]["authority"] == "config/stats.logging.json"
+
+
 def test_module_defaults_use_registered_runtime_keys():
     runtime = _load_json(RUNTIME_CONFIG)
     registered = _registered_runtime_keys(runtime)
@@ -113,6 +133,26 @@ def test_logging_registry_requires_container_safe_redaction():
     env = logging["environmentVariables"]
 
     assert env["LOG_DESTINATION"]["default"] == "stdout"
+    assert "stderr" in env["LOG_DESTINATION"]["allowedValues"]
     assert env["LOG_REDACT_SENSITIVE_VALUES"]["default"] == "true"
     assert "raw OCR text" in logging["redaction"]["neverLogRawValuesFor"]
     assert "container" in logging["containerRule"].lower()
+
+
+def test_architecture_hardening_review_artifacts_are_checked_in():
+    required_files = [
+        ARCHITECTURE_BASELINE,
+        HARDENING_PASS / "architecture-baseline.md",
+        HARDENING_PASS / "file-inventory.md",
+        HARDENING_PASS / "validation-plan.md",
+        HARDENING_PASS / "validation-results.md",
+        *REVIEW_FILES,
+    ]
+
+    missing = [
+        str(path.relative_to(REPO_ROOT))
+        for path in required_files
+        if not path.exists() or not path.read_text(encoding="utf-8-sig").strip()
+    ]
+
+    assert not missing, f"Architecture hardening artifacts are missing or empty: {missing}"

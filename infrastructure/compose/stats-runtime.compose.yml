@@ -43,13 +43,13 @@ services:
       stats-db:
         condition: service_healthy
     ports:
-      - "${STATS_WEB_PORT:-8080}:8080"
+      - "${STATS_WEB_HOST_PORT:-8080}:${STATS_WEB_PORT:-8080}"
     env_file:
       - .env.container
     environment:
       # OCR is always enabled inside this container
-      ALLOW_OCR_FALLBACK: "true"
-      OCR_ENGINE: "tesseract"
+      ALLOW_OCR_FALLBACK: "${ALLOW_OCR_FALLBACK:-true}"
+      OCR_ENGINE: "${OCR_ENGINE:-tesseract}"
       STATS_APP_ROOT: "${STATS_APP_ROOT:-/app}"
       STATS_RUNTIME_CONFIG: "${STATS_RUNTIME_CONFIG:-/app/config/stats.runtime.json}"
       STATS_PATHS_CONFIG: "${STATS_PATHS_CONFIG:-/app/config/stats.paths.json}"
@@ -60,15 +60,15 @@ services:
       LOG_INCLUDE_CORRELATION_ID: "${LOG_INCLUDE_CORRELATION_ID:-true}"
       LOG_REDACT_SENSITIVE_VALUES: "${LOG_REDACT_SENSITIVE_VALUES:-true}"
       LOG_DESTINATION: "${LOG_DESTINATION:-stdout}"
-      STATS_WEB_PORT: "8080"
-      TRANSACTION_EXTRACTION_PORT: "8016"
-      DATA_VALIDATION_PORT: "8017"
+      STATS_WEB_PORT: "${STATS_WEB_PORT:-8080}"
+      TRANSACTION_EXTRACTION_PORT: "${TRANSACTION_EXTRACTION_PORT:-8016}"
+      DATA_VALIDATION_PORT: "${DATA_VALIDATION_PORT:-8017}"
       # Wire DATABASE_URL to the stats-db Compose service
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-stats}:${POSTGRES_PASSWORD:-statspass}@stats-db:5432/${POSTGRES_DB:-stats}"
-      DB_HOST: "stats-db"
-      DB_PORT: "5432"
+      DB_HOST: "${DB_HOST:-stats-db}"
+      DB_PORT: "${DB_PORT:-5432}"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:${STATS_WEB_PORT:-8080}/health"]
       interval: 30s
       timeout: 10s
       retries: 5

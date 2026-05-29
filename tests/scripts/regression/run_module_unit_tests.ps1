@@ -10,7 +10,8 @@ param(
     [string]$EvidenceDir = "tests\results\M13-ContainerFirstTesting",
     [string]$ComposeFile = "infrastructure\compose\stats-runtime.compose.yml",
     [string]$EnvFile = "infrastructure\compose\.env.container",
-    [string]$ContainerRoot = "/app"
+    [string]$ContainerRoot = "/app",
+    [switch]$LeaveStackRunning
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +43,7 @@ Set-Content -Path $rawOutputPath -Value @(
     "M13 container-first module unit tests",
     "Date: $date",
     "Command: powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_module_unit_tests.ps1",
+    "LeaveStackRunning: $LeaveStackRunning",
     ""
 ) -Encoding UTF8
 
@@ -158,4 +160,23 @@ Write-EvidenceLine "Result: PASSED"
     "- Covered suites: M0, M1, M2 config, M3/M4, M5, M7, M8, and M13 container contract checks.",
     ""
 ) | Set-Content -Path $summaryPath -Encoding UTF8
+
+if (-not $LeaveStackRunning) {
+    Write-EvidenceLine ""
+    Write-EvidenceLine "=== Docker Compose Cleanup ==="
+    Push-Location $RepoRoot
+    try {
+        $cleanupExit = Invoke-LoggedNative "docker" @("compose", "--file", $ComposeFile, "--env-file", $EnvFile, "down")
+        if ($cleanupExit -ne 0) {
+            throw "Docker compose cleanup failed."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+else {
+    Write-EvidenceLine ""
+    Write-EvidenceLine "Docker Compose cleanup skipped because -LeaveStackRunning was supplied."
+}
 # M13 End

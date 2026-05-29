@@ -27,7 +27,7 @@
     "LOG_DESTINATION": {
       "purpose": "Primary runtime log destination.",
       "default": "stdout",
-      "allowedValues": ["stdout"],
+      "allowedValues": ["stdout", "stderr"],
       "secret": false
     }
   },

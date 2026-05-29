@@ -42,3 +42,33 @@ M7 returns candidates only. M8 owns cleaning, validation, duplicate detection, a
 M7 must not rerun OCR or call Tesseract. If M5 quality/findings show unusable text, low OCR confidence, or noisy OCR output, M7 reports input-quality findings so the workflow can decide whether M5 should be rerun with different OCR settings.
 
 <!-- M7 End -->
+
+<!-- M8 - Data Validation Module Start -->
+
+## M8 Data Validation Contract
+
+M8 consumes M7 transaction and financial field candidates and produces normalized records plus data-quality findings for M9 persistence.
+
+Primary request:
+
+- Optional `extraction_id` and `parse_id` from upstream M7/M5.
+- Optional document trace metadata.
+- M7 `document_type`.
+- M7 `transaction_candidates` with date text, description, amount, currency, direction, source, confidence, and reason codes.
+- M7 `financial_field_candidates` with field name, values, source, confidence, and reason codes.
+- Optional validation settings such as confidence threshold, same-batch duplicate detection, and required field switches.
+
+Primary result:
+
+- `validation_id` and `status`.
+- Upstream `extraction_id` and `parse_id`.
+- Document trace metadata.
+- `normalized_records` with normalized date, title-cased description, currency, direction, signed amount, quality status, duplicate marker, and source candidate ID.
+- `financial_fields` with normalized field names and values.
+- `summary` with valid, warning, invalid, same-batch duplicate, debit, credit, and net totals.
+- `evaluation` metadata for later testing and reporting.
+- `findings` for missing candidates, incomplete records, invalid amounts, low confidence, unknown direction, same-batch duplicate transactions, and record limits.
+
+M8 returns validation-ready records only. M9 owns database persistence, database duplicate checks against already stored records, and Stats-specific storage schema decisions.
+
+<!-- M8 End -->

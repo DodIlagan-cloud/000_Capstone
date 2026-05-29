@@ -12,12 +12,9 @@ It is an ASP.NET Core Razor Pages app that consumes the Identity Access API for:
 - authenticated main app landing access
 - administrator user management
 
-## Local Runtime
+## Runtime Boundary
 
-```powershell
-cd C:\000_Capstone\apps\stats-web
-dotnet run --urls "http://127.0.0.1:5013"
-```
+From M13 onward, official Stats Web runtime verification and evidence run through the Docker stack at `http://127.0.0.1:8080`. Host-started `dotnet run` is historical diagnostic usage only and must not be recorded as module completion, regression, browser evidence, or capstone evidence.
 
 ## Configuration
 

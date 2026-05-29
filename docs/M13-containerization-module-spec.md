@@ -198,7 +198,8 @@ Expected container environment variables:
 | `TESSDATA_PREFIX` | Path to tessdata directory inside the image (set by Dockerfile) |
 | `OCR_LANGUAGES` | OCR language hint, default `eng` |
 | `CORS_ALLOWED_ORIGINS` | Browser origins allowed to call module APIs |
-| `STATS_WEB_PORT` | Host port for Stats Web, default `8080` |
+| `STATS_WEB_PORT` | Stats Web container bind port, default `8080` |
+| `STATS_WEB_HOST_PORT` | Optional Docker host port mapped to Stats Web, default `8080` |
 | `StatsApi__BaseUrl` | Stats Web override for Identity Access API base URL |
 | `StatsWeb__Downstream__FileValidationBaseUrl` | Stats Web override for File Validation API base URL |
 | `StatsWeb__Downstream__FileIngestionBaseUrl` | Stats Web override for File Ingestion API base URL |
@@ -207,6 +208,8 @@ Expected container environment variables:
 | `StatsWeb__Downstream__DataValidationBaseUrl` | Stats Web override for Data Validation API base URL |
 
 Inside the container, module API base URLs should point to `localhost` with their respective ports since all services share the same network namespace.
+
+For browser-facing upload flows, downstream module URLs must remain same-origin by default. Stats Web owns browser API routing through `/api/v1/{path}` and server-side proxy targets. Container startup must blank browser downstream URLs and set server-side proxy targets for internal modules.
 
 A committed `.env.container.example` should document the expected container environment variable names without real secrets.
 

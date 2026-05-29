@@ -1,5 +1,5 @@
 """M2 - Stats Web Shell Start
-Verifies the Stats Web local orchestration contract for sibling module APIs.
+Verifies the M13 container-first Stats Web downstream configuration.
 M2 End"""
 
 import json
@@ -16,54 +16,44 @@ def _load_appsettings() -> dict:
     return json.loads(APPSETTINGS_FILE.read_text(encoding="utf-8"))
 
 
-def test_stats_web_registers_local_service_orchestrator():
-    """Ensure the web shell starts the hosted orchestration service."""
-    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
-
-    assert "StatsLocalServiceOrchestrator" in program_source
-    assert "AddHostedService<StatsLocalServiceOrchestrator>()" in program_source
-    assert "StatsWeb:Azure:Environment" in program_source
-
-
-def test_local_orchestration_is_enabled_for_m2_shell():
-    """Ensure local runs are configured to start missing sibling services."""
+def test_stats_web_keeps_local_orchestrator_disabled_by_default():
+    """Ensure host-side process startup is not the default test/runtime path."""
+    # M13 - Containerization Start
     appsettings = _load_appsettings()
     orchestration = appsettings["StatsWeb"]["LocalOrchestration"]
 
-    assert orchestration["Enabled"] is True
-    assert orchestration["StartMissingServices"] is True
-    assert orchestration["HealthCheckTimeoutSeconds"] >= 1
+    assert orchestration["Enabled"] is False
+    assert orchestration["StartMissingServices"] is False
+    assert orchestration["Services"] == []
+    # M13 End
 
 
-def test_local_orchestration_declares_identity_file_intake_and_document_parsing_services():
-    """Ensure the shell knows the current local module API health endpoints."""
+def test_stats_web_uses_same_origin_proxy_for_browser_downstream_calls():
+    """Ensure browser module calls route through Stats Web instead of direct container-internal ports."""
+    # M13 - Containerization Start
     appsettings = _load_appsettings()
-    stats_api_base_url = appsettings["StatsApi"]["BaseUrl"].rstrip("/")
-    file_validation_base_url = appsettings["StatsWeb"]["Downstream"]["FileValidationBaseUrl"].rstrip("/")
-    file_ingestion_base_url = appsettings["StatsWeb"]["Downstream"]["FileIngestionBaseUrl"].rstrip("/")
-    document_parsing_base_url = appsettings["StatsWeb"]["Downstream"]["DocumentParsingBaseUrl"].rstrip("/")
-    services = {
-        service["Name"]: service
-        for service in appsettings["StatsWeb"]["LocalOrchestration"]["Services"]
-    }
+    downstream = appsettings["StatsWeb"]["Downstream"]
 
-    assert services["Identity Access API"]["HealthUrl"] == f"{stats_api_base_url}/health"
-    assert services["File Validation API"]["HealthUrl"] == f"{file_validation_base_url}/health"
-    assert services["Document Parsing API"]["HealthUrl"] == f"{document_parsing_base_url}/health"
-    assert file_ingestion_base_url == file_validation_base_url
-    assert "File Ingestion API" not in services
+    assert appsettings["StatsApi"]["BaseUrl"].rstrip("/") == "http://127.0.0.1:8013"
+    assert downstream["FileValidationBaseUrl"].rstrip("/") == "http://127.0.0.1:8014"
+    assert downstream["FileIngestionBaseUrl"].rstrip("/") == "http://127.0.0.1:8014"
+    assert downstream["DocumentParsingBaseUrl"].rstrip("/") == "http://127.0.0.1:8015"
+    # M13 End
+    # M7 - Transaction Extraction Start
+    assert downstream["TransactionExtractionBaseUrl"] == ""
+    # M7 End
+    # M8 - Data Validation Module Start
+    assert downstream["DataValidationBaseUrl"] == ""
+    # M8 End
 
 
-def test_local_orchestration_service_definitions_point_to_existing_modules():
-    """Ensure configured local working directories exist and run uvicorn module apps."""
-    appsettings = _load_appsettings()
-    services = appsettings["StatsWeb"]["LocalOrchestration"]["Services"]
+def test_stats_web_program_allows_container_environment_overrides():
+    """Ensure the container can override downstream URLs through environment variables."""
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
 
-    for service in services:
-        service_root = (STATS_WEB_ROOT / service["WorkingDirectory"]).resolve()
-
-        assert service_root.exists()
-        assert service["Command"] == "python"
-        assert "-m uvicorn app.main:app" in service["Arguments"]
-        assert "API_HOST" in service["Environment"]
-        assert "API_PORT" in service["Environment"]
+    assert "STATS_API_BASE_URL" in program_source
+    assert "StatsWeb:Downstream:FileValidationBaseUrl" in program_source
+    assert "StatsWeb:Downstream:FileIngestionBaseUrl" in program_source
+    assert "StatsWeb:Downstream:DocumentParsingBaseUrl" in program_source
+    assert "StatsWeb:Downstream:TransactionExtractionBaseUrl" in program_source
+    assert "StatsWeb:Downstream:DataValidationBaseUrl" in program_source

@@ -63,8 +63,8 @@ Configuration is loaded from `config/defaults.env`, optional `.env`, and environ
 | `APP_NAME` | `File Validation Module` | API display name. |
 | `APP_VERSION` | `1.0.0` | API version metadata. |
 | `API_PREFIX` | `/api/v1` | Versioned API route prefix. |
-| `API_HOST` | `127.0.0.1` | Local host binding. |
-| `API_PORT` | `8014` | Local API port. |
+| `API_HOST` | `127.0.0.1` | Container-internal host binding after M13. |
+| `API_PORT` | `8014` | Container-internal API port after M13. |
 | `CORS_ALLOWED_ORIGINS` | Stats Web local origins | Browser caller origins. |
 | `MAX_FILE_SIZE_BYTES` | `10485760` | Default maximum accepted file size. |
 | `ALLOWED_EXTENSIONS` | `.pdf,.png,.jpg,.jpeg` | Default allowed extensions. |
@@ -74,6 +74,10 @@ Configuration is loaded from `config/defaults.env`, optional `.env`, and environ
 | `STORAGE_ROOT` | Configured in `config/defaults.env` | Stats-owned folder for accepted intake content. |
 | `DEFAULT_WORKFLOW` | `document-processing` | Workflow name used when the caller does not provide one. |
 | `MAX_STORED_FILE_SIZE_BYTES` | `10485760` | Default maximum file size stored by ingestion. |
+
+<!-- M13 - Containerization Start -->
+M13 update: M3/M4 official runtime verification and evidence run inside `stats-runtime`. The `API_HOST` and `API_PORT` values above are container-internal service settings for official tests; host-side runs are diagnostics only.
+<!-- M13 End -->
 
 ## API Contract
 
@@ -141,7 +145,9 @@ Module-local tests must cover:
 - Status lookup for a created ingestion record.
 - Rejection when validation status is not accepted.
 - Duplicate/idempotent submission behavior.
-- Config-driven real PDF automated/evidence tests using `STATS_TESTDATA_DIR`, verifying validation, ingestion, status lookup, and saved handoff under configured `STORAGE_ROOT`.
+<!-- M13 - Containerization Start -->
+- Config-driven real PDF automated/evidence tests using `STATS_TESTDATA_DIR` inside `stats-runtime`, verifying validation, ingestion, status lookup, and saved handoff under configured `STORAGE_ROOT`.
+<!-- M13 End -->
 - Stats Web automatic validation on file selection, with rejected files showing findings and accepted files becoming eligible for the next parsing/ingestion step.
 
 ## Acceptance Criteria
@@ -154,8 +160,10 @@ M3 is complete when:
 - Ingestion responses include explicit status, source context, validation summary, handoff metadata, and findings.
 - The expected UI behavior is automatic validation on file selection: rejected files show findings, accepted files are prepared for the next parsing/ingestion step.
 - Runtime limits, allowed policy values, workflow defaults, and storage path are configurable.
-- Real PDF automated/evidence tests pass when `STATS_TESTDATA_DIR` points to the shared real application test-data directory, and fail with a clear setup message when that variable is unavailable.
-- Module tests pass inside the M13 Stats runtime container.
+<!-- M13 - Containerization Start -->
+- Real PDF automated/evidence tests pass inside `stats-runtime` when `STATS_TESTDATA_DIR` points to the copied project test-data directory, and fail with a clear setup message when that variable is unavailable.
+- Module tests pass inside the M13 Stats runtime container through `tests\scripts\regression\run_module_unit_tests.ps1`.
+<!-- M13 End -->
 - Contracts and file inventory are documented under root `docs/` and `contracts/`.
 
 <!-- M3 End -->

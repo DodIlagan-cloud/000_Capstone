@@ -23,19 +23,23 @@ Stats-specific upload screens, product persistence, OCR, classification, extract
 
 ## Runtime
 
+<!-- M13 - Containerization Start -->
 ```powershell
 docker compose --file infrastructure\compose\stats-runtime.compose.yml --env-file infrastructure\compose\.env.container up --build --detach
 ```
 
 Official runtime verification runs inside the M13 Stats container.
+<!-- M13 End -->
 
 ## Tests
 
+<!-- M13 - Containerization Start -->
 ```powershell
 .\tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
 Host-side runs are development diagnostics only after M13.
+<!-- M13 End -->
 
 ## Configuration
 

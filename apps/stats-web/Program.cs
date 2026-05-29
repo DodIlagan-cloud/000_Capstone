@@ -30,7 +30,9 @@ builder.Services.AddSingleton(
         IdentityBaseUrl: builder.Configuration["StatsWeb:Proxy:IdentityBaseUrl"] ?? "http://localhost:8013",
         FileValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:FileValidationBaseUrl"] ?? "http://localhost:8014",
         FileIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:FileIngestionBaseUrl"] ?? "http://localhost:8014",
-        DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? "http://localhost:8015"
+        DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? "http://localhost:8015",
+        TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Proxy:TransactionExtractionBaseUrl"] ?? "http://localhost:8016",
+        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? "http://localhost:8017"
     )
 );
 // M13 End
@@ -45,6 +47,8 @@ builder.Services.AddSingleton(
         FileValidationBaseUrl: builder.Configuration["StatsWeb:Downstream:FileValidationBaseUrl"] ?? string.Empty,
         FileIngestionBaseUrl: builder.Configuration["StatsWeb:Downstream:FileIngestionBaseUrl"] ?? string.Empty,
         DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Downstream:DocumentParsingBaseUrl"] ?? string.Empty,
+        TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Downstream:TransactionExtractionBaseUrl"] ?? string.Empty,
+        DataValidationBaseUrl: builder.Configuration["StatsWeb:Downstream:DataValidationBaseUrl"] ?? string.Empty,
         EmailIngestionBaseUrl: builder.Configuration["StatsWeb:Downstream:EmailIngestionBaseUrl"] ?? string.Empty,
         StatsDataBaseUrl: builder.Configuration["StatsWeb:Downstream:StatsDataBaseUrl"] ?? string.Empty,
         ReportingEmbedConfigUrl: builder.Configuration["StatsWeb:Downstream:ReportingEmbedConfigUrl"] ?? string.Empty,
@@ -91,7 +95,9 @@ public sealed record StatsWebProxyOptions(
     string IdentityBaseUrl,
     string FileValidationBaseUrl,
     string FileIngestionBaseUrl,
-    string DocumentParsingBaseUrl
+    string DocumentParsingBaseUrl,
+    string TransactionExtractionBaseUrl,
+    string DataValidationBaseUrl
 );
 // M13 End
 // M2 - Stats Web Shell Start
@@ -281,6 +287,8 @@ public sealed record StatsWebShellOptions(
     string FileValidationBaseUrl,
     string FileIngestionBaseUrl,
     string DocumentParsingBaseUrl,
+    string TransactionExtractionBaseUrl,
+    string DataValidationBaseUrl,
     string EmailIngestionBaseUrl,
     string StatsDataBaseUrl,
     string ReportingEmbedConfigUrl,
@@ -406,6 +414,16 @@ public static class StatsWebApiProxy
         if (path.StartsWith("parses", StringComparison.OrdinalIgnoreCase))
         {
             return proxyOptions.DocumentParsingBaseUrl;
+        }
+
+        if (path.StartsWith("extractions", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.TransactionExtractionBaseUrl;
+        }
+
+        if (path.StartsWith("validations", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.DataValidationBaseUrl;
         }
 
         return string.Empty;

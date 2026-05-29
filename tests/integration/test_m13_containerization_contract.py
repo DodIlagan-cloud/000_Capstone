@@ -173,11 +173,15 @@ def test_compose_stats_depends_on_stats_db():
 
 
 def test_compose_exposes_stats_web_port():
-    assert "8080" in COMPOSE_FILE.read_text()
+    content = COMPOSE_FILE.read_text()
+    assert "${STATS_WEB_HOST_PORT:-8080}:${STATS_WEB_PORT:-8080}" in content
+    assert 'STATS_WEB_PORT: "${STATS_WEB_PORT:-8080}"' in content
 
 
 def test_compose_configures_data_validation_port():
-    assert "DATA_VALIDATION_PORT" in COMPOSE_FILE.read_text()
+    content = COMPOSE_FILE.read_text()
+    assert 'TRANSACTION_EXTRACTION_PORT: "${TRANSACTION_EXTRACTION_PORT:-8016}"' in content
+    assert 'DATA_VALIDATION_PORT: "${DATA_VALIDATION_PORT:-8017}"' in content
 
 
 def test_compose_references_dockerfile():
@@ -189,6 +193,12 @@ def test_compose_references_dockerfile():
 def test_stats_web_exposes_health_endpoint():
     assert "/health" in STATS_WEB_PROGRAM.read_text(), \
         "Stats Web Program.cs must map a /health endpoint for container health checks"
+
+
+def test_dockerfile_declares_container_healthcheck():
+    content = DOCKERFILE.read_text()
+    assert "HEALTHCHECK" in content
+    assert "/health" in content
 
 
 def test_stats_web_proxies_browser_api_calls():
@@ -207,6 +217,8 @@ def test_startup_script_keeps_browser_api_base_urls_same_origin():
     assert '--StatsWeb:Downstream:FileValidationBaseUrl ""' in content
     assert '--StatsWeb:Downstream:FileIngestionBaseUrl ""' in content
     assert '--StatsWeb:Downstream:DocumentParsingBaseUrl ""' in content
+    assert '--StatsWeb:Downstream:TransactionExtractionBaseUrl ""' in content
+    assert '--StatsWeb:Downstream:DataValidationBaseUrl ""' in content
     assert "--StatsWeb:Proxy:IdentityBaseUrl" in content
     assert "--StatsWeb:Proxy:FileValidationBaseUrl" in content
     assert "--StatsWeb:Proxy:DocumentParsingBaseUrl" in content
@@ -281,6 +293,12 @@ def test_container_module_unit_runner_uses_docker_exec():
     assert "/app/tests/input" in content
     assert "docker cp" in content
     assert "data_validation_module" in content
+
+
+def test_container_module_unit_runner_cleans_up_by_default():
+    content = MODULE_UNIT_RUNNER.read_text()
+    assert "LeaveStackRunning" in content
+    assert '"down"' in content
 
 
 def test_docker_regression_runner_targets_stats_runtime():

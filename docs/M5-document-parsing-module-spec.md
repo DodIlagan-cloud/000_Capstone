@@ -118,6 +118,8 @@ M5 does not return final transaction records.
 
 The `m7_handoff` object is the preferred local/debug view for confirming that M5 executed correctly before M7 runs.
 
+It is part of the API response for developer diagnostics, regression evidence, and downstream readiness checks. It is not intended to be the main user-facing Upload page result; Stats Web should keep raw handoff/audit payloads behind a developer detail view and present plain-language parse and transaction-check summaries to ordinary users.
+
 | Field | Description |
 | --- | --- |
 | `parse_id` | Parse attempt identifier that M7 can reference. |
@@ -255,8 +257,10 @@ Stats Web may display:
 - strategy
 - text length
 - findings
-- M5-to-M7 audit JSON for safe evaluation/debugging
-- full M5 parse response behind a separate developer detail view
+<!-- M8 - Data Validation Module Start -->
+- user-facing transaction check results after M7/M8 processing
+- developer details collapsed behind a separate developer detail view when raw parse/extraction/validation data is needed
+<!-- M8 End -->
 
 Stats Web must not implement OCR, PDF parsing, redaction, or classification rules.
 
@@ -312,7 +316,9 @@ Actual app evidence should cover:
 - File validates through M3/M4.
 - Accepted file is ingested.
 - M5 parse runs automatically.
-- UI shows parse summary, M5-to-M7 audit JSON, and full parse response behind a separate developer detail view.
+<!-- M8 - Data Validation Module Start -->
+- UI shows parse summary and user-facing M8 transaction check results, with raw M5/M7/M8 details hidden behind a developer detail view.
+<!-- M8 End -->
 - Evidence uses approved TestData.
 
 OCR-specific regression should cover:
@@ -348,7 +354,9 @@ M5 is complete when:
 - Classification output is included in the parse result.
 - Evaluation metadata is present and measurable.
 - Evidence previews are redacted.
-- Stats Web can automatically validate, ingest, parse, and display the M5-to-M7 audit JSON.
+<!-- M8 - Data Validation Module Start -->
+- Stats Web can automatically validate, ingest, parse, extract, validate, and display the user-facing M8 transaction check results.
+<!-- M8 End -->
 - Tests use the approved TestData directory.
 - M13 runtime alignment is documented for portable Tesseract/OCR support.
 

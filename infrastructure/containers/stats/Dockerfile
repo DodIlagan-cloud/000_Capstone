@@ -84,6 +84,9 @@ ENV OCR_LANGUAGES=eng
 
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD curl -sf "http://localhost:${STATS_WEB_PORT:-8080}/health" || exit 1
+
 ENTRYPOINT ["/app/start-stats-runtime.sh"]
 
 # M13 End

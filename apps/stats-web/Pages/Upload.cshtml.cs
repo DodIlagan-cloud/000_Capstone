@@ -20,5 +20,12 @@ public class UploadModel(StatsApiOptions statsApiOptions, StatsWebShellOptions s
     // Exposes the parsing API target for the validate -> ingest -> parse upload flow.
     public string DocumentParsingBaseUrl { get; } = shellOptions.DocumentParsingBaseUrl.TrimEnd('/');
     // M5/M6 End
+
+    // M8 - Data Validation Module Start
+    // Exposes extraction and validation API targets for the M5 -> M7 -> M8 upload flow.
+    public string TransactionExtractionBaseUrl { get; } = shellOptions.TransactionExtractionBaseUrl.TrimEnd('/');
+
+    public string DataValidationBaseUrl { get; } = shellOptions.DataValidationBaseUrl.TrimEnd('/');
+    // M8 End
 }
 // M2 End
