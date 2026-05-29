@@ -6,6 +6,7 @@ const userRows = document.querySelector("#user-rows");
 const createForm = document.querySelector("#create-user-form");
 const createMessage = document.querySelector("#create-message");
 const createSubmit = document.querySelector("#create-user-submit");
+const isActiveInput = document.querySelector("#is-active");
 const refreshUsersButton = document.querySelector("#refresh-users");
 const logoutButton = document.querySelector("#logout-button");
 
@@ -98,7 +99,7 @@ createForm.addEventListener("submit", async (event) => {
         full_name: createForm.full_name.value,
         password: createForm.password.value,
         role: createForm.role.value,
-        is_active: createForm.is_active.checked,
+        is_active: isActiveInput.checked,
       }),
     });
 
@@ -108,7 +109,7 @@ createForm.addEventListener("submit", async (event) => {
 
     const user = await response.json();
     createForm.reset();
-    createForm.is_active.checked = true;
+    isActiveInput.checked = true;
     setMessage(createMessage, `${user.email} created. Password change is required on first login.`, "success");
     await loadUsers();
   } catch (error) {
