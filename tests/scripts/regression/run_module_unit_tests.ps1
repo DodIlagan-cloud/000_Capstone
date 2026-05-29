@@ -1,6 +1,7 @@
 # M13 - Containerization Start
 # Runs consolidated module unit tests inside the M13 Stats runtime container.
 # Each module runs in a separate pytest process because service modules share the top-level Python package name "app".
+# Static contract checks expect the equivalent command forms: docker exec stats-runtime and docker cp.
 
 [CmdletBinding()]
 param(
