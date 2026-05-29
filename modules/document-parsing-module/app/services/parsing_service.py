@@ -5,12 +5,14 @@ M5/M6 End"""
 import hashlib
 import io
 import os
+import re
 import time
 import uuid
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 from pypdf import PdfReader
 
 from app.config import settings
@@ -19,6 +21,7 @@ from app.models.parsing import (
     DocumentTrace,
     EvaluationMetadata,
     FindingSeverity,
+    M7HandoffAudit,
     PageParseResult,
     ParseFinding,
     ParseMetadata,
@@ -34,6 +37,57 @@ from app.services.redaction_service import redact_text
 PDF_SIGNATURE = b"%PDF"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 JPEG_SIGNATURE = b"\xff\xd8\xff"
+OCR_KEYWORDS = {
+    "account",
+    "amount",
+    "balance",
+    "bill",
+    "confirmation",
+    "credit",
+    "date",
+    "debit",
+    "due",
+    "invoice",
+    "payment",
+    "purchase",
+    "receipt",
+    "reference",
+    "statement",
+    "total",
+    "transfer",
+}
+TRANSACTION_SIGNAL_KEYWORDS = {
+    "amount",
+    "balance",
+    "charge",
+    "credit",
+    "debit",
+    "deposit",
+    "due",
+    "fee",
+    "payment",
+    "purchase",
+    "receipt",
+    "reference",
+    "statement",
+    "total",
+    "transaction",
+    "transfer",
+    "withdrawal",
+}
+
+
+@dataclass(frozen=True)
+class OcrAttempt:
+    text: str
+    mean_confidence: Optional[float]
+    quality_score: float
+    alnum_ratio: float
+    keyword_hits: int
+    orientation: int
+    psm: int
+    variant: str
+    attempt_count: int = 1
 
 
 def detect_mime_type(content: bytes, provided_content_type: Optional[str] = None) -> Optional[str]:
@@ -63,6 +117,32 @@ def _finding_counts(findings: list[ParseFinding]) -> dict[str, int]:
     return counts
 
 
+def _transaction_signal_count(text: str) -> int:
+    lowered = (text or "").lower()
+    keyword_hits = sum(1 for keyword in TRANSACTION_SIGNAL_KEYWORDS if keyword in lowered)
+    amount_like_hits = len(re.findall(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{2})\b", text or ""))
+    date_like_hits = len(re.findall(r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})\b", text or ""))
+    return keyword_hits + min(amount_like_hits, 10) + min(date_like_hits, 10)
+
+
+def _m7_readiness_reason_codes(
+    status: ParseStatus,
+    text_length: int,
+    transaction_signal_count: int,
+    findings: list[ParseFinding],
+) -> list[str]:
+    reason_codes: list[str] = []
+    if status in {ParseStatus.failed, ParseStatus.unsupported}:
+        reason_codes.append("PARSE_NOT_SUCCESSFUL")
+    if text_length < settings.min_text_length:
+        reason_codes.append("LOW_TEXT_LENGTH")
+    if transaction_signal_count == 0:
+        reason_codes.append("NO_TRANSACTION_SIGNALS")
+    if any(finding.code in {"TESSERACT_UNAVAILABLE", "OCR_FAILED", "PDF_RENDERER_UNAVAILABLE"} for finding in findings):
+        reason_codes.append("OCR_BLOCKED_OR_FAILED")
+    return reason_codes
+
+
 def _is_tesseract_available() -> bool:
     if settings.ocr_engine != "tesseract":
         return False
@@ -76,7 +156,7 @@ def _is_tesseract_available() -> bool:
             os.environ["TESSDATA_PREFIX"] = settings.tessdata_prefix
         pytesseract.get_tesseract_version()
         return True
-    except Exception:
+    except (Exception, SystemExit):
         return False
 
 
@@ -125,7 +205,33 @@ def _extract_pdf_text(content: bytes, page_limit: int) -> tuple[str, list[PagePa
     return "\n".join(extracted_parts), pages, page_count
 
 
-def _ocr_image(image: Image.Image, language: str) -> str:
+def _prepare_image_for_ocr(image: Image.Image) -> Image.Image:
+    corrected = ImageOps.exif_transpose(image)
+    if corrected.mode not in {"RGB", "L"}:
+        corrected = corrected.convert("RGB")
+
+    width, height = corrected.size
+    shortest_side = max(1, min(width, height))
+    if shortest_side < 1200:
+        scale = min(3.0, 1200 / shortest_side)
+        corrected = corrected.resize(
+            (int(width * scale), int(height * scale)),
+            Image.Resampling.LANCZOS,
+        )
+
+    return corrected
+
+
+def _image_variants(image: Image.Image) -> list[tuple[str, Image.Image]]:
+    grayscale = ImageOps.grayscale(image)
+    high_contrast = ImageEnhance.Contrast(grayscale).enhance(1.8)
+    return [
+        ("normalized", image),
+        ("grayscale_contrast", high_contrast),
+    ]
+
+
+def _ocr_image_with_confidence(image: Image.Image, language: str, psm: int) -> tuple[str, Optional[float]]:
     import pytesseract
 
     if settings.tesseract_cmd:
@@ -133,27 +239,164 @@ def _ocr_image(image: Image.Image, language: str) -> str:
     if settings.tessdata_prefix:
         os.environ["TESSDATA_PREFIX"] = settings.tessdata_prefix
 
-    return pytesseract.image_to_string(image, lang=language).strip()
+    config = f"--psm {psm}"
+    try:
+        data = pytesseract.image_to_data(
+            image,
+            lang=language,
+            config=config,
+            output_type=pytesseract.Output.DICT,
+        )
+        words: list[str] = []
+        confidences: list[float] = []
+        for raw_text, raw_confidence in zip(data.get("text", []), data.get("conf", [])):
+            token = str(raw_text).strip()
+            if token:
+                words.append(token)
+            try:
+                confidence = float(raw_confidence)
+            except (TypeError, ValueError):
+                continue
+            if confidence >= 0:
+                confidences.append(confidence)
+
+        text = " ".join(words).strip()
+        mean_confidence = sum(confidences) / len(confidences) if confidences else None
+        if text:
+            return text, mean_confidence
+    except Exception:
+        pass
+
+    return pytesseract.image_to_string(image, lang=language, config=config).strip(), None
 
 
-def _ocr_image_content(content: bytes, language: str) -> tuple[str, list[PageParseResult], int]:
+def _ocr_quality(text: str, mean_confidence: Optional[float]) -> tuple[float, float, int]:
+    stripped = text.strip()
+    if not stripped:
+        return 0.0, 0.0, 0
+
+    alnum_count = sum(character.isalnum() for character in stripped)
+    alnum_ratio = alnum_count / max(len(stripped), 1)
+    lowered = stripped.lower()
+    keyword_hits = sum(1 for keyword in OCR_KEYWORDS if keyword in lowered)
+    confidence_score = (mean_confidence / 100.0) if mean_confidence is not None else 0.0
+    length_score = min(len(stripped) / 500.0, 1.0)
+    keyword_score = min(keyword_hits / 4.0, 1.0)
+    quality_score = (
+        confidence_score * 0.50
+        + length_score * 0.20
+        + alnum_ratio * 0.15
+        + keyword_score * 0.15
+    )
+    return round(quality_score, 3), round(alnum_ratio, 3), keyword_hits
+
+
+def _rotate_image(image: Image.Image, degrees: int) -> Image.Image:
+    if degrees == 0:
+        return image
+    return image.rotate(degrees, expand=True)
+
+
+def _ocr_best_image(image: Image.Image, language: str) -> OcrAttempt:
+    prepared_image = _prepare_image_for_ocr(image)
+    orientations = [0, 90, 180, 270] if settings.ocr_retry_orientations else [0]
+    psm_values = settings.ocr_psm_values or [6]
+    best_attempt = OcrAttempt(
+        text="",
+        mean_confidence=None,
+        quality_score=0.0,
+        alnum_ratio=0.0,
+        keyword_hits=0,
+        orientation=0,
+        psm=psm_values[0],
+        variant="normalized",
+    )
+    attempt_count = 0
+
+    for orientation in orientations:
+        rotated = _rotate_image(prepared_image, orientation)
+        for variant_name, variant in _image_variants(rotated):
+            for psm in psm_values:
+                attempt_count += 1
+                text, mean_confidence = _ocr_image_with_confidence(variant, language, psm)
+                quality_score, alnum_ratio, keyword_hits = _ocr_quality(text, mean_confidence)
+                attempt = OcrAttempt(
+                    text=text,
+                    mean_confidence=mean_confidence,
+                    quality_score=quality_score,
+                    alnum_ratio=alnum_ratio,
+                    keyword_hits=keyword_hits,
+                    orientation=orientation,
+                    psm=psm,
+                    variant=variant_name,
+                )
+                if attempt.quality_score > best_attempt.quality_score:
+                    best_attempt = attempt
+
+    return replace(best_attempt, attempt_count=attempt_count)
+
+
+def _ocr_image_content(content: bytes, language: str) -> tuple[str, list[PageParseResult], int, dict[str, object]]:
     with Image.open(io.BytesIO(content)) as image:
-        text = _ocr_image(image, language)
+        attempt = _ocr_best_image(image, language)
 
     return (
-        text,
-        [PageParseResult(page_number=1, text=text, text_length=len(text), empty=not bool(text.strip()))],
+        attempt.text,
+        [PageParseResult(page_number=1, text=attempt.text, text_length=len(attempt.text), empty=not bool(attempt.text.strip()))],
         1,
+        _ocr_quality_metadata([attempt]),
     )
 
 
-def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str, list[PageParseResult], int]:
+def _ocr_quality_metadata(attempts: list[OcrAttempt]) -> dict[str, object]:
+    if not attempts:
+        return {
+            "quality_score": None,
+            "mean_confidence": None,
+            "selected_orientation": None,
+            "selected_psm": None,
+            "attempt_count": 0,
+            "alnum_ratio": None,
+            "keyword_hits": 0,
+        }
+
+    best_attempt = max(attempts, key=lambda attempt: attempt.quality_score)
+    return {
+        "quality_score": best_attempt.quality_score,
+        "mean_confidence": round(best_attempt.mean_confidence, 2) if best_attempt.mean_confidence is not None else None,
+        "selected_orientation": best_attempt.orientation,
+        "selected_psm": best_attempt.psm,
+        "attempt_count": sum(attempt.attempt_count for attempt in attempts),
+        "alnum_ratio": best_attempt.alnum_ratio,
+        "keyword_hits": best_attempt.keyword_hits,
+    }
+
+
+def _unpack_ocr_result(raw_result: tuple) -> tuple[str, list[PageParseResult], int, dict[str, object]]:
+    if len(raw_result) == 4:
+        return raw_result
+
+    text, pages, page_count = raw_result
+    quality_score, alnum_ratio, keyword_hits = _ocr_quality(text, None)
+    return text, pages, page_count, {
+        "quality_score": quality_score,
+        "mean_confidence": None,
+        "selected_orientation": 0,
+        "selected_psm": None,
+        "attempt_count": 1 if text else 0,
+        "alnum_ratio": alnum_ratio,
+        "keyword_hits": keyword_hits,
+    }
+
+
+def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str, list[PageParseResult], int, dict[str, object]]:
     import fitz
 
     document = fitz.open(stream=content, filetype="pdf")
     page_count = document.page_count
     pages: list[PageParseResult] = []
     extracted_parts: list[str] = []
+    attempts: list[OcrAttempt] = []
     matrix = fitz.Matrix(2.0, 2.0)
 
     try:
@@ -161,7 +404,9 @@ def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str,
             page = document.load_page(page_number - 1)
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
             image = Image.open(io.BytesIO(pixmap.tobytes("png")))
-            page_text = _ocr_image(image, language)
+            attempt = _ocr_best_image(image, language)
+            attempts.append(attempt)
+            page_text = attempt.text
             pages.append(
                 PageParseResult(
                     page_number=page_number,
@@ -175,7 +420,7 @@ def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str,
     finally:
         document.close()
 
-    return "\n".join(extracted_parts), pages, page_count
+    return "\n".join(extracted_parts), pages, page_count, _ocr_quality_metadata(attempts)
 
 
 def parse_document_content(
@@ -209,6 +454,7 @@ def parse_document_content(
     pages: list[PageParseResult] = []
     page_count = 0
     extraction_method = "none"
+    ocr_quality: dict[str, object] = _ocr_quality_metadata([])
     selected_strategy = "failed"
     strategy_reason = "Parsing did not run."
     direct_text_attempted = False
@@ -255,7 +501,9 @@ def parse_document_content(
                         findings.append(_finding("PDF_RENDERER_UNAVAILABLE", "PDF OCR was needed but PyMuPDF rendering is unavailable."))
                     else:
                         try:
-                            text, pages, page_count = _ocr_pdf_pages(content, effective_page_limit, effective_language)
+                            text, pages, page_count, ocr_quality = _unpack_ocr_result(
+                                _ocr_pdf_pages(content, effective_page_limit, effective_language)
+                            )
                         except Exception:
                             findings.append(_finding("OCR_FAILED", "Tesseract OCR could not process the PDF."))
                 else:
@@ -276,13 +524,55 @@ def parse_document_content(
                     findings.append(_finding("TESSERACT_UNAVAILABLE", "Tesseract OCR was needed but is unavailable."))
                 else:
                     try:
-                        text, pages, page_count = _ocr_image_content(content, effective_language)
+                        text, pages, page_count, ocr_quality = _unpack_ocr_result(
+                            _ocr_image_content(content, effective_language)
+                        )
                     except Exception:
                         findings.append(_finding("OCR_FAILED", "Tesseract OCR could not process the image."))
             else:
                 selected_strategy = "ocr_disabled"
                 strategy_reason = "Image input requires OCR but fallback is disabled."
                 findings.append(_finding("OCR_FALLBACK_DISABLED", "Image input requires OCR and OCR fallback is disabled."))
+
+    if ocr_attempted and text:
+        selected_orientation = ocr_quality.get("selected_orientation")
+        attempt_count = int(ocr_quality.get("attempt_count") or 0)
+        psm_count = max(1, len(settings.ocr_psm_values or [6]))
+        if attempt_count > psm_count or selected_orientation not in {None, 0}:
+            findings.append(
+                _finding(
+                    "OCR_ORIENTATION_RETRIED",
+                    "OCR tried multiple image orientations or page segmentation modes and selected the best scored result.",
+                    FindingSeverity.info,
+                )
+            )
+
+        mean_confidence = ocr_quality.get("mean_confidence")
+        if isinstance(mean_confidence, (int, float)) and mean_confidence < settings.ocr_min_confidence:
+            findings.append(
+                _finding(
+                    "LOW_OCR_CONFIDENCE",
+                    "Tesseract OCR confidence was below the configured threshold.",
+                    FindingSeverity.warning,
+                )
+            )
+
+        quality_score = ocr_quality.get("quality_score")
+        alnum_ratio = ocr_quality.get("alnum_ratio")
+        if (
+            isinstance(quality_score, (int, float))
+            and quality_score < settings.ocr_min_quality_score
+        ) or (
+            isinstance(alnum_ratio, (int, float))
+            and alnum_ratio < settings.ocr_min_alnum_ratio
+        ):
+            findings.append(
+                _finding(
+                    "OCR_TEXT_NOISY",
+                    "OCR produced text but quality scoring indicates the output may be noisy.",
+                    FindingSeverity.warning,
+                )
+            )
 
     if text and len(text.strip()) < settings.min_text_length:
         findings.append(_finding("LOW_TEXT_QUALITY", "Extracted text is below the configured minimum text threshold.", FindingSeverity.warning))
@@ -317,6 +607,7 @@ def parse_document_content(
     empty_page_count = sum(1 for page in pages if page.empty)
     redacted_preview, redaction_counts = redact_text(text, settings.redaction_preview_chars)
     redaction_applied = bool(redaction_counts)
+    transaction_signal_count = _transaction_signal_count(text)
     quality = QualityMetadata(
         text_length=len(text),
         page_count=page_count,
@@ -342,9 +633,12 @@ def parse_document_content(
         classification_reason_codes=classification.reason_codes,
         classification_status=classification.status,
     )
+    m7_reason_codes = _m7_readiness_reason_codes(status, quality.text_length, transaction_signal_count, findings)
+    parse_id = f"parse_{uuid.uuid4().hex[:16]}"
+    selected_ocr_engine = "tesseract" if ocr_attempted and selected_strategy == "tesseract_ocr" else None
 
     return DocumentParseResult(
-        parse_id=f"parse_{uuid.uuid4().hex[:16]}",
+        parse_id=parse_id,
         status=status,
         document=DocumentTrace(
             original_filename=filename or "",
@@ -361,12 +655,17 @@ def parse_document_content(
         pages=pages,
         metadata=ParseMetadata(
             extraction_method=extraction_method,
-            ocr_engine=settings.ocr_engine if ocr_attempted else None,
+            ocr_engine=selected_ocr_engine,
             page_count=page_count,
             pages_processed=quality.pages_processed,
             elapsed_ms=elapsed_ms,
             language=effective_language,
             page_limit=effective_page_limit,
+            ocr_quality_score=ocr_quality.get("quality_score") if ocr_attempted else None,
+            ocr_mean_confidence=ocr_quality.get("mean_confidence") if ocr_attempted else None,
+            ocr_selected_orientation=ocr_quality.get("selected_orientation") if ocr_attempted else None,
+            ocr_selected_psm=ocr_quality.get("selected_psm") if ocr_attempted else None,
+            ocr_attempt_count=int(ocr_quality.get("attempt_count") or 0) if ocr_attempted else 0,
         ),
         strategy=StrategyDecision(
             selected_strategy=selected_strategy,
@@ -381,6 +680,28 @@ def parse_document_content(
         evidence=RedactedEvidencePreview(
             redacted_text_preview=redacted_preview if settings.redact_evidence_output else text,
             redaction_counts=redaction_counts,
+            redaction_applied=redaction_applied,
+        ),
+        m7_handoff=M7HandoffAudit(
+            parse_id=parse_id,
+            document_id=document_id,
+            filename=normalized_filename,
+            strategy=selected_strategy,
+            extraction_method=extraction_method,
+            ocr_engine=selected_ocr_engine,
+            ocr_attempted=ocr_attempted,
+            tesseract_available=tesseract_available,
+            status=status,
+            confidence=classification.confidence,
+            text_length=quality.text_length,
+            page_count=quality.page_count,
+            pages_processed=quality.pages_processed,
+            warnings=[finding.code for finding in findings if finding.severity == FindingSeverity.warning],
+            m7_ready=not m7_reason_codes,
+            m7_readiness_reason_codes=m7_reason_codes,
+            transaction_signal_count=transaction_signal_count,
+            redacted_preview=redacted_preview if settings.redact_evidence_output else text,
+            redaction_summary=redaction_counts,
             redaction_applied=redaction_applied,
         ),
         findings=findings,

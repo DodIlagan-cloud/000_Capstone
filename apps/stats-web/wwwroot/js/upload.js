@@ -205,12 +205,17 @@ function renderParseResult(result) {
   const classification = result.classification || {};
   const text = result.text || {};
   const strategy = result.strategy || {};
+  const m7Handoff = result.m7_handoff || {};
   const details = document.createElement("dl");
   [
     ["Status", result.status],
     ["Document type", classification.document_type || documentInfo.document_type || "unknown"],
     ["Confidence", classification.confidence ?? 0],
     ["Strategy", strategy.selected_strategy || result.evaluation?.strategy || "unknown"],
+    ["OCR engine", m7Handoff.ocr_engine || result.metadata?.ocr_engine || "not used"],
+    ["Tesseract available", String(m7Handoff.tesseract_available ?? strategy.tesseract_available ?? false)],
+    ["M7 ready", String(m7Handoff.m7_ready ?? false)],
+    ["Transaction signals", m7Handoff.transaction_signal_count ?? 0],
     ["Text length", text.length ?? 0],
   ].forEach(([label, value]) => {
     const row = document.createElement("div");
@@ -235,12 +240,24 @@ function renderParseResult(result) {
     parseResult.append(findingList);
   }
 
+  const handoffDetails = document.createElement("details");
+  handoffDetails.className = "json-output";
+  handoffDetails.open = true;
+
+  const handoffSummary = document.createElement("summary");
+  handoffSummary.textContent = "View M5 to M7 audit output";
+
+  const handoffOutput = document.createElement("pre");
+  handoffOutput.textContent = JSON.stringify(m7Handoff, null, 2);
+
+  handoffDetails.append(handoffSummary, handoffOutput);
+  parseResult.append(handoffDetails);
+
   const jsonDetails = document.createElement("details");
   jsonDetails.className = "json-output";
-  jsonDetails.open = true;
 
   const jsonSummary = document.createElement("summary");
-  jsonSummary.textContent = "View M5 JSON output";
+  jsonSummary.textContent = "View full M5 parse response";
 
   const jsonOutput = document.createElement("pre");
   jsonOutput.textContent = JSON.stringify(result, null, 2);
@@ -295,11 +312,6 @@ async function sendAcceptedFileToProcessing() {
 }
 
 async function parseAcceptedFile(record) {
-  if (!documentParsingBaseUrl) {
-    setValidationState("Document parsing service is not configured.", "error");
-    return;
-  }
-
   const metadata = acceptedValidation.metadata || {};
   const formData = new FormData();
   formData.append("file", selectedFile);
