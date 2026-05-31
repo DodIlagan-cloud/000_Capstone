@@ -165,4 +165,23 @@ Qodo second-pass review aligns with Claude. Qodo verified all eight original mer
 
 Qodo also confirmed the minor Compose OCR comment cleanup should be committed with the second-pass review documentation.
 
-Current recommendation: PR #6 can move toward ready-for-review after the Compose comment cleanup and second-pass review records are committed. Before leaving draft, the project owner should make an explicit scope decision: keep PR #6 as the baseline governance contract, or expand it into the runtime config/logging implementation pass. If PR #6 remains baseline-only, fresh browser E2E evidence is recommended but can be treated as an evidence-policy decision rather than a code blocker.
+Scope decision on 2026-05-31: PR #6 is expanded beyond baseline governance to include the first runtime implementation of central configuration, path resolution, and logging for Stats Web. Python module adoption remains contract-driven in this PR and should be implemented module-by-module in the next hardening pass.
+
+Implemented in the Stats Web first runtime hardening update:
+
+- Stats Web loads `STATS_RUNTIME_CONFIG`, `STATS_PATHS_CONFIG`, and `STATS_LOGGING_CONFIG` at startup.
+- Stats Web derives proxy module port defaults from `config/stats.runtime.json` `modulePorts`.
+- Stats Web resolves local orchestration paths from `STATS_APP_ROOT` plus `config/stats.paths.json`, not from `ContentRootPath`.
+- Stats Web logging bootstrap consumes central logging defaults/environment variables and configures JSON/plain console logging to stdout/stderr-compatible console output.
+- Stats Web adds correlation ID middleware and structured logging scopes with `service`, `module`, and `correlation_id`.
+- Browser-facing API defaults are same-origin by default, so module calls route through Stats Web `/api/v1/*`.
+- M1/M3/M5/M7/M8 browser downstream defaults are blank in committed Stats Web config.
+- CORS origins are centrally discoverable through `CORS_ALLOWED_ORIGINS` and wired into Stats Web.
+
+Remaining follow-up after this PR:
+
+- Move Python modules from local config readers to the central registry adoption pattern.
+- Add deeper behavioral unit tests for proxy internals, header filtering, and local process orchestration.
+- Add CI workflow execution for the hardening gates.
+- Add process supervision/graceful shutdown strategy for the single-container runtime.
+- Decide whether fresh browser E2E evidence is required before PR #6 leaves draft.

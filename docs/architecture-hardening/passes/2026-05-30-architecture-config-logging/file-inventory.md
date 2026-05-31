@@ -70,12 +70,15 @@ These changes were added after Qodo, Copilot, and Claude reviewed PR #6. They ad
 | `infrastructure/containers/stats/start-stats-runtime.sh` | Blanks M7/M8 browser downstream URLs so browser calls use the Stats Web same-origin proxy while server-side proxy targets remain internal. |
 | `infrastructure/containers/stats/.env.container.example` | Added `STATS_WEB_HOST_PORT` and clarified host/container port behavior. |
 | `apps/stats-web/appsettings.json` | Changed M7/M8 browser downstream defaults to blank values so Upload uses the same-origin proxy instead of direct `127.0.0.1:8016/8017` browser calls. |
+| `apps/stats-web/Program.cs` | Added Stats Web central runtime/path/logging loader, module port defaults from `stats.runtime.json`, `STATS_APP_ROOT` path resolution, JSON/plain console logging bootstrap, CORS wiring, and correlation ID middleware. |
+| `apps/stats-web/appsettings.json` | Updated all browser-facing API defaults to same-origin blank values so M1/M3/M5/M7/M8 browser calls route through the Stats Web proxy by default. |
 | `modules/identity-access-module/config/defaults.env` | Narrowed default CORS origins from `*` to local Stats Web origins. |
 | `docs/M1-user-management-access-control-spec.md` | Updated the M1 CORS default to match the narrowed module default. |
 | `docs/M13-containerization-module-spec.md` | Clarified `STATS_WEB_PORT` versus `STATS_WEB_HOST_PORT` and documented same-origin browser proxy expectations. |
 | `tests/integration/test_architecture_hardening_contract.py` | Added checks for review artifacts, registry metadata consistency, logging authority, and stdout/stderr destination consistency. |
 | `tests/integration/test_m13_containerization_contract.py` | Added checks for Compose port interpolation, Dockerfile `HEALTHCHECK`, M7/M8 same-origin downstream blanking, and module-unit cleanup behavior. |
 | `tests/integration/test_stats_web_orchestration_config.py` | Updated expectations so Stats Web official runtime disables local orchestration and keeps M7/M8 browser downstream calls same-origin. |
+| `tests/integration/test_stats_web_orchestration_config.py` | Added checks for central runtime/path/logging loader wiring, same-origin defaults for all browser downstream module calls, and correlation/logging bootstrap. |
 | `tests/scripts/regression/run_module_unit_tests.ps1` | Added default Compose cleanup with an explicit `-LeaveStackRunning` opt-out. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-plan.md` | Updated the hardening contract description to include review artifacts and registry consistency. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-results.md` | Updated validation results after review fixes: hardening contract `6 passed`, M13 contract `55 passed`, Stats Web orchestration config `3 passed`, Stats Web build passed, and Compose config validation passed. |

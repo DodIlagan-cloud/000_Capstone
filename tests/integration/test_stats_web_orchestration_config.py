@@ -34,10 +34,10 @@ def test_stats_web_uses_same_origin_proxy_for_browser_downstream_calls():
     appsettings = _load_appsettings()
     downstream = appsettings["StatsWeb"]["Downstream"]
 
-    assert appsettings["StatsApi"]["BaseUrl"].rstrip("/") == "http://127.0.0.1:8013"
-    assert downstream["FileValidationBaseUrl"].rstrip("/") == "http://127.0.0.1:8014"
-    assert downstream["FileIngestionBaseUrl"].rstrip("/") == "http://127.0.0.1:8014"
-    assert downstream["DocumentParsingBaseUrl"].rstrip("/") == "http://127.0.0.1:8015"
+    assert appsettings["StatsApi"]["BaseUrl"] == ""
+    assert downstream["FileValidationBaseUrl"] == ""
+    assert downstream["FileIngestionBaseUrl"] == ""
+    assert downstream["DocumentParsingBaseUrl"] == ""
     # M13 End
     # M7 - Transaction Extraction Start
     assert downstream["TransactionExtractionBaseUrl"] == ""
@@ -51,9 +51,35 @@ def test_stats_web_program_allows_container_environment_overrides():
     """Ensure the container can override downstream URLs through environment variables."""
     program_source = PROGRAM_FILE.read_text(encoding="utf-8")
 
+    assert "StatsCentralRuntime.Load" in program_source
+    assert "STATS_RUNTIME_CONFIG" in program_source
+    assert "STATS_PATHS_CONFIG" in program_source
+    assert "STATS_LOGGING_CONFIG" in program_source
     assert "STATS_API_BASE_URL" in program_source
     assert "StatsWeb:Downstream:FileValidationBaseUrl" in program_source
     assert "StatsWeb:Downstream:FileIngestionBaseUrl" in program_source
     assert "StatsWeb:Downstream:DocumentParsingBaseUrl" in program_source
     assert "StatsWeb:Downstream:TransactionExtractionBaseUrl" in program_source
     assert "StatsWeb:Downstream:DataValidationBaseUrl" in program_source
+
+
+def test_stats_web_wires_central_logging_and_correlation():
+    """Ensure Stats Web consumes the central logging registry instead of only documenting it."""
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert "StatsLoggingBootstrap.Configure" in program_source
+    assert "LOG_LEVEL" in program_source
+    assert "LOG_FORMAT" in program_source
+    assert "AddJsonConsole" in program_source
+    assert "StatsCorrelationMiddleware" in program_source
+    assert "correlation_id" in program_source
+
+
+def test_stats_web_resolves_local_paths_from_central_runtime():
+    """Ensure local orchestration resolves paths from STATS_APP_ROOT/path config."""
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert "ResolveAppRoot" in program_source
+    assert "config/stats.paths.json" in program_source
+    assert "centralRuntime.ResolvePath(configuredPath)" in program_source
+    assert "Path.Combine(environment.ContentRootPath" not in program_source

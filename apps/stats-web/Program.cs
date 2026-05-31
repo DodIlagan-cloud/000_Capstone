@@ -2,18 +2,36 @@
 // Starts the Module 1 ASP.NET Core web frontend and exposes the Python API base URL to Razor pages.
 using System.Diagnostics;
 using System.Net;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+var centralRuntime = StatsCentralRuntime.Load(builder.Environment.ContentRootPath);
+StatsLoggingBootstrap.Configure(builder, centralRuntime);
+builder.Configuration.AddInMemoryCollection(centralRuntime.ConfigurationDefaults);
 
 builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton(centralRuntime);
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(
+        "StatsCorsPolicy",
+        policy =>
+        {
+            if (centralRuntime.CorsAllowedOrigins.Count > 0)
+            {
+                policy.WithOrigins(centralRuntime.CorsAllowedOrigins.ToArray())
+                    .AllowAnyHeader()
+                    .AllowAnyMethod();
+            }
+        }
+    );
+});
 builder.Services.AddSingleton(
     new StatsApiOptions(
         builder.Configuration["StatsApi:BaseUrl"]
             ?? Environment.GetEnvironmentVariable("STATS_API_BASE_URL")
-            ?? throw new InvalidOperationException(
-                "Configure StatsApi:BaseUrl in appsettings or STATS_API_BASE_URL before starting Stats Web."
-            )
+            ?? string.Empty
     )
 );
 // M2 - Stats Web Shell Start
@@ -27,12 +45,12 @@ builder.Services.AddHostedService<StatsLocalServiceOrchestrator>();
 // Keeps the browser on the single Stats Web entry point while proxying API calls to internal module processes.
 builder.Services.AddSingleton(
     new StatsWebProxyOptions(
-        IdentityBaseUrl: builder.Configuration["StatsWeb:Proxy:IdentityBaseUrl"] ?? "http://localhost:8013",
-        FileValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:FileValidationBaseUrl"] ?? "http://localhost:8014",
-        FileIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:FileIngestionBaseUrl"] ?? "http://localhost:8014",
-        DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? "http://localhost:8015",
-        TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Proxy:TransactionExtractionBaseUrl"] ?? "http://localhost:8016",
-        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? "http://localhost:8017"
+        IdentityBaseUrl: builder.Configuration["StatsWeb:Proxy:IdentityBaseUrl"] ?? centralRuntime.ModuleUrl("IDENTITY_PORT"),
+        FileValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:FileValidationBaseUrl"] ?? centralRuntime.ModuleUrl("FILE_VALIDATION_PORT"),
+        FileIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:FileIngestionBaseUrl"] ?? centralRuntime.ModuleUrl("FILE_VALIDATION_PORT"),
+        DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? centralRuntime.ModuleUrl("DOCUMENT_PARSING_PORT"),
+        TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Proxy:TransactionExtractionBaseUrl"] ?? centralRuntime.ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
+        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? centralRuntime.ModuleUrl("DATA_VALIDATION_PORT")
     )
 );
 // M13 End
@@ -74,6 +92,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseRouting();
+app.UseCors("StatsCorsPolicy");
+app.UseMiddleware<StatsCorrelationMiddleware>();
 // M13 - Containerization Start
 // Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
 app.MapMethods(
@@ -129,8 +149,8 @@ public sealed class StatsLocalServiceOptions
 }
 
 public sealed class StatsLocalServiceOrchestrator(
-    IWebHostEnvironment environment,
     IConfiguration configuration,
+    StatsCentralRuntime centralRuntime,
     IHttpClientFactory httpClientFactory,
     Microsoft.Extensions.Options.IOptions<StatsLocalOrchestrationOptions> options,
     ILogger<StatsLocalServiceOrchestrator> logger
@@ -218,7 +238,7 @@ public sealed class StatsLocalServiceOrchestrator(
 
             var client = httpClientFactory.CreateClient();
             using var response = await client.GetAsync(service.HealthUrl, timeout.Token);
-            return response.StatusCode == HttpStatusCode.OK;
+            return response.IsSuccessStatusCode;
         }
         catch (Exception exception) when (
             exception is HttpRequestException
@@ -253,27 +273,32 @@ public sealed class StatsLocalServiceOrchestrator(
             startInfo.Environment[environmentVariable.Key] = environmentVariable.Value;
         }
 
-        var process = Process.Start(startInfo);
-        if (process is null)
+        try
         {
-            logger.LogWarning("Failed to start local service {ServiceName}.", service.Name);
-            return;
-        }
+            var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                logger.LogWarning("Failed to start local service {ServiceName}.", service.Name);
+                return;
+            }
 
-        startedProcesses.Add(process);
-        logger.LogInformation("Started local service {ServiceName} as process {ProcessId}.", service.Name, process.Id);
+            startedProcesses.Add(process);
+            logger.LogInformation("Started local service {ServiceName} as process {ProcessId}.", service.Name, process.Id);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            logger.LogError(exception, "Failed to start local service {ServiceName}; verify the configured command exists.", service.Name);
+        }
     }
 
     private string ResolvePath(string configuredPath)
     {
         if (string.IsNullOrWhiteSpace(configuredPath))
         {
-            return environment.ContentRootPath;
+            return centralRuntime.AppRoot;
         }
 
-        return Path.IsPathRooted(configuredPath)
-            ? configuredPath
-            : Path.GetFullPath(Path.Combine(environment.ContentRootPath, configuredPath));
+        return centralRuntime.ResolvePath(configuredPath);
     }
 }
 // M2 End
@@ -387,7 +412,7 @@ public static class StatsWebApiProxy
         )
         {
             var logger = loggerFactory.CreateLogger("StatsWebApiProxy");
-            logger.LogWarning(exception, "Failed to proxy /api/v1/{Path} to {TargetUri}.", path, targetUri);
+            logger.LogWarning(exception, "Failed to proxy /api/v1/{Path} to configured Stats module target.", path);
             context.Response.StatusCode = StatusCodes.Status502BadGateway;
             await context.Response.WriteAsJsonAsync(new { detail = "Stats module API proxy request failed." });
         }
@@ -442,3 +467,298 @@ public static class StatsWebApiProxy
     }
 }
 // M13 End
+
+// M0 Architecture Hardening Start
+// Loads the central runtime/path/logging registries before Stats Web wires services.
+public sealed class StatsCentralRuntime
+{
+    public string AppRoot { get; private init; } = string.Empty;
+
+    public string RuntimeConfigPath { get; private init; } = string.Empty;
+
+    public string PathsConfigPath { get; private init; } = string.Empty;
+
+    public string LoggingConfigPath { get; private init; } = string.Empty;
+
+    public Dictionary<string, string> ModulePorts { get; private init; } = [];
+
+    public Dictionary<string, string> LogicalPaths { get; private init; } = [];
+
+    public Dictionary<string, string> LoggingDefaults { get; private init; } = [];
+
+    public List<string> CorsAllowedOrigins { get; private init; } = [];
+
+    public Dictionary<string, string?> ConfigurationDefaults { get; private set; } = [];
+
+    public static StatsCentralRuntime Load(string contentRootPath)
+    {
+        var appRoot = ResolveAppRoot(contentRootPath);
+        var runtimeConfigPath = ResolveConfigFile(
+            Environment.GetEnvironmentVariable("STATS_RUNTIME_CONFIG"),
+            appRoot,
+            "config/stats.runtime.json"
+        );
+        var pathsConfigPath = ResolveConfigFile(
+            Environment.GetEnvironmentVariable("STATS_PATHS_CONFIG"),
+            appRoot,
+            "config/stats.paths.json"
+        );
+        var loggingConfigPath = ResolveConfigFile(
+            Environment.GetEnvironmentVariable("STATS_LOGGING_CONFIG"),
+            appRoot,
+            "config/stats.logging.json"
+        );
+
+        using var runtimeDocument = JsonDocument.Parse(File.ReadAllText(runtimeConfigPath));
+        using var pathsDocument = JsonDocument.Parse(File.ReadAllText(pathsConfigPath));
+        using var loggingDocument = JsonDocument.Parse(File.ReadAllText(loggingConfigPath));
+
+        var runtimeRoot = runtimeDocument.RootElement;
+        var ports = ReadDefaultMap(runtimeRoot.GetProperty("modulePorts"));
+        var loggingDefaults = ReadDefaultMap(loggingDocument.RootElement.GetProperty("environmentVariables"));
+        var corsAllowedOrigins = ReadCsv(
+            Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS")
+                ?? ReadDefault(runtimeRoot.GetProperty("network").GetProperty("CORS_ALLOWED_ORIGINS"))
+        );
+        var logicalPaths = ReadLogicalPaths(pathsDocument.RootElement, appRoot);
+
+        var runtime = new StatsCentralRuntime
+        {
+            AppRoot = appRoot,
+            RuntimeConfigPath = runtimeConfigPath,
+            PathsConfigPath = pathsConfigPath,
+            LoggingConfigPath = loggingConfigPath,
+            ModulePorts = ports,
+            LogicalPaths = logicalPaths,
+            LoggingDefaults = loggingDefaults,
+            CorsAllowedOrigins = corsAllowedOrigins,
+        };
+
+        runtime.ConfigurationDefaults = runtime.BuildConfigurationDefaults();
+        return runtime;
+    }
+
+    public string ModuleUrl(string portKey)
+    {
+        if (!ModulePorts.TryGetValue(portKey, out var port) || string.IsNullOrWhiteSpace(port))
+        {
+            throw new InvalidOperationException($"Central runtime config is missing module port {portKey}.");
+        }
+
+        return $"http://localhost:{port}";
+    }
+
+    public string ResolvePath(string logicalOrConfiguredPath)
+    {
+        if (string.IsNullOrWhiteSpace(logicalOrConfiguredPath))
+        {
+            return AppRoot;
+        }
+
+        var path = LogicalPaths.TryGetValue(logicalOrConfiguredPath, out var logicalPath)
+            ? logicalPath
+            : logicalOrConfiguredPath;
+
+        return Path.IsPathRooted(path)
+            ? path
+            : Path.GetFullPath(Path.Combine(AppRoot, path));
+    }
+
+    private static string ResolveAppRoot(string contentRootPath)
+    {
+        var configuredRoot = Environment.GetEnvironmentVariable("STATS_APP_ROOT");
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return Path.GetFullPath(configuredRoot);
+        }
+
+        var current = new DirectoryInfo(contentRootPath);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "config", "stats.runtime.json")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return Path.GetFullPath(contentRootPath);
+    }
+
+    private static string ResolveConfigFile(string? configuredPath, string appRoot, string defaultRelativePath)
+    {
+        var path = string.IsNullOrWhiteSpace(configuredPath) ? defaultRelativePath : configuredPath;
+        var resolvedPath = Path.IsPathRooted(path)
+            ? path
+            : Path.GetFullPath(Path.Combine(appRoot, path));
+
+        if (!File.Exists(resolvedPath))
+        {
+            throw new FileNotFoundException($"Required Stats central configuration file was not found: {resolvedPath}", resolvedPath);
+        }
+
+        return resolvedPath;
+    }
+
+    private static Dictionary<string, string> ReadDefaultMap(JsonElement section)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in section.EnumerateObject())
+        {
+            var defaultValue = ReadDefault(property.Value);
+            if (!string.IsNullOrWhiteSpace(defaultValue))
+            {
+                values[property.Name] = defaultValue;
+            }
+        }
+
+        return values;
+    }
+
+    private static string? ReadDefault(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty("default", out var defaultElement)
+            && defaultElement.ValueKind != JsonValueKind.Null)
+        {
+            return defaultElement.ToString();
+        }
+
+        return element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+    }
+
+    private static Dictionary<string, string> ReadLogicalPaths(JsonElement pathsRoot, string appRoot)
+    {
+        var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["root"] = appRoot,
+        };
+
+        foreach (var section in pathsRoot.EnumerateObject())
+        {
+            if (section.Value.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            foreach (var item in section.Value.EnumerateObject())
+            {
+                if (item.Value.ValueKind == JsonValueKind.String)
+                {
+                    paths[$"{section.Name}.{item.Name}"] = item.Value.GetString() ?? string.Empty;
+                }
+            }
+        }
+
+        return paths;
+    }
+
+    private Dictionary<string, string?> BuildConfigurationDefaults()
+    {
+        var defaults = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["StatsApi:BaseUrl"] = string.Empty,
+            ["StatsWeb:Downstream:FileValidationBaseUrl"] = string.Empty,
+            ["StatsWeb:Downstream:FileIngestionBaseUrl"] = string.Empty,
+            ["StatsWeb:Downstream:DocumentParsingBaseUrl"] = string.Empty,
+            ["StatsWeb:Downstream:TransactionExtractionBaseUrl"] = string.Empty,
+            ["StatsWeb:Downstream:DataValidationBaseUrl"] = string.Empty,
+            ["StatsWeb:Proxy:IdentityBaseUrl"] = ModuleUrl("IDENTITY_PORT"),
+            ["StatsWeb:Proxy:FileValidationBaseUrl"] = ModuleUrl("FILE_VALIDATION_PORT"),
+            ["StatsWeb:Proxy:FileIngestionBaseUrl"] = ModuleUrl("FILE_VALIDATION_PORT"),
+            ["StatsWeb:Proxy:DocumentParsingBaseUrl"] = ModuleUrl("DOCUMENT_PARSING_PORT"),
+            ["StatsWeb:Proxy:TransactionExtractionBaseUrl"] = ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
+            ["StatsWeb:Proxy:DataValidationBaseUrl"] = ModuleUrl("DATA_VALIDATION_PORT"),
+        };
+
+        if (LoggingDefaults.TryGetValue("LOG_LEVEL", out var logLevel))
+        {
+            defaults["Logging:LogLevel:Default"] = logLevel;
+        }
+
+        return defaults;
+    }
+
+    private static List<string> ReadCsv(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(origin => !string.Equals(origin, "*", StringComparison.Ordinal))
+            .ToList();
+    }
+}
+
+public sealed class StatsCorrelationMiddleware(RequestDelegate next, ILogger<StatsCorrelationMiddleware> logger)
+{
+    private const string CorrelationHeader = "X-Correlation-ID";
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var correlationId = context.Request.Headers.TryGetValue(CorrelationHeader, out var incoming)
+            && !string.IsNullOrWhiteSpace(incoming.ToString())
+                ? incoming.ToString()
+                : Guid.NewGuid().ToString("N");
+
+        context.Response.Headers[CorrelationHeader] = correlationId;
+        using var scope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["correlation_id"] = correlationId,
+            ["service"] = "Stats Web",
+            ["module"] = "stats-web",
+        });
+
+        await next(context);
+    }
+}
+
+public static class StatsLoggingBootstrap
+{
+    public static void Configure(WebApplicationBuilder builder, StatsCentralRuntime centralRuntime)
+    {
+        var logLevelName = Environment.GetEnvironmentVariable("LOG_LEVEL")
+            ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_LEVEL")
+            ?? "INFO";
+        var logFormat = Environment.GetEnvironmentVariable("LOG_FORMAT")
+            ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_FORMAT")
+            ?? "json";
+
+        builder.Logging.ClearProviders();
+        builder.Logging.SetMinimumLevel(ParseLogLevel(logLevelName));
+
+        if (string.Equals(logFormat, "plain", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.Logging.AddSimpleConsole(options =>
+            {
+                options.IncludeScopes = true;
+                options.SingleLine = true;
+                options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffK ";
+            });
+            return;
+        }
+
+        builder.Logging.AddJsonConsole(options =>
+        {
+            options.IncludeScopes = true;
+            options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffK";
+            options.JsonWriterOptions = new JsonWriterOptions
+            {
+                Indented = false,
+            };
+        });
+    }
+
+    private static LogLevel ParseLogLevel(string value)
+    {
+        return value.ToUpperInvariant() switch
+        {
+            "DEBUG" => LogLevel.Debug,
+            "INFO" => LogLevel.Information,
+            "WARNING" => LogLevel.Warning,
+            "ERROR" => LogLevel.Error,
+            "CRITICAL" => LogLevel.Critical,
+            _ => LogLevel.Information,
+        };
+    }
+}
+// M0 Architecture Hardening End
