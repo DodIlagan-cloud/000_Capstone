@@ -15,19 +15,19 @@
 | --- | --- |
 | `config/stats.runtime.json` | Central runtime configuration registry for paths, URLs, ports, database settings, secrets, storage providers, OCR settings, service endpoints, test fixtures, and cloud-ready settings. |
 | `config/stats.paths.json` | Central logical path map resolved from `STATS_APP_ROOT`. |
-| `config/stats.logging.json` | Central logging contract for log level, format, redaction, correlation/request context, and stdout/stderr collection. |
+| `config/stats.logging.json` | Central logging contract for log level, format, redaction, correlation/request context, and stdout container collection. |
 | `docs/architecture-hardening/README.md` | Explains the repeatable architecture hardening area and future pass structure. |
 | `docs/architecture-hardening/current-baseline.md` | Latest accepted Stats architecture baseline. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/architecture-baseline.md` | Dated snapshot/summary of the baseline established by this pass. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/file-inventory.md` | This inventory. |
-| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-plan.md` | Validation plan for the hardening pass. |
-| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-results.md` | Validation results for the hardening pass. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-review.md` | Qodo review record for PR #6. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/copilot-review.md` | Copilot review record for PR #6. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/claude-review.md` | Claude review record for PR #6. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/review-triage.md` | Consolidated review triage and next hardening plan. |
 | `tests/integration/test_architecture_hardening_contract.py` | Automated contract checks for central registries, module config key registration, retired architecture wording, review artifacts, registry consistency, and logging redaction/container rules. |
 | `tests/scripts/regression/capture_web_app_flow_evidence_optimized_2026_05_30.py` | Optimized web-flow evidence runner that avoids duplicating the full backend regression. |
+| `tests/results/ArchitectureHardeningSmokeTest/2026-06-01/architecture-hardening-smoke-validation-plan.md` | Validation plan stored with the smoke-test results instead of the architecture docs area. |
+| `tests/results/ArchitectureHardeningSmokeTest/2026-06-01/architecture-hardening-smoke-validation-results.md` | Validation results stored with the smoke-test results instead of the architecture docs area. |
 
 ## Modified Files
 
@@ -64,7 +64,7 @@ These changes were added after Qodo, Copilot, and Claude reviewed PR #6. They ad
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-rereview-2026-05-31.md` | Added the Qodo second-pass review record. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-rereview-runtime-config-2026-05-31.md` | Added the Qodo review record for the Stats Web runtime config/logging implementation. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/review-triage.md` | Added consolidated triage, merge-readiness decisions, and the next hardening-pass plan. |
-| `config/stats.logging.json` | Added `stderr` to `LOG_DESTINATION.allowedValues` to match the stdout/stderr container logging rule. |
+| `config/stats.logging.json` | Initially reviewed for stdout/stderr consistency; latest follow-up narrows the supported destination to stdout for this implementation pass. |
 | `config/stats.runtime.json` | Added logging authority note, converted `modulePorts` to metadata objects, added `STATS_WEB_HOST_PORT`, and changed `DOCUMENT_REFERENCE_ROOTS` from prose default to `null` plus note. |
 | `infrastructure/compose/stats-runtime.compose.yml` | Made Stats Web and M7/M8 port values environment-overridable and updated the Compose health check to use the configured Stats Web port. |
 | `infrastructure/containers/stats/Dockerfile` | Added a container `HEALTHCHECK` against Stats Web `/health`. |
@@ -77,20 +77,47 @@ These changes were added after Qodo, Copilot, and Claude reviewed PR #6. They ad
 | `modules/identity-access-module/config/defaults.env` | Narrowed default CORS origins from `*` to local Stats Web origins. |
 | `docs/M1-user-management-access-control-spec.md` | Updated the M1 CORS default to match the narrowed module default. |
 | `docs/M13-containerization-module-spec.md` | Clarified `STATS_WEB_PORT` versus `STATS_WEB_HOST_PORT` and documented same-origin browser proxy expectations. |
-| `tests/integration/test_architecture_hardening_contract.py` | Added checks for review artifacts, registry metadata consistency, logging authority, and stdout/stderr destination consistency. |
+| `tests/integration/test_architecture_hardening_contract.py` | Added checks for review artifacts, registry metadata consistency, logging authority, and stdout destination consistency. |
 | `tests/integration/test_m13_containerization_contract.py` | Added checks for Compose port interpolation, Dockerfile `HEALTHCHECK`, M7/M8 same-origin downstream blanking, and module-unit cleanup behavior. |
 | `tests/integration/test_stats_web_orchestration_config.py` | Updated expectations so Stats Web official runtime disables local orchestration and keeps M7/M8 browser downstream calls same-origin. |
 | `tests/integration/test_stats_web_orchestration_config.py` | Added checks for central runtime/path/logging loader wiring, same-origin defaults for all browser downstream module calls, and correlation/logging bootstrap. |
 | `tests/scripts/regression/run_module_unit_tests.ps1` | Added default Compose cleanup with an explicit `-LeaveStackRunning` opt-out. |
-| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-plan.md` | Updated the hardening contract description to include review artifacts and registry consistency. |
-| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-results.md` | Updated validation results after review fixes: hardening contract `6 passed`, M13 contract `55 passed`, Stats Web orchestration config `3 passed`, Stats Web build passed, and Compose config validation passed. |
+| `tests/results/ArchitectureHardeningSmokeTest/2026-06-01/architecture-hardening-smoke-validation-plan.md` | Stores the smoke-test validation plan with test results rather than expanding the architecture docs folder. |
+| `tests/results/ArchitectureHardeningSmokeTest/2026-06-01/architecture-hardening-smoke-validation-results.md` | Stores the smoke-test validation results with test results rather than expanding the architecture docs folder. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/file-inventory.md` | Added this post-review update section. |
+
+## Qodo Follow-Up Review Updates
+
+These changes were added after the full-build Qodo review that flagged CORS/correlation, empty same-origin URLs, central config deployment, proxy validation, logging enforcement, and lightweight architecture smoke-test scope.
+
+| File | Review-driven update |
+| --- | --- |
+| `apps/stats-web/Program.cs` | Hardened `X-Correlation-ID` handling by trimming, length-limiting, allowing only safe characters, and generating a new correlation ID when the incoming header is invalid. |
+| `apps/stats-web/Program.cs` | Moved central-config startup visibility from `Console.WriteLine` to structured `app.Logger.LogInformation` after logging is configured. |
+| `apps/stats-web/Program.cs` | Added `StatsLoggingOptions` and consumes `LOG_INCLUDE_CORRELATION_ID`, `LOG_REDACT_SENSITIVE_VALUES`, and `LOG_DESTINATION` from the central logging registry. |
+| `apps/stats-web/Program.cs` | Added fail-fast validation for required central module ports so proxy targets are validated at startup instead of failing later with empty target URLs. |
+| `apps/stats-web/wwwroot/js/upload.js` | Added `statsApiUrl()` so blank browser-facing base URLs are explicitly treated as same-origin `/api/v1/...` proxy calls through Stats Web. |
+| `config/stats.logging.json` | Narrowed `LOG_DESTINATION.allowedValues` to `["stdout"]` and updated the container logging rule to match the current supported implementation. |
+| `tests/integration/test_architecture_hardening_contract.py` | Updated logging registry assertions to match the current stdout-only implementation. |
+| `tests/integration/test_stats_web_orchestration_config.py` | Added checks for structured startup logging, correlation normalization, logging option consumption, required proxy-port validation, and same-origin URL resolution in Upload JavaScript. |
+| `tests/integration/test_m13_containerization_contract.py` | Added a Dockerfile packaging check that central config files are copied into the image because Stats Web intentionally fails fast when central config is missing. |
+| `tests/scripts/regression/capture_architecture_hardening_container_workflow_evidence_2026_05_31.py` | Changed the architecture-hardening browser smoke flow to use one representative input fixture only; full `tests/input` coverage remains the responsibility of the Docker regression runner. |
+
+## Latest Focused Validation
+
+| Check | Result |
+| --- | --- |
+| `dotnet build apps\stats-web\stats.Web.csproj` | Passed: 0 warnings, 0 errors. |
+| `pytest tests\integration\test_stats_web_orchestration_config.py tests\integration\test_architecture_hardening_contract.py tests\integration\test_m13_containerization_contract.py` | Passed: 73 tests. |
+| `docker compose --file infrastructure\compose\stats-runtime.compose.yml --env-file infrastructure\compose\.env.container config` | Passed: Compose configuration renders with central runtime/logging variables. |
 
 ## Retired/Moved Files
 
 | File | Change |
 | --- | --- |
 | `docs/stats-architecture-baseline.md` | Replaced by `docs/architecture-hardening/current-baseline.md`. |
+| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-plan.md` | Moved to `tests/results/ArchitectureHardeningSmokeTest/2026-06-01/architecture-hardening-smoke-validation-plan.md`. |
+| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/validation-results.md` | Moved to `tests/results/ArchitectureHardeningSmokeTest/2026-06-01/architecture-hardening-smoke-validation-results.md`. |
 
 ## Notes
 

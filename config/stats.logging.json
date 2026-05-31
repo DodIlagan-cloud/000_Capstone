@@ -27,7 +27,7 @@
     "LOG_DESTINATION": {
       "purpose": "Primary runtime log destination.",
       "default": "stdout",
-      "allowedValues": ["stdout", "stderr"],
+      "allowedValues": ["stdout"],
       "secret": false
     }
   },
@@ -59,6 +59,6 @@
     ],
     "evidenceRule": "Evidence may include redacted summaries and status metadata, not raw sensitive payloads."
   },
-  "containerRule": "All containerized services write logs to stdout/stderr so Docker, CI, and later Azure logging can collect them without file scraping.",
+  "containerRule": "All containerized services write logs to stdout so Docker, CI, and later Azure logging can collect them without file scraping.",
   "moduleRule": "Module-local logging_config.py or equivalent setup is allowed, but it must consume the central logging variables and honor the redaction and stdout rules."
 }

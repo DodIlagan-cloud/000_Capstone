@@ -133,7 +133,7 @@ def test_logging_registry_requires_container_safe_redaction():
     env = logging["environmentVariables"]
 
     assert env["LOG_DESTINATION"]["default"] == "stdout"
-    assert "stderr" in env["LOG_DESTINATION"]["allowedValues"]
+    assert env["LOG_DESTINATION"]["allowedValues"] == ["stdout"]
     assert env["LOG_REDACT_SENSITIVE_VALUES"]["default"] == "true"
     assert "raw OCR text" in logging["redaction"]["neverLogRawValuesFor"]
     assert "container" in logging["containerRule"].lower()

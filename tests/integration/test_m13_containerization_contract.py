@@ -92,6 +92,15 @@ def test_dockerfile_copies_tests_for_container_execution():
         "Dockerfile must copy Stats Web appsettings for container-executed M2 config checks"
 
 
+def test_dockerfile_copies_central_config_for_fail_fast_startup():
+    content = DOCKERFILE.read_text()
+    assert "COPY config/ /app/config/" in content, \
+        "Dockerfile must copy central config files because Stats Web fails fast when they are missing"
+    assert "STATS_RUNTIME_CONFIG=/app/config/stats.runtime.json" in content
+    assert "STATS_PATHS_CONFIG=/app/config/stats.paths.json" in content
+    assert "STATS_LOGGING_CONFIG=/app/config/stats.logging.json" in content
+
+
 def test_dockerfile_packages_transaction_extraction_module():
     content = DOCKERFILE.read_text()
     assert "transaction-extraction-module" in content, "Dockerfile must package M7 in the Stats runtime image"

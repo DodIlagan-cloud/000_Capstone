@@ -6,12 +6,13 @@ using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 var centralRuntime = StatsCentralRuntime.Load(builder.Environment.ContentRootPath);
-StatsLoggingBootstrap.Configure(builder, centralRuntime);
+var loggingOptions = StatsLoggingBootstrap.Configure(builder, centralRuntime);
 builder.Configuration.AddInMemoryCollection(centralRuntime.ConfigurationDefaults);
 
 builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(centralRuntime);
+builder.Services.AddSingleton(loggingOptions);
 if (centralRuntime.CorsAllowedOrigins.Count > 0)
 {
     builder.Services.AddCors(options =>
@@ -83,6 +84,15 @@ builder.Services.AddSingleton(
 // M2 End
 
 var app = builder.Build();
+app.Logger.LogInformation(
+    "Loaded central config. AppRoot={AppRoot}; RuntimeConfig={RuntimeConfig}; PathsConfig={PathsConfig}; LoggingConfig={LoggingConfig}; ModulePorts={ModulePorts}; CorsOrigins={CorsOrigins}.",
+    centralRuntime.AppRoot,
+    centralRuntime.RuntimeConfigPath,
+    centralRuntime.PathsConfigPath,
+    centralRuntime.LoggingConfigPath,
+    centralRuntime.ModulePorts.Count,
+    centralRuntime.CorsAllowedOrigins.Count
+);
 
 if (!app.Environment.IsDevelopment())
 {
@@ -113,6 +123,13 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Stat
 app.Run();
 
 public sealed record StatsApiOptions(string BaseUrl);
+
+public sealed record StatsLoggingOptions(
+    bool IncludeCorrelationId,
+    bool RedactSensitiveValues,
+    string Destination
+);
+
 // M13 - Containerization Start
 public sealed record StatsWebProxyOptions(
     string IdentityBaseUrl,
@@ -538,15 +555,7 @@ public sealed class StatsCentralRuntime
         };
 
         runtime.ConfigurationDefaults = runtime.BuildConfigurationDefaults();
-        Console.WriteLine(
-            "[StatsWeb] Loaded central config. AppRoot={0}; RuntimeConfig={1}; PathsConfig={2}; LoggingConfig={3}; ModulePorts={4}; CorsOrigins={5}.",
-            runtime.AppRoot,
-            runtime.RuntimeConfigPath,
-            runtime.PathsConfigPath,
-            runtime.LoggingConfigPath,
-            runtime.ModulePorts.Count,
-            runtime.CorsAllowedOrigins.Count
-        );
+        runtime.ValidateRequiredProxyPorts();
         return runtime;
     }
 
@@ -558,6 +567,21 @@ public sealed class StatsCentralRuntime
         }
 
         return $"http://localhost:{port}";
+    }
+
+    public void ValidateRequiredProxyPorts()
+    {
+        foreach (var portKey in new[]
+        {
+            "IDENTITY_PORT",
+            "FILE_VALIDATION_PORT",
+            "DOCUMENT_PARSING_PORT",
+            "TRANSACTION_EXTRACTION_PORT",
+            "DATA_VALIDATION_PORT",
+        })
+        {
+            _ = ModuleUrl(portKey);
+        }
     }
 
     public string ResolvePath(string logicalOrConfiguredPath)
@@ -723,32 +747,68 @@ public sealed class StatsCentralRuntime
     }
 }
 
-public sealed class StatsCorrelationMiddleware(RequestDelegate next, ILogger<StatsCorrelationMiddleware> logger)
+public sealed class StatsCorrelationMiddleware(
+    RequestDelegate next,
+    ILogger<StatsCorrelationMiddleware> logger,
+    StatsLoggingOptions loggingOptions
+)
 {
     private const string CorrelationHeader = "X-Correlation-ID";
+    private const int MaxCorrelationIdLength = 64;
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var correlationId = context.Request.Headers.TryGetValue(CorrelationHeader, out var incoming)
-            && !string.IsNullOrWhiteSpace(incoming.ToString())
+        var correlationId = NormalizeCorrelationId(
+            context.Request.Headers.TryGetValue(CorrelationHeader, out var incoming)
                 ? incoming.ToString()
-                : Guid.NewGuid().ToString("N");
+                : null
+        );
 
         context.Response.Headers[CorrelationHeader] = correlationId;
-        using var scope = logger.BeginScope(new Dictionary<string, object>
+        var scopeValues = new Dictionary<string, object>
         {
-            ["correlation_id"] = correlationId,
             ["service"] = "Stats Web",
             ["module"] = "stats-web",
-        });
+        };
+
+        if (loggingOptions.IncludeCorrelationId)
+        {
+            scopeValues["correlation_id"] = correlationId;
+        }
+
+        using var scope = logger.BeginScope(scopeValues);
 
         await next(context);
+    }
+
+    public static string NormalizeCorrelationId(string? incoming)
+    {
+        if (string.IsNullOrWhiteSpace(incoming))
+        {
+            return Guid.NewGuid().ToString("N");
+        }
+
+        var value = incoming.Trim();
+        if (value.Length > MaxCorrelationIdLength)
+        {
+            return Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var character in value)
+        {
+            if (!(char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.'))
+            {
+                return Guid.NewGuid().ToString("N");
+            }
+        }
+
+        return value;
     }
 }
 
 public static class StatsLoggingBootstrap
 {
-    public static void Configure(WebApplicationBuilder builder, StatsCentralRuntime centralRuntime)
+    public static StatsLoggingOptions Configure(WebApplicationBuilder builder, StatsCentralRuntime centralRuntime)
     {
         var logLevelName = Environment.GetEnvironmentVariable("LOG_LEVEL")
             ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_LEVEL")
@@ -756,6 +816,26 @@ public static class StatsLoggingBootstrap
         var logFormat = Environment.GetEnvironmentVariable("LOG_FORMAT")
             ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_FORMAT")
             ?? "json";
+        var destination = Environment.GetEnvironmentVariable("LOG_DESTINATION")
+            ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_DESTINATION")
+            ?? "stdout";
+        var includeCorrelationId = ParseBool(
+            Environment.GetEnvironmentVariable("LOG_INCLUDE_CORRELATION_ID")
+                ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_INCLUDE_CORRELATION_ID")
+                ?? "true"
+        );
+        var redactSensitiveValues = ParseBool(
+            Environment.GetEnvironmentVariable("LOG_REDACT_SENSITIVE_VALUES")
+                ?? centralRuntime.LoggingDefaults.GetValueOrDefault("LOG_REDACT_SENSITIVE_VALUES")
+                ?? "true"
+        );
+
+        if (!string.Equals(destination, "stdout", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Stats Web currently supports LOG_DESTINATION=stdout. Configure external log shipping at the container/platform layer."
+            );
+        }
 
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(ParseLogLevel(logLevelName));
@@ -768,7 +848,7 @@ public static class StatsLoggingBootstrap
                 options.SingleLine = true;
                 options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffK ";
             });
-            return;
+            return new StatsLoggingOptions(includeCorrelationId, redactSensitiveValues, "stdout");
         }
 
         builder.Logging.AddJsonConsole(options =>
@@ -780,6 +860,7 @@ public static class StatsLoggingBootstrap
                 Indented = false,
             };
         });
+        return new StatsLoggingOptions(includeCorrelationId, redactSensitiveValues, "stdout");
     }
 
     private static LogLevel ParseLogLevel(string value)
@@ -793,6 +874,13 @@ public static class StatsLoggingBootstrap
             "CRITICAL" => LogLevel.Critical,
             _ => LogLevel.Information,
         };
+    }
+
+    private static bool ParseBool(string value)
+    {
+        return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 }
 // M0 Architecture Hardening End

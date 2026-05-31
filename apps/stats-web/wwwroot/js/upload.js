@@ -38,6 +38,12 @@ function setValidationState(message, tone = "pending") {
   uploadState.dataset.tone = tone;
 }
 
+function statsApiUrl(baseUrl, path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const normalizedBase = (baseUrl || "").trim().replace(/\/+$/, "");
+  return normalizedBase ? `${normalizedBase}${normalizedPath}` : normalizedPath;
+}
+
 function valueFromPath(path) {
   if (!path) {
     return "Pending";
@@ -155,7 +161,7 @@ async function validateSelectedFile(file) {
   setValidationState("Validating file.", "pending");
 
   try {
-    const response = await fetch(`${fileValidationBaseUrl}/api/v1/files/validate`, {
+    const response = await fetch(statsApiUrl(fileValidationBaseUrl, "/api/v1/files/validate"), {
       method: "POST",
       body: formData,
     });
@@ -486,7 +492,7 @@ async function sendAcceptedFileToProcessing() {
     const user = await window.statsAccess.currentUser();
     formData.append("submitted_by", user.email);
 
-    const response = await fetch(`${fileIngestionBaseUrl}/api/v1/ingestions`, {
+    const response = await fetch(statsApiUrl(fileIngestionBaseUrl, "/api/v1/ingestions"), {
       method: "POST",
       body: formData,
     });
@@ -520,7 +526,7 @@ async function parseAcceptedFile(record) {
   formData.append("sha256", metadata.sha256 || "");
 
   try {
-    const response = await fetch(`${documentParsingBaseUrl}/api/v1/parses`, {
+    const response = await fetch(statsApiUrl(documentParsingBaseUrl, "/api/v1/parses"), {
       method: "POST",
       body: formData,
     });
@@ -549,7 +555,7 @@ async function parseAcceptedFile(record) {
 }
 
 async function extractTransactions(parseResultPayload) {
-  const response = await fetch(`${transactionExtractionBaseUrl}/api/v1/extractions`, {
+  const response = await fetch(statsApiUrl(transactionExtractionBaseUrl, "/api/v1/extractions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(buildExtractionRequest(parseResultPayload)),
@@ -563,7 +569,7 @@ async function extractTransactions(parseResultPayload) {
 }
 
 async function validateExtractedData(extractionResult) {
-  const response = await fetch(`${dataValidationBaseUrl}/api/v1/validations`, {
+  const response = await fetch(statsApiUrl(dataValidationBaseUrl, "/api/v1/validations"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(buildValidationRequest(extractionResult)),
