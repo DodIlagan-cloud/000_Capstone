@@ -14,6 +14,7 @@ Use these foundation documents before starting a module:
 - `docs/specs/module-spec-template.md`
 - `docs/testing-build-loop-policy.md`
 - `docs/privacy-security-data-governance-policy.md`
+- `docs/architecture-hardening/current-baseline.md`
 
 The building-block plan is the architecture boundary. Each later module should refine its own spec, contracts, tests, evidence, configuration sample, and runtime path before implementation grows.
 
@@ -27,7 +28,18 @@ Privacy, security, and data governance are also part of the build loop. Financia
 
 Runtime values for the whole Stats project must be stored in configuration files or supported environment/secret providers instead of being hardcoded in application code.
 
-This applies to modules, Stats apps, infrastructure scripts, and transitional code. Examples include URLs, ports, hosts, database targets, credentials, secrets, token settings, browser origins, file paths that vary by environment, cloud resource names, and feature/runtime switches.
+This applies to modules, Stats apps, infrastructure scripts, admin tools, and deployment assets. Examples include URLs, ports, hosts, database targets, credentials, secrets, token settings, browser origins, file paths that vary by environment, cloud resource names, and feature/runtime switches.
+
+Directory paths use a two-layer convention:
+
+- `config/stats.paths.json` defines the logical project path map.
+- `STATS_APP_ROOT` defines the physical runtime root for the current environment.
+
+Local development may resolve from `C:\000_Capstone`; the Stats container resolves from `/app`; cloud deployment may resolve from an Azure App Service, Container Apps, mounted volume, or storage-backed location. Module code must not assume the physical root. It should resolve logical paths from the configured root or use a configured storage provider such as `STATS_STORAGE_PROVIDER=LocalFileSystem` now and `AzureBlobStorage` later.
+
+The broader runtime configuration registry is `config/stats.runtime.json`. It names the expected environment variables, safe defaults, secret-bearing settings, service ports, downstream URLs, storage settings, OCR settings, database settings, and test fixture settings for the overall Stats application. Module specs should refer to that registry before adding new runtime values.
+
+Logging is governed by `config/stats.logging.json`. Modules may implement logging locally, but log levels, format, redaction behavior, correlation/request context, and stdout/stderr collection must follow the central logging contract.
 
 Committed config may provide safe local defaults and examples. Real secrets and developer-specific overrides must stay out of source control.
 <!-- M0 Foundation End -->
@@ -44,11 +56,6 @@ Committed config may provide safe local defaults and examples. Real secrets and 
 | `samples/` | Safe sample data and fixtures. |
 | `tests/integration/` | Cross-module Stats workflow checks. |
 
-## Transitional Code
+## Architecture Baseline
 
-Earlier implementation work currently remains under `stats/`:
-
-- `stats/stats.Web/`
-- `stats/stats-ingestion-service/`
-
-Those folders are not the final architecture boundary. Later module specs should decide the migration path for their owned behavior into `apps/` or `modules/` without mixing Stats UI or Stats persistence concerns into reusable processing services.
+Active implementation belongs under the repository roots listed above. Retired or historical paths must not be used as current implementation guidance in module specs.

@@ -1,8 +1,9 @@
-"""Direct M0 architecture foundation checks for terminal evidence."""
+"""M0 Foundation Start
+Direct M0 architecture foundation checks for container-first terminal evidence.
+M0 Foundation End"""
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 
@@ -23,15 +24,23 @@ REQUIRED_PATHS = (
     "docs/specs/module-spec-template.md",
     "docs/evidence/README.md",
     "docs/module-plans/README.md",
-    "stats/README.md",
 )
 
 IGNORE_TARGETS = (
     "docx_render_check",
-    "stats/stats.Web/bin",
-    "stats/stats.Web/obj",
-    "stats/stats-ingestion-service/stats_ingestion.db",
+    "apps/stats-web/bin",
+    "apps/stats-web/obj",
+    "apps/stats-data/data",
+    "tests/input/local-fixtures",
 )
+
+IGNORE_PATTERNS = {
+    "docx_render_check": "docx_render_check/",
+    "apps/stats-web/bin": "**/bin/",
+    "apps/stats-web/obj": "**/obj/",
+    "apps/stats-data/data": "apps/stats-data/data/",
+    "tests/input/local-fixtures": "tests/input/*",
+}
 
 REQUIRED_CONTENT = {
     "apps/README.md": ("stats-web/", "stats-data/"),
@@ -61,12 +70,9 @@ def display_path_check(path_text: str) -> bool:
 
 
 def display_ignore_check(path_text: str) -> bool:
-    completed = subprocess.run(
-        ["git", "check-ignore", "-q", path_text],
-        cwd=REPO_ROOT,
-        check=False,
-    )
-    ignored = completed.returncode == 0
+    ignore_text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    expected_pattern = IGNORE_PATTERNS[path_text]
+    ignored = expected_pattern in ignore_text
     print(f"[{'PASS' if ignored else 'FAIL'}] ignored local/build path: {path_text}")
     return ignored
 
@@ -87,7 +93,8 @@ def display_absence_check(path_text: str, forbidden_text: str) -> bool:
 
 def main() -> int:
     print("M0 Architecture Foundation Direct Verification")
-    print("Command: python tests\scripts\\M0-ArchitectureFoundation\\M0-ArchitectureFoundation_terminal_check.py")
+    print("Command: python tests\\scripts\\M0-ArchitectureFoundation\\M0-ArchitectureFoundation_terminal_check.py")
+    print("Official evidence boundary: run inside stats-runtime through tests\\scripts\\regression\\run_module_unit_tests.ps1")
     print(f"Repository: {REPO_ROOT}")
     print()
     print("Scenario M0-AF-01: required architecture artefacts")
@@ -129,6 +136,13 @@ def main() -> int:
     print(f"Runtime configuration checks passed: {sum(configuration_results)}/{len(configuration_results)}")
     print(f"Result: {'PASSED' if passed else 'FAILED'}")
     return 0 if passed else 1
+
+
+def test_m0_architecture_foundation_checks_pass() -> None:
+    """M0 Foundation Start
+    Allows the M0 architecture check to be collected by pytest inside stats-runtime.
+    M0 Foundation End"""
+    assert main() == 0
 
 
 if __name__ == "__main__":

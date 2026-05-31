@@ -143,13 +143,17 @@ Configuration must load from committed safe defaults, optional ignored `.env`, a
 | `APP_VERSION` | `1.0.0` | API version metadata. |
 | `API_PREFIX` | `/api/v1` | Versioned route prefix. |
 | `API_HOST` | `127.0.0.1` | Local host binding. |
-| `API_PORT` | `8016` | Local API port. |
+| `API_PORT` | `8016` | Container-internal API port. |
 | `CORS_ALLOWED_ORIGINS` | Stats Web local origins | Browser caller origins. |
 | `SUPPORTED_DOCUMENT_TYPES` | `bank_statement,receipt,invoice,utility_bill,unknown` | Supported M5 classifications. |
 | `DEFAULT_CURRENCY` | `PHP` | Currency assigned when text does not identify one. |
 | `MIN_TRANSACTION_CONFIDENCE` | `0.55` | Minimum candidate confidence before warning. |
 | `MAX_TEXT_CHARS` | `100000` | Maximum text processed in one request. |
 | `MAX_PAGE_COUNT` | `25` | Maximum page blocks processed. |
+
+<!-- M13 - Containerization Start -->
+M13 update: `API_PORT=8016` is the container-internal Transaction Extraction API port for official tests and runtime evidence.
+<!-- M13 End -->
 | `ENABLE_FIELD_EXTRACTION` | `true` | Enables document-level field candidate extraction. |
 | `ENABLE_TRANSACTION_ROWS` | `true` | Enables row-level transaction candidate extraction. |
 
@@ -197,7 +201,9 @@ M7 is complete when:
 - Financial field candidates include field name/value/source/confidence metadata where available.
 - Missing/ambiguous/unsupported cases return explicit findings.
 - Evaluation metadata is present and measurable.
-- Unit tests pass locally.
+<!-- M13 - Containerization Start -->
+- Unit tests pass inside the `stats-runtime` container through `tests\scripts\regression\run_module_unit_tests.ps1`.
+<!-- M13 End -->
 - M7 remains free of Stats persistence, dashboard, and M8 validation logic.
 
 ## Deferred Items

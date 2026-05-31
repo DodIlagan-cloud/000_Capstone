@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "description": "Central runtime configuration registry for the Stats application. This file names the configuration surfaces that must be supplied by committed safe defaults, ignored local overrides, environment variables, or managed secret providers instead of being hardcoded in source.",
+  "configFiles": {
+    "pathMap": "config/stats.paths.json",
+    "testScriptSettings": "tests/scripts/config/test-script-settings.json",
+    "testScriptLocalOverrides": "tests/scripts/config/test-script-settings.local.json",
+    "statsWebSettings": "apps/stats-web/appsettings.json",
+    "loggingRegistry": "config/stats.logging.json",
+    "containerExample": "infrastructure/containers/stats/.env.container.example",
+    "containerLocalEnv": "infrastructure/compose/.env.container"
+  },
+  "runtimeRoot": {
+    "STATS_APP_ROOT": {
+      "purpose": "Physical runtime root for the current environment.",
+      "localDefault": ".",
+      "containerDefault": "/app",
+      "secret": false
+    },
+    "STATS_PATHS_CONFIG": {
+      "purpose": "Path to the central logical path map.",
+      "default": "config/stats.paths.json",
+      "secret": false
+    },
+    "STATS_RUNTIME_CONFIG": {
+      "purpose": "Path to the central runtime configuration registry.",
+      "default": "config/stats.runtime.json",
+      "secret": false
+    },
+    "STATS_LOGGING_CONFIG": {
+      "purpose": "Path to the central logging configuration registry.",
+      "default": "config/stats.logging.json",
+      "secret": false
+    }
+  },
+  "logging": {
+    "authority": "config/stats.logging.json",
+    "note": "The central logging registry is the source of truth for logging variable defaults and allowed values. This section keeps logging environment keys discoverable in the overall runtime registry.",
+    "LOG_LEVEL": {
+      "purpose": "Minimum application log level.",
+      "default": "INFO",
+      "secret": false
+    },
+    "LOG_FORMAT": {
+      "purpose": "Application log output format.",
+      "default": "json",
+      "secret": false
+    },
+    "LOG_INCLUDE_CORRELATION_ID": {
+      "purpose": "Include request/correlation identifiers when available.",
+      "default": "true",
+      "secret": false
+    },
+    "LOG_REDACT_SENSITIVE_VALUES": {
+      "purpose": "Redact known sensitive values before writing logs.",
+      "default": "true",
+      "secret": false
+    },
+    "LOG_DESTINATION": {
+      "purpose": "Primary runtime log destination.",
+      "default": "stdout",
+      "secret": false
+    }
+  },
+  "storage": {
+    "STATS_STORAGE_PROVIDER": {
+      "purpose": "Storage provider selector for durable files and future cloud storage.",
+      "default": "LocalFileSystem",
+      "cloudExample": "AzureBlobStorage",
+      "secret": false
+    },
+    "STORAGE_ROOT": {
+      "purpose": "Local filesystem root for accepted intake files when LocalFileSystem storage is active.",
+      "default": "apps/stats-data/data/intake",
+      "secret": false
+    },
+    "DOCUMENT_REFERENCE_ROOTS": {
+      "purpose": "Allowed source roots for document parsing references.",
+      "default": null,
+      "note": "Resolve from configured Stats storage roots or explicit module environment overrides. Do not parse this note as a filesystem path.",
+      "secret": false
+    }
+  },
+  "database": {
+    "DATABASE_URL": {
+      "purpose": "PostgreSQL-compatible connection string used by modules that persist data.",
+      "secret": true
+    },
+    "POSTGRES_USER": {
+      "purpose": "PostgreSQL bootstrap user for local/container runtime.",
+      "secret": false
+    },
+    "POSTGRES_PASSWORD": {
+      "purpose": "PostgreSQL bootstrap password for local/container runtime.",
+      "secret": true
+    },
+    "POSTGRES_DB": {
+      "purpose": "PostgreSQL database name.",
+      "secret": false
+    }
+  },
+  "identity": {
+    "ACCESS_TOKEN_SECRET_KEY": {
+      "purpose": "JWT signing secret.",
+      "secret": true
+    },
+    "DEFAULT_ADMIN_EMAIL": {
+      "purpose": "Optional bootstrap administrator email for local/container setup.",
+      "secret": false
+    },
+    "DEFAULT_ADMIN_PASSWORD": {
+      "purpose": "Optional bootstrap administrator temporary password.",
+      "secret": true
+    }
+  },
+  "ocr": {
+    "ALLOW_OCR_FALLBACK": {
+      "purpose": "Enables OCR fallback path when Tesseract is available.",
+      "default": "false locally, true in stats-runtime container",
+      "secret": false
+    },
+    "OCR_ENGINE": {
+      "purpose": "OCR engine selector.",
+      "default": "tesseract",
+      "secret": false
+    },
+    "TESSERACT_CMD": {
+      "purpose": "Path to the Tesseract executable for the current runtime.",
+      "containerDefault": "/usr/bin/tesseract",
+      "secret": false
+    },
+    "TESSDATA_PREFIX": {
+      "purpose": "Path to Tesseract language data for the current runtime.",
+      "containerDefault": "/usr/share/tesseract-ocr/5/tessdata",
+      "secret": false
+    },
+    "OCR_LANGUAGES": {
+      "purpose": "OCR language hints.",
+      "default": "eng",
+      "secret": false
+    }
+  },
+  "network": {
+    "STATS_WEB_PORT": {
+      "purpose": "Stats Web container bind port for local/container runtime.",
+      "default": "8080",
+      "secret": false
+    },
+    "STATS_WEB_HOST_PORT": {
+      "purpose": "External Stats Web host port mapped by Docker Compose.",
+      "default": "8080",
+      "secret": false
+    },
+    "CORS_ALLOWED_ORIGINS": {
+      "purpose": "Allowed browser origins for module APIs.",
+      "default": "http://localhost:8080,http://127.0.0.1:8080",
+      "secret": false
+    },
+    "HEALTH_TIMEOUT": {
+      "purpose": "Service startup health wait timeout in seconds.",
+      "default": "60",
+      "secret": false
+    },
+    "DB_HOST": {
+      "purpose": "Database host used by container startup readiness checks.",
+      "default": "stats-db",
+      "secret": false
+    },
+    "DB_PORT": {
+      "purpose": "Database port used by container startup readiness checks.",
+      "default": "5432",
+      "secret": false
+    }
+  },
+  "modulePorts": {
+    "IDENTITY_PORT": {
+      "purpose": "Identity Access API container-local port.",
+      "default": "8013",
+      "secret": false
+    },
+    "FILE_VALIDATION_PORT": {
+      "purpose": "File Validation and Ingestion API container-local port.",
+      "default": "8014",
+      "secret": false
+    },
+    "DOCUMENT_PARSING_PORT": {
+      "purpose": "Document Parsing API container-local port.",
+      "default": "8015",
+      "secret": false
+    },
+    "TRANSACTION_EXTRACTION_PORT": {
+      "purpose": "Transaction Extraction API container-local port.",
+      "default": "8016",
+      "secret": false
+    },
+    "DATA_VALIDATION_PORT": {
+      "purpose": "Data Validation API container-local port.",
+      "default": "8017",
+      "secret": false
+    }
+  },
+  "moduleDefaults": {
+    "APP_NAME": {"purpose": "Module display name.", "secret": false},
+    "APP_VERSION": {"purpose": "Module API/runtime version.", "secret": false},
+    "DEBUG": {"purpose": "Debug behavior switch for local development only.", "secret": false},
+    "API_PREFIX": {"purpose": "Versioned module API prefix.", "secret": false},
+    "API_HOST": {"purpose": "Module API bind host.", "secret": false},
+    "API_PORT": {"purpose": "Module API bind port.", "secret": false},
+    "DATABASE_ECHO": {"purpose": "Database SQL echo switch for diagnostics.", "secret": false},
+    "ACCESS_TOKEN_ALGORITHM": {"purpose": "JWT signing algorithm.", "secret": false},
+    "ACCESS_TOKEN_EXPIRE_MINUTES": {"purpose": "JWT expiry duration.", "secret": false},
+    "PASSWORD_HASH_SCHEME": {"purpose": "Password hashing scheme identifier.", "secret": false},
+    "MAX_FILE_SIZE_BYTES": {"purpose": "Maximum file size accepted for validation.", "secret": false},
+    "ALLOWED_EXTENSIONS": {"purpose": "Allowed upload filename extensions.", "secret": false},
+    "ALLOWED_MIME_TYPES": {"purpose": "Allowed upload MIME types.", "secret": false},
+    "REQUIRE_KNOWN_SIGNATURE": {"purpose": "Whether file signatures must be recognized.", "secret": false},
+    "COMPUTE_SHA256": {"purpose": "Whether intake computes SHA-256 hashes.", "secret": false},
+    "DEFAULT_WORKFLOW": {"purpose": "Default file-intake workflow identifier.", "secret": false},
+    "MAX_STORED_FILE_SIZE_BYTES": {"purpose": "Maximum stored intake file size.", "secret": false},
+    "SUPPORTED_MIME_TYPES": {"purpose": "MIME types supported by document parsing.", "secret": false},
+    "MAX_DOCUMENT_SIZE_BYTES": {"purpose": "Maximum document size accepted by parsing.", "secret": false},
+    "ALLOW_DIRECT_TEXT": {"purpose": "Whether direct PDF text extraction is allowed.", "secret": false},
+    "OCR_PSM_VALUES": {"purpose": "Tesseract page-segmentation modes to try.", "secret": false},
+    "OCR_RETRY_ORIENTATIONS": {"purpose": "Whether OCR retries alternate orientations.", "secret": false},
+    "OCR_MIN_CONFIDENCE": {"purpose": "Minimum OCR confidence threshold.", "secret": false},
+    "OCR_MIN_QUALITY_SCORE": {"purpose": "Minimum OCR quality score.", "secret": false},
+    "OCR_MIN_ALNUM_RATIO": {"purpose": "Minimum OCR alphanumeric ratio.", "secret": false},
+    "SUPPORTED_DOCUMENT_TYPES": {"purpose": "Document types supported by parsing/extraction.", "secret": false},
+    "CLASSIFICATION_CONFIDENCE_THRESHOLD": {"purpose": "Minimum classification confidence.", "secret": false},
+    "CLASSIFICATION_ALLOW_UNKNOWN": {"purpose": "Whether unknown classification is allowed.", "secret": false},
+    "EXTRACTION_TIMEOUT_SECONDS": {"purpose": "Document extraction timeout.", "secret": false},
+    "MAX_PAGE_COUNT": {"purpose": "Maximum pages processed.", "secret": false},
+    "MIN_TEXT_LENGTH": {"purpose": "Minimum extracted text length.", "secret": false},
+    "ALLOW_DOCUMENT_REFERENCES": {"purpose": "Whether parsing can read configured document references.", "secret": false},
+    "REDACT_EVIDENCE_OUTPUT": {"purpose": "Whether evidence output is redacted.", "secret": false},
+    "REDACTION_PREVIEW_CHARS": {"purpose": "Maximum redacted preview length.", "secret": false},
+    "DEFAULT_CURRENCY": {"purpose": "Default currency for extraction and validation.", "secret": false},
+    "MIN_TRANSACTION_CONFIDENCE": {"purpose": "Minimum transaction candidate confidence.", "secret": false},
+    "MAX_TEXT_CHARS": {"purpose": "Maximum text characters processed by extraction.", "secret": false},
+    "ENABLE_FIELD_EXTRACTION": {"purpose": "Enable financial field extraction.", "secret": false},
+    "ENABLE_TRANSACTION_ROWS": {"purpose": "Enable transaction-row extraction.", "secret": false},
+    "MIN_RECORD_CONFIDENCE": {"purpose": "Minimum normalized record confidence.", "secret": false},
+    "DUPLICATE_MATCH_AMOUNT_TOLERANCE": {"purpose": "Amount tolerance for duplicate matching.", "secret": false},
+    "REQUIRE_TRANSACTION_DATE": {"purpose": "Whether validation requires transaction dates.", "secret": false},
+    "REQUIRE_TRANSACTION_DIRECTION": {"purpose": "Whether validation requires transaction direction.", "secret": false},
+    "ENABLE_DUPLICATE_DETECTION": {"purpose": "Enable request-local duplicate detection.", "secret": false},
+    "MAX_RECORDS_PER_REQUEST": {"purpose": "Maximum records accepted by validation.", "secret": false}
+  },
+  "statsWebDownstream": {
+    "StatsApi__BaseUrl": "Browser-facing Identity API base URL or same-origin proxy base.",
+    "StatsWeb__Downstream__FileValidationBaseUrl": "Browser-facing File Validation base URL or same-origin proxy base.",
+    "StatsWeb__Downstream__FileIngestionBaseUrl": "Browser-facing File Ingestion base URL or same-origin proxy base.",
+    "StatsWeb__Downstream__DocumentParsingBaseUrl": "Browser-facing Document Parsing base URL or same-origin proxy base.",
+    "StatsWeb__Downstream__TransactionExtractionBaseUrl": "Browser-facing Transaction Extraction base URL or same-origin proxy base.",
+    "StatsWeb__Downstream__DataValidationBaseUrl": "Browser-facing Data Validation base URL or same-origin proxy base.",
+    "StatsWeb__Proxy__IdentityBaseUrl": "Server-side proxy target for Identity Access.",
+    "StatsWeb__Proxy__FileValidationBaseUrl": "Server-side proxy target for File Validation.",
+    "StatsWeb__Proxy__FileIngestionBaseUrl": "Server-side proxy target for File Ingestion.",
+    "StatsWeb__Proxy__DocumentParsingBaseUrl": "Server-side proxy target for Document Parsing.",
+    "StatsWeb__Proxy__TransactionExtractionBaseUrl": "Server-side proxy target for Transaction Extraction.",
+    "StatsWeb__Proxy__DataValidationBaseUrl": "Server-side proxy target for Data Validation."
+  },
+  "testing": {
+    "STATS_TESTDATA_DIR": {
+      "purpose": "Configured real-data fixture directory for module and evidence tests.",
+      "secret": false,
+      "privacyNote": "May point to local private files; do not commit real source files."
+    },
+    "STATS_PARSING_TESTDATA_DIR": {
+      "purpose": "Document Parsing-specific fixture override.",
+      "secret": false,
+      "privacyNote": "May point to local private files; do not commit real source files."
+    },
+    "STATS_EDGE_EXECUTABLE": {
+      "purpose": "Optional browser executable override for screenshot evidence.",
+      "secret": false
+    }
+  },
+  "rule": "If a value changes by developer machine, container, cloud environment, secret rotation, deployment target, port conflict, or test fixture location, it belongs in configuration and not as an application-code literal."
+}

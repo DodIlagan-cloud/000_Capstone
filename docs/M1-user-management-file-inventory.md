@@ -147,10 +147,10 @@ The M1 User Access Management module establishes database-backed user accounts, 
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `modules/identity-access-module/tests/conftest.py` | Modified | Adds an isolated SQLite test database override, reusable database session fixture, and admin/standard/inactive user fixtures for authentication tests. |
-| `modules/identity-access-module/tests/test_auth.py` | Created | Tests password hashing, password verification, successful login, required bootstrap-admin password change, password-change API, failed login, inactive-user login rejection, current-user profile access, missing/invalid/expired tokens, duplicate email handling, and response safety. |
-| `modules/identity-access-module/tests/test_users.py` | Created | Tests user model import, initial administrator bootstrap rules, required initial-admin password change before user addition, admin-created temporary-password user creation, admin user listing, standard-user access rejection, self-profile access, cross-user access rejection, and last-active-admin deactivation/demotion protection. |
-| `modules/identity-access-module/tests/test_foundation.py` | Modified | Updates the settings default test to expect the Module 1 PostgreSQL database default while keeping the test database isolated. |
+| `tests/unit/identity_access_module/conftest.py` | Modified | Provides the active isolated test database override, reusable database session fixture, and admin/standard/inactive user fixtures for container-executed authentication tests. |
+| `tests/unit/identity_access_module/test_auth.py` | Created | Tests password hashing, password verification, successful login, required bootstrap-admin password change, password-change API, failed login, inactive-user login rejection, current-user profile access, missing/invalid/expired tokens, duplicate email handling, and response safety. |
+| `tests/unit/identity_access_module/test_users.py` | Created | Tests user model import, initial administrator bootstrap rules, required initial-admin password change before user addition, admin-created temporary-password user creation, admin user listing, standard-user access rejection, self-profile access, cross-user access rejection, and last-active-admin deactivation/demotion protection. |
+| `tests/unit/identity_access_module/test_foundation.py` | Modified | Verifies migrated module startup, health, root metadata, settings, and database initializer through the active root test suite. |
 
 ## API Endpoints Added
 
@@ -170,18 +170,21 @@ The M1 User Access Management module establishes database-backed user accounts, 
 
 ## Verification
 
-The M1 User Access Management backend and frontend were verified with:
+<!-- M13 - Containerization Start -->
+Official M1 verification now runs through the M13 container-first module runner:
 
-```text
-pytest
-dotnet build
+```powershell
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
 Result:
 
 ```text
-29 passed
+M1 Identity Access: 29 passed
 ```
+
+Historical host-side `pytest` or `dotnet build` evidence is retained only as development history and is not valid M1 acceptance evidence after M13.
+<!-- M13 End -->
 
 ## Notes
 

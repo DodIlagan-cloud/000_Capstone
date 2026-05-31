@@ -1,8 +1,9 @@
 ﻿# M13 - Containerization Start
 # Docker acceptance evidence script for M13.
 # Starts the full Stats runtime stack, verifies container health, and parses every
-# supported tests/input fixture through M5 inside Docker. Official module tests
-# and evidence run through the container after M13.
+# supported tests/input fixture through M5 inside Docker, and verifies packaged
+# module health for M1, M3/M4, M5, M7, and M8. Official module tests and evidence
+# run through the container after M13.
 # M13 End
 
 param(
@@ -193,7 +194,13 @@ try {
 $ModuleApis = @(
     @{ Name = "Identity Access API"; Port = 8013 },
     @{ Name = "File Validation API"; Port = 8014 },
-    @{ Name = "Document Parsing API"; Port = 8015 }
+    @{ Name = "Document Parsing API"; Port = 8015 },
+    # M7 - Transaction Extraction Start
+    @{ Name = "Transaction Extraction API"; Port = 8016 },
+    # M7 End
+    # M8 - Data Validation Module Start
+    @{ Name = "Data Validation API"; Port = 8017 }
+    # M8 End
 )
 
 foreach ($Api in $ModuleApis) {

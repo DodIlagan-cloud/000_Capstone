@@ -1,4 +1,11 @@
 ﻿{
+  "pathConfig": {
+    "overallStatsRuntimeConfig": "config/stats.runtime.json",
+    "overallStatsPathConfig": "config/stats.paths.json",
+    "rootEnvironmentVariable": "STATS_APP_ROOT",
+    "storageProviderEnvironmentVariable": "STATS_STORAGE_PROVIDER",
+    "defaultStorageProvider": "LocalFileSystem"
+  },
   "evidenceFolders": {
     "M0ArchitectureFoundation": "tests/results/M0-ArchitectureFoundation",
     "M1AdminUserFlow": "tests/results/RegTest-AdminUserFlow-M0-M1/M1-UserAccessManagementRegression",
@@ -16,6 +23,9 @@
     "IdentityAccess": "modules/identity-access-module",
     "FileValidation": "modules/file-validation-module",
     "DocumentParsing": "modules/document-parsing-module",
+    "TransactionExtraction": "modules/transaction-extraction-module",
+    "DataValidation": "modules/data-validation-module",
+    "EmailIngestion": "modules/email-ingestion-module",
     "StatsWeb": "apps/stats-web"
   },
   "scriptFolders": {
@@ -50,6 +60,6 @@
     "dbServiceName": "stats-db",
     "testInputDir": "tests/input",
     "evidenceFolder": "tests/results/M13-Containerization",
-    "note": "Internal module ports 8013/8014/8015 are container-internal only. External entry point is Stats Web on port 8080. All acceptance and evidence runs target the Docker stack, not the local host runtime."
+    "note": "Internal module ports 8013/8014/8015/8016/8017 are container-internal only. External entry point is Stats Web on port 8080. All acceptance and evidence runs target the Docker stack, not the local host runtime."
   }
 }
