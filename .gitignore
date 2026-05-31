@@ -21,6 +21,8 @@ apps/stats-data/data/
 
 # Test evidence is retained locally until the final evidence check-in.
 tests/results/
+tests/Stats_Module_Test_Case_Tracker.xlsx
+tests/~$*.xlsx
 
 # Local test fixtures and machine-specific test helper settings stay local.
 tests/input/*
