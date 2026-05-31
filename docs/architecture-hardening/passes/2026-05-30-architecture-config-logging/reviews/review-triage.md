@@ -7,6 +7,8 @@ Review inputs:
 - `qodo-review.md`
 - `copilot-review.md`
 - `claude-review.md`
+- `copilot-rereview-2026-05-30.md`
+- `qodo-rereview-2026-05-31.md`
 
 ## Triage Summary
 
@@ -132,3 +134,35 @@ Validated after this pass:
 - `pytest tests\integration\test_stats_web_orchestration_config.py` -> `3 passed`
 - `dotnet build apps\stats-web\stats.Web.csproj` -> passed with `0 Warning(s)` and `0 Error(s)`
 - `docker compose --file infrastructure\compose\stats-runtime.compose.yml --env-file infrastructure\compose\.env.container config` -> passed
+
+## Second-Pass Review Update
+
+After commit `de5456e Address architecture hardening review findings`, Claude re-reviewed PR #6 and marked all eight original merge-readiness checklist items as addressed:
+
+- Compose port values are environment-overridable.
+- M7/M8 browser calls use the same-origin Stats Web proxy.
+- Logging destination mismatch is fixed at the configuration-contract level.
+- `modulePorts` registry shape is consistent.
+- `DOCUMENT_REFERENCE_ROOTS` no longer uses prose as a default.
+- CORS default is narrowed.
+- Docker `HEALTHCHECK` exists.
+- Review artifacts and validation results are documented.
+
+Claude identified one remaining decision before leaving draft:
+
+- Decide whether fresh browser E2E evidence is required after the M7/M8 same-origin proxy fix. Existing optimized web-flow screenshots captured the pre-fix failure. Static contract tests and Stats Web build now pass, but a fresh browser evidence run would prove the full M5 -> M7 -> M8 flow visually.
+
+Claude also identified one minor cleanup:
+
+- Update the Compose comment that says OCR is always enabled, since `ALLOW_OCR_FALLBACK` is now environment-overridable.
+
+Copilot's second-pass review is more conservative and still recommends treating central runtime config loading, logging enforcement, same-origin proxy expansion, and CI/runtime tests as blockers before leaving draft. Some Copilot checklist observations are stale against commit `de5456e`: `DOCUMENT_REFERENCE_ROOTS` is now `null`, and `modulePorts` are now metadata objects. The remaining non-stale Copilot items are valid follow-up architecture work already planned for `architecture-runtime-config-loader`.
+
+Qodo second-pass review aligns with Claude. Qodo verified all eight original merge-readiness items as addressed in commit `de5456e` and identified the same two remaining decisions:
+
+- decide whether fresh browser E2E evidence is required before PR #6 leaves draft;
+- resolve the scope disagreement between Copilot and Claude/Qodo/triage about whether runtime config loading and logging enforcement are blockers for PR #6 or belong to `architecture-runtime-config-loader`.
+
+Qodo also confirmed the minor Compose OCR comment cleanup should be committed with the second-pass review documentation.
+
+Current recommendation: PR #6 can move toward ready-for-review after the Compose comment cleanup and second-pass review records are committed. Before leaving draft, the project owner should make an explicit scope decision: keep PR #6 as the baseline governance contract, or expand it into the runtime config/logging implementation pass. If PR #6 remains baseline-only, fresh browser E2E evidence is recommended but can be treated as an evidence-policy decision rather than a code blocker.

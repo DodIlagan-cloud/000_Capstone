@@ -47,7 +47,7 @@ services:
     env_file:
       - .env.container
     environment:
-      # OCR is always enabled inside this container
+      # OCR defaults to enabled inside this container and can be overridden by environment.
       ALLOW_OCR_FALLBACK: "${ALLOW_OCR_FALLBACK:-true}"
       OCR_ENGINE: "${OCR_ENGINE:-tesseract}"
       STATS_APP_ROOT: "${STATS_APP_ROOT:-/app}"

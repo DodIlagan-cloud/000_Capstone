@@ -175,3 +175,30 @@ This PR is mergeable with two targeted fixes before merge: **(A)** fix compose p
 Everything else is either already acknowledged, a follow-up scope item, or a moderate hardening item that does not undermine the declared baseline goals.
 
 The architecture is sound — central registries, path resolution from `STATS_APP_ROOT`, container-first evidence, spec-first governance — and the contract tests provide a solid regression fence for the declared rules.
+
+---
+
+## Re-Review — Post-Triage Update (2026-05-30, commit de5456e)
+
+### Checklist Verification
+
+All eight merge-readiness items from the original review are addressed:
+
+| Item | Status | Notes |
+|---|---|---|
+| Compose port values are environment-overridable | ✅ Fixed | All ports use `${VAR:-default}`; host/container ports split into `STATS_WEB_HOST_PORT`/`STATS_WEB_PORT` |
+| M7/M8 browser calls use same-origin proxy | ✅ Fixed | Full chain: `Upload.cshtml.cs` → `Upload.cshtml` data attrs → `upload.js` dataset → blank downstream defaults → `Program.cs` proxy routes |
+| Logging destination mismatch | ✅ Fixed | `stats.logging.json` now allows `["stdout", "stderr"]`; `stats.runtime.json` logging section designates `stats.logging.json` as authority |
+| modulePorts registry shape consistent | ✅ Fixed | All five ports use `{purpose, default, secret}` metadata objects; enforced by new contract test |
+| DOCUMENT_REFERENCE_ROOTS default | ✅ Fixed | `"default": null` with `"note"` field; no longer parseable as a path |
+| CORS default narrowed | ✅ Fixed | `CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080` in M1 defaults.env |
+| Docker HEALTHCHECK | ✅ Added | 90s start-period, 30s interval, shell-form variable expansion for `STATS_WEB_PORT` |
+| Review artifacts and validation results | ✅ Documented | All three review files, triage, updated validation results, new passing counts (6/55/3) |
+
+### Remaining Before Leaving Draft
+
+One open question: the existing browser evidence (`WebAppFlowOptimized/2026-05-30/`) captured the broken M7/M8 flow. `validation-results.md` explicitly notes a fresh browser E2E run should be captured before the PR leaves draft if full E2E proof is required. Contract tests and Stats Web build pass; the decision is whether browser screenshots of the full M5→M7→M8 flow are required by the project's evidence policy.
+
+Minor: `ALLOW_OCR_FALLBACK` comment in compose still says "OCR is always enabled inside this container" but the value is now overridable via env. Consider updating the comment.
+
+All other previously flagged items (runtime config loader, logging enforcement, process supervision, graceful shutdown, image bloat) are correctly tracked as the next hardening pass in `review-triage.md`.

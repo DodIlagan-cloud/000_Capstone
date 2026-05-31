@@ -60,6 +60,8 @@ These changes were added after Qodo, Copilot, and Claude reviewed PR #6. They ad
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-review.md` | Added the Qodo review record. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/copilot-review.md` | Added the Copilot review record. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/claude-review.md` | Added the Claude review record. |
+| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/copilot-rereview-2026-05-30.md` | Added the Copilot second-pass review record. |
+| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-rereview-2026-05-31.md` | Added the Qodo second-pass review record. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/review-triage.md` | Added consolidated triage, merge-readiness decisions, and the next hardening-pass plan. |
 | `config/stats.logging.json` | Added `stderr` to `LOG_DESTINATION.allowedValues` to match the stdout/stderr container logging rule. |
 | `config/stats.runtime.json` | Added logging authority note, converted `modulePorts` to metadata objects, added `STATS_WEB_HOST_PORT`, and changed `DOCUMENT_REFERENCE_ROOTS` from prose default to `null` plus note. |
