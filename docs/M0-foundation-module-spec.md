@@ -14,6 +14,7 @@ M0 is aligned with:
 
 - `docs/building-block-module-plan.md`
 - `docs/building-block-module-io-map.md`
+- `docs/architecture-hardening/current-baseline.md`
 
 The building-block plan defines M0 as:
 
@@ -44,7 +45,7 @@ The architecture direction established by M0 is:
 - Record the initial architecture boundaries that prevent Stats-specific UI flows from leaking into reusable backend apps.
 <!-- M0 Foundation Start -->
 <!-- Adds the project-wide runtime configuration goal. -->
-- Establish a project-wide configuration convention so environment-dependent runtime values are not hardcoded into project source.
+- Establish a project-wide configuration and logging convention so environment-dependent runtime values and log behavior are not hardcoded into project source.
 <!-- M0 Foundation End -->
 
 ## Non-Goals
@@ -109,25 +110,20 @@ The repository should move toward the structure defined by the building-block mo
     `-- integration/
 ```
 
-### Current-Workspace Note
+### Active-Architecture Rule
 
-The repository currently contains early work under:
+Active implementation guidance must use only the current architecture roots: `apps/`, `modules/`, `contracts/`, `config/`, `infrastructure/`, `docs/`, `samples/`, and root `tests/`.
 
-```text
-stats/stats-ingestion-service
-stats/stats.Web
-```
-
-Those folders remain valid project history and current implementation surfaces. As later modules are refined, their specs must state whether a capability remains in an existing folder temporarily or is moved into the target `apps/` or `modules/` segregation.
-
-M0 must not treat the current `stats-ingestion-service` folder as the final boundary for every backend capability.
+Historical or retired paths may be mentioned only in file inventories, history notes, or evidence context. They must not appear in active module specs as current implementation surfaces or migration guidance.
 
 ## Module Standards
 
 Every later standalone module must provide:
 
 1. A module spec with goals, non-goals, tasks, and acceptance criteria.
-2. A local run command and test command.
+<!-- M13 - Containerization Start -->
+2. A runtime command and test command. From M13 onward, official module acceptance commands must execute through the Stats container; host/local commands are diagnostics only.
+<!-- M13 End -->
 3. A clear input/output contract.
 4. Module-local automated tests.
 5. Evidence for acceptance tests.
@@ -139,12 +135,40 @@ Every later standalone module must provide:
 Encompassing Stats modules such as Stats Web and Stats Data must state which reusable module contracts they call or store and must not absorb reusable OCR, parsing, validation, or authentication internals.
 
 <!-- M0 Foundation Start -->
+<!-- Defines the spec-first build rule for architecture-aligned implementation. -->
+### Spec-First Build Rule
+
+The current module spec is the source of truth for what will be built.
+
+Before implementation starts or changes direction, the owning module spec must be created or updated to reflect the accepted architecture decision, module boundary, contract, runtime path, test plan, and acceptance criteria. Code, tests, UI behavior, and evidence must then align to that current spec.
+
+If an architectural decision changes after implementation has started, the order is:
+
+1. Update the owning spec and file inventory.
+2. Review the implementation against the updated spec.
+3. Update code and tests only after the spec reflects the decision.
+4. Validate through the official container-first test/evidence path from M13 onward.
+
+Implementation must not silently redefine scope outside the spec. If code behavior and the spec disagree, the mismatch is a defect until either the spec is intentionally updated or the code is brought back into alignment.
+<!-- M0 Foundation End -->
+
+<!-- M0 Foundation Start -->
 <!-- Defines the project-wide rule for config-driven runtime values. -->
 ## Runtime Configuration Standard
 
 The whole Stats project must use configuration files or supported environment/secret providers for runtime values instead of hardcoding them in source code.
 
-This rule applies to reusable modules, encompassing Stats apps, transitional code, admin tools, infrastructure scripts, and later cloud deployment work.
+This rule applies to reusable modules, encompassing Stats apps, admin tools, infrastructure scripts, and later cloud deployment work.
+
+The central runtime configuration registry is:
+
+```text
+config/stats.runtime.json
+```
+
+That registry names the project-wide configuration surface for paths, URLs, ports, database targets, secrets, storage providers, OCR settings, service endpoints, test fixtures, and cloud-ready settings. Module-local config files may still exist, but they should align to this registry rather than inventing unrelated environment variable names.
+
+Module-local configuration files are allowed and required. They preserve standalone module behavior. They must use only centrally registered keys, and module config loaders must follow the configured precedence: central registry metadata, module safe defaults, ignored local overrides, environment variables, and later managed cloud configuration or secret providers.
 
 Examples of runtime values that must be configurable:
 
@@ -154,10 +178,32 @@ Examples of runtime values that must be configurable:
 - Secrets, passwords, tokens, keys, bootstrap credentials, and authentication settings.
 - Environment-dependent file paths, feature switches, timeouts, limits, and cloud deployment settings.
 
+Directory paths follow the Stats root-resolution convention:
+
+- `config/stats.paths.json` is the central logical path map for the overall Stats application.
+- `STATS_APP_ROOT` supplies the physical runtime root for the current environment.
+- Local development, Docker, and cloud deployments may use different physical roots while preserving the same logical project paths.
+- Modules must resolve environment-dependent paths from configuration or a storage provider instead of assuming `C:\000_Capstone`, `/app`, or another machine-specific root.
+- Durable uploads, OCR outputs, workflow artefacts, and future evidence exports must be able to move from `STATS_STORAGE_PROVIDER=LocalFileSystem` to a cloud provider such as Azure Blob Storage without rewriting module business logic.
+
 Project configuration may include committed safe local defaults, examples, and templates. Real secrets and developer-specific overrides must be excluded from source control and supplied through ignored local config, environment variables, or managed secret providers.
 
 Each module or app spec must name its configuration sample and the runtime values it owns. Consumers must be able to change environment-dependent targets without editing source code.
+
+If a new setting changes by developer machine, container, cloud environment, secret rotation, deployment target, port conflict, or test fixture location, the owning module must add it to the configuration surface before implementation depends on it.
 <!-- M0 Foundation End -->
+
+## Logging Standard
+
+The whole Stats project must follow the central logging contract:
+
+```text
+config/stats.logging.json
+```
+
+Modules may keep module-local logging setup code, but log behavior must be governed centrally. This includes log level, format, stdout/stderr destination, correlation or request context, and redaction behavior.
+
+Logs must not expose passwords, tokens, secret keys, database connection strings, raw OCR text, account numbers, card numbers, or personal identifiers. Container logs must be collectable through stdout/stderr so Docker, CI, and later Azure logging can capture them without file scraping.
 
 ## Module Specification Convention
 
@@ -172,10 +218,13 @@ Each module spec must identify:
 <!-- M0 Foundation Start -->
 <!-- Requires each later module spec to name its runtime configuration surface. -->
 - Config files, safe examples, override paths, and runtime values that must be changed without source edits.
+- Logging configuration and redaction behavior, aligned to `config/stats.logging.json`.
 <!-- M0 Foundation End -->
 - Automated tests, manual checks, evidence artefacts, and acceptance criteria.
 - Real-data test inputs, configuration variables, privacy constraints, and evidence expectations when realistic local datasets are required.
 - Deferred items for later modules.
+
+Each module spec must also identify the architectural decisions it depends on and must be updated before those decisions are implemented. Later code reviews, tests, and evidence should verify the implementation against the spec rather than treating the implementation as the authority.
 
 For reusable modules, the starting contract should be derived from `docs/building-block-module-io-map.md` and refined only inside the owning module spec.
 
@@ -291,20 +340,13 @@ M0 verification is primarily project-convention verification.
 - Architecture documentation identifies the building-block module boundaries.
 - Project rules require environment-dependent runtime values to be configurable without source-code edits.
 - A later module can start from a spec, contract, acceptance criteria, and evidence plan without inventing a new process.
+- A later module can treat its current spec as the build authority and update that spec before changing implementation direction.
 - Evidence rules are demonstrated by at least one module evidence set.
 - Ignore rules prevent caches, secrets, and obvious local-only outputs from being committed.
 
-### Supporting Demonstration
-
-Earlier Foundation and regression evidence may exist outside the current root `tests/` convention as project history. New or updated test artefacts must use the root `tests/` tree.
-
-Historical example:
-
-```text
-stats/stats-ingestion-service/tests/results/
-```
-
-That demonstration is supporting M0 evidence. It does not redefine M0 as a FastAPI service module.
+<!-- M13 - Containerization Start -->
+Current official M0 acceptance evidence must come from the container-first module runner. Host-side evidence can be used only as diagnostic context after M13.
+<!-- M13 End -->
 
 ## Runtime and Dependencies
 
@@ -315,7 +357,9 @@ M0 itself does not require one application runtime. It governs a repository that
 - PostgreSQL or other module-specific dependencies defined by later specs.
 - Container and cloud tooling when those project modules are reached.
 
-Each later module spec must declare its own run command, test command, configuration sample, and dependency assumptions.
+<!-- M13 - Containerization Start -->
+Each later module spec must declare its own runtime command, test command, configuration sample, and dependency assumptions. From M13 onward, official runtime and test evidence must identify the container execution path.
+<!-- M13 End -->
 
 ## Acceptance Criteria
 
@@ -324,13 +368,14 @@ M0 is complete when:
 - The building-block architecture direction is documented and used as the boundary for later module work.
 - Module order distinguishes Project Foundation, reusable standalone modules, Stats Web encompassing work, Stats Data and Persistence, integration, infrastructure, and evaluation evidence.
 - Module spec, contract, file inventory, tagging, GitHub, and evidence conventions are documented.
+- The spec-first build rule is documented so implementation follows accepted architecture decisions rather than redefining scope ad hoc.
 - Runtime configuration rules prevent environment-dependent values and secrets from being hardcoded into source.
+- Logging rules centralize log level, format, redaction, and container/cloud collection behavior.
 - Later module specs can define their own owner folders, contracts, tests, and evidence without treating a single backend service as the entire application.
 - GitHub stores the capstone repository history and meaningful project artefacts.
 - At least one module evidence package demonstrates the required test-result, raw-output, checklist, screenshot-index, and cropped actual screenshot pattern.
 
 ## Implementation Notes
 
-- Earlier FastAPI foundation work remains useful as implementation history and supporting evidence, but M0 ownership is now project-level foundation.
 - New feature behavior should be specified under the owning building-block module rather than appended to M0.
 - Use `docs/building-block-module-plan.md` as the architecture boundary before starting each later module chat.

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "description": "Central logging configuration contract for the Stats application. Modules may implement logging locally, but behavior must follow this registry.",
+  "environmentVariables": {
+    "LOG_LEVEL": {
+      "purpose": "Minimum application log level.",
+      "default": "INFO",
+      "allowedValues": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+      "secret": false
+    },
+    "LOG_FORMAT": {
+      "purpose": "Log output format.",
+      "default": "json",
+      "allowedValues": ["json", "plain"],
+      "secret": false
+    },
+    "LOG_INCLUDE_CORRELATION_ID": {
+      "purpose": "Whether logs should include request/correlation identifiers when available.",
+      "default": "true",
+      "secret": false
+    },
+    "LOG_REDACT_SENSITIVE_VALUES": {
+      "purpose": "Whether known sensitive values must be redacted before logging.",
+      "default": "true",
+      "secret": false
+    },
+    "LOG_DESTINATION": {
+      "purpose": "Primary runtime log destination.",
+      "default": "stdout",
+      "allowedValues": ["stdout"],
+      "secret": false
+    }
+  },
+  "requiredFields": [
+    "timestamp",
+    "level",
+    "service",
+    "module",
+    "message"
+  ],
+  "recommendedFields": [
+    "correlation_id",
+    "request_id",
+    "route",
+    "method",
+    "status_code",
+    "duration_ms"
+  ],
+  "redaction": {
+    "neverLogRawValuesFor": [
+      "passwords",
+      "tokens",
+      "secret keys",
+      "database connection strings",
+      "raw OCR text",
+      "account numbers",
+      "card numbers",
+      "personal identifiers"
+    ],
+    "evidenceRule": "Evidence may include redacted summaries and status metadata, not raw sensitive payloads."
+  },
+  "containerRule": "All containerized services write logs to stdout so Docker, CI, and later Azure logging can collect them without file scraping.",
+  "moduleRule": "Module-local logging_config.py or equivalent setup is allowed, but it must consume the central logging variables and honor the redaction and stdout rules."
+}

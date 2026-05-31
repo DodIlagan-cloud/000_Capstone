@@ -7,6 +7,9 @@ from typing import Any
 
 
 def repo_root(script_file: str | Path) -> Path:
+    configured_root = os.environ.get("STATS_APP_ROOT")
+    if configured_root:
+        return Path(configured_root).resolve()
     return Path(script_file).resolve().parents[3]
 
 
@@ -24,6 +27,15 @@ def load_settings(script_file: str | Path) -> dict[str, Any]:
     root = repo_root(script_file)
     config_dir = root / "tests/scripts" / "config"
     settings = json.loads((config_dir / "test-script-settings.json").read_text(encoding="utf-8"))
+    path_config = settings.setdefault("pathConfig", {})
+    stats_runtime_config = root / path_config.get("overallStatsRuntimeConfig", "config/stats.runtime.json")
+    if stats_runtime_config.exists():
+        settings["statsRuntime"] = json.loads(stats_runtime_config.read_text(encoding="utf-8"))
+
+    stats_paths_config = root / path_config.get("overallStatsPathConfig", "config/stats.paths.json")
+    if stats_paths_config.exists():
+        settings["statsPaths"] = json.loads(stats_paths_config.read_text(encoding="utf-8"))
+
     local_settings_path = config_dir / "test-script-settings.local.json"
     if local_settings_path.exists():
         settings = _merge(settings, json.loads(local_settings_path.read_text(encoding="utf-8")))

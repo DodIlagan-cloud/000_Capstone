@@ -211,7 +211,7 @@ M2 must preserve these M1 consumer behaviors:
 
 ## Manual Upload Shell Boundary
 
-M2 introduces the visual upload-documents action page, but the executable upload workflow remains deferred until the relevant modules are implemented.
+M2 introduced the visual upload-documents action page as a shell boundary. After M3/M4/M5/M7/M8, that same page may execute the document-processing checkpoint by calling the owning module APIs. M2 still owns only the Stats Web presentation, route guard, configuration, and orchestration surface; reusable validation, ingestion, parsing, extraction, and data-validation rules remain in their modules.
 
 The M2 upload-documents shell may own:
 
@@ -219,8 +219,8 @@ The M2 upload-documents shell may own:
 - File picker UI.
 - Drag-and-drop visual state.
 - Static upload guidance text that does not encode validation rules.
-- Disabled or stubbed submit state when ingestion APIs are not configured.
-- Controlled empty state showing that ingestion is not connected yet.
+- Controlled unavailable state when the configured module APIs are not reachable.
+- User-facing workflow checkpoint output returned by later modules.
 
 M2 must not own:
 
@@ -386,10 +386,14 @@ M2 must follow the M0 runtime configuration standard. Runtime values must be sup
 | `StatsWeb:Azure:Environment` | `local` | Environment label such as `local`, `dev`, `test`, or `prod`. |
 | `StatsWeb:Azure:UseManagedIdentity` | `false` locally | Enables Azure managed identity usage in deployed environments when implemented. |
 | `StatsWeb:Azure:KeyVaultUri` | empty locally | Future Azure Key Vault URI for secrets or protected settings. |
-| `StatsWeb:LocalOrchestration:Enabled` | `true` locally | Enables the shell to health-check and start configured sibling APIs during local runs so Stats behaves as one app. |
-| `StatsWeb:LocalOrchestration:StartMissingServices` | `true` locally | Starts configured local services when their health endpoint is unavailable. |
-| `StatsWeb:LocalOrchestration:HealthCheckTimeoutSeconds` | `2` | Timeout for local sibling-service health checks. |
-| `StatsWeb:LocalOrchestration:Services` | Identity and File Validation local APIs | Local-only process definitions for module APIs owned by the shell runtime during development/evidence runs. |
+| `StatsWeb:LocalOrchestration:Enabled` | `false` | Historical local-process startup is disabled by default after M13. |
+| `StatsWeb:LocalOrchestration:StartMissingServices` | `false` | Stats Web must not start host-side module processes for official runtime or evidence runs. |
+| `StatsWeb:LocalOrchestration:HealthCheckTimeoutSeconds` | `2` | Diagnostic-only local orchestration timeout outside official evidence. |
+| `StatsWeb:LocalOrchestration:Services` | `[]` | No host-side process definitions are configured for the official runtime path. |
+
+<!-- M13 - Containerization Start -->
+M13 update: the `StatsWeb:LocalOrchestration:*` defaults above intentionally disable host-side sibling process startup for official runtime and evidence runs.
+<!-- M13 End -->
 
 Environment variables should be able to override these values through the ASP.NET Core configuration pipeline. `STATS_API_BASE_URL` may remain supported for the current M1 identity API target.
 
@@ -418,55 +422,18 @@ Examples that must remain configurable:
 | Unauthenticated | User is returned to `/Login` because no valid browser session exists. |
 | Forbidden | User is signed in but lacks the required role for the attempted page/action. |
 | Identity API unavailable | Shell shows a controlled service-unavailable message and does not expose raw exception details. |
-| Deferred feature | Shell route is visible but processing is not connected until the owning module is implemented. |
+| Deferred feature | Shell route is visible but the owning later module is not implemented or not configured. |
 | Intake unavailable | Upload validation returns a controlled message when the merged M3/M4 intake API is not configured or unavailable. |
 
 ## Runtime Requirements
 
-### Local Run Command
+<!-- M13 - Containerization Start -->
+### Container Runtime Boundary
 
-Run Stats Web from:
+M2 official runtime verification and evidence run through the Docker stack at `http://127.0.0.1:8080`. Host-started `dotnet run`, host-started module APIs, and local orchestration checks are diagnostics only and must not be accepted as module completion, regression, browser evidence, or capstone evidence.
 
-```text
-apps/stats-web
-```
-
-Command:
-
-```powershell
-dotnet run --urls "http://127.0.0.1:5013"
-```
-
-When `StatsWeb:LocalOrchestration:Enabled` is true and `StatsWeb:Azure:Environment` is `local` or `development`, Stats Web must health-check configured local sibling services and start any missing service process before serving the shell. This allows the local developer/evidence experience to behave as one Stats app while keeping module code in separate directories.
-
-Local orchestration currently includes:
-
-- M1 Identity Access API at `http://127.0.0.1:8013`.
-- M3/M4 File Validation and Ingestion API at `http://127.0.0.1:8014` when the merged intake module is present.
-
-In Azure or other deployed environments, local process orchestration must be disabled. Stats Web should call deployed module endpoints through configured service URLs, Azure service discovery, or gateway routing instead of starting sibling processes.
-
-### Local Build Command
-
-```powershell
-dotnet build
-```
-
-### Current Identity API Runtime
-
-Run the current M1 API from:
-
-```text
-modules/identity-access-module
-```
-
-Command:
-
-```powershell
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8013
-```
-
-Manual API startup remains valid for focused module debugging. During ordinary local Stats Web startup, the shell should start this API automatically if the health check fails and local orchestration is enabled.
+Stats Web must call sibling module APIs through configured downstream targets. In the official single-container runtime, browser-originating calls should go through the Stats Web `/api/v1/...` proxy on `http://127.0.0.1:8080`, while the server-side proxy forwards to container-internal localhost module ports. Deployed environments may use service URLs, Azure service discovery, or gateway routing.
+<!-- M13 End -->
 
 ### Dependencies
 
@@ -474,7 +441,7 @@ M2 currently depends on:
 
 - .NET SDK compatible with `apps/stats-web/stats.Web.csproj`.
 - ASP.NET Core Razor Pages.
-- A reachable M1 Identity Access API for authentication flows, either already running or started through local orchestration.
+- A reachable M1 Identity Access API for authentication flows through the container runtime or an explicitly documented non-acceptance diagnostic setup.
 - Browser JavaScript for session state and API calls.
 - Existing static assets in `apps/stats-web/wwwroot/`.
 
@@ -498,7 +465,7 @@ Each completed module adds to the Stats project regression baseline.
 | Check | Level | Evidence |
 | --- | --- | --- |
 | Stats Web builds successfully | Container | Container build or container-executed build output. |
-| Stats Web starts with configured API base URL | Direct/manual | Terminal output and browser screenshot. |
+| Stats Web starts with configured API base URL | Container/browser | Container output and browser screenshot. |
 | `/Login` renders and submits credentials to M1 | Browser integration | Browser screenshot plus capture output. |
 | Required password setup still blocks ordinary shell access | Browser integration | Browser screenshot and checklist result. |
 | Authenticated home shell displays current-user context | Browser integration | Browser screenshot. |
@@ -506,7 +473,7 @@ Each completed module adds to the Stats project regression baseline.
 | `/Users` is visible/usable for admin users | Browser integration | Browser screenshot and M1 API evidence. |
 | `/Users` is hidden or blocked for standard users | Browser integration | Browser screenshot/checklist. |
 | Authenticated home page is the dashboard shell and shows upload/email setup actions | Browser/manual | Browser screenshot and checklist. |
-| Upload-documents action page is authenticated and shows controlled deferred state | Browser/manual | Browser screenshot and checklist. |
+| Upload-documents action page is authenticated and shows either the current module-backed checkpoint flow or a controlled unavailable state | Browser/manual | Browser screenshot and checklist. |
 | Email-ingestion setup action page is authenticated and shows controlled deferred state | Browser/manual | Browser screenshot and checklist. |
 | Report routes are authenticated and show controlled deferred state | Browser/manual | Browser screenshot and checklist. |
 | Mobile width layout has no overlapping controls or unreadable text | Browser/manual | Mobile-width screenshot. |
@@ -543,7 +510,7 @@ M2 is complete when:
 - Standard users cannot access administrator-only user-management functions.
 - Admin-only navigation is visible only when the M1 current-user role allows it.
 - The shell provides a dashboard-first authenticated home page with upload-documents and email-ingestion setup action buttons.
-- Upload, email setup, dashboard, and report areas do not pretend to process real documents, retrieve mailbox data, or calculate financial data before their owning modules exist.
+- Upload, email setup, dashboard, and report areas do not pretend to process real documents, retrieve mailbox data, or calculate financial data before their owning modules exist. Where later modules exist, the Upload page must show their user-facing checkpoint output without absorbing their reusable rules.
 - Deferred downstream features show controlled empty/unavailable states.
 - The app remains usable on desktop and mobile widths.
 - M2 evidence includes build output, browser evidence, manual checklist, and M0/M1 regression evidence.
@@ -569,6 +536,6 @@ M2 is complete when:
 - Keep browser scripts focused on API calls, session state, access guards, and UI state.
 - Keep product styling in `apps/stats-web/wwwroot/css/` and avoid introducing unrelated frontend frameworks unless the project chooses one explicitly.
 - Preserve the current M1 API contract while the shell evolves.
-- Use clear empty states for deferred pages so assessment reviewers can distinguish completed shell work from later processing modules.
+- Use clear empty states for deferred pages and clear checkpoint states for module-backed upload processing so assessment reviewers can distinguish shell behavior from later processing modules.
 
 <!-- M2 End -->

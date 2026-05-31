@@ -54,7 +54,7 @@ docker compose --file infrastructure\compose\stats-runtime.compose.yml `
 # Entry point
 # Stats Web:  http://127.0.0.1:8080
 # stats-db:   PostgreSQL 16 (internal to stats-runtime)
-# stats-runtime container: Stats Web + M1 + M3/M4 + M5 + Tesseract OCR
+# stats-runtime container: Stats Web + M1 + M3/M4 + M5 + M7 + M8 + Tesseract OCR
 ```
 
 Prerequisites:
@@ -70,14 +70,14 @@ All acceptance and evidence scripts use `tests\\input\\` as the required fixture
 
 | Folder | Module | Purpose |
 | --- | --- | --- |
-| `regression/` | M1-M5 | **Primary Docker regression evidence runner** (start here for capstone evidence) |
+| `regression/` | M1-M8 | **Primary Docker regression evidence runner** (start here for capstone evidence) |
 | `M13-Containerization/` | M13 | M13-specific Docker acceptance evidence (OCR, container health) |
 | `M0-ArchitectureFoundation/` | M0 | Foundation architecture verification helpers |
 | `M1-IdentityAccessManagement/` | M1 | Historical/development helpers; official evidence must use Docker regression |
 | `M2-StatsWebShell/` | M2 | Historical/development helpers; official evidence must use Docker regression |
 | `M3-M4-FileValidationIngestion/` | M3/M4 | Historical/development helpers; official evidence must use Docker regression |
 | `M5-DocumentParsing/` | M5 | Historical/development helpers; official evidence must use Docker regression |
-| `cross-module-regression/` | M1-M5 | Cross-module regression helpers |
+| `cross-module-regression/` | M1-M8 | Historical helper wrapper; official cross-module regression uses Docker |
 | `common/` | All | Shared utilities used by evidence scripts |
 | `config/` | All | Settings JSON (shared and local-override) |
 
@@ -97,9 +97,11 @@ This script:
 4. Validates every `tests/input/` fixture through M3 File Validation
 5. Ingests every validated fixture through M4 File Ingestion
 6. Parses every fixture through M5 Document Parsing with Tesseract OCR
-7. Runs a cross-module validate -> ingest -> parse pipeline per fixture
-8. Writes per-module JSON evidence to `tests/results/DockerRegression/M1/` through `M5/`
-9. Writes a dated summary to `tests/results/DockerRegression/docker-regression-summary-YYYY-MM-DD.md`
+7. Extracts transaction candidates through M7 Transaction Extraction
+8. Validates normalized/checkable transaction records through M8 Data Validation
+9. Runs a cross-module validate -> ingest -> parse -> extract -> validate pipeline per fixture
+10. Writes per-module JSON evidence to `tests/results/DockerRegression/M1/` through `M8/`
+11. Writes a dated summary to `tests/results/DockerRegression/docker-regression-summary-YYYY-MM-DD.md`
 
 ## M13-Specific Acceptance Runner
 
@@ -119,18 +121,22 @@ Runs module and contract checks inside the Stats runtime container. Static host 
 
 ## Configuration
 
-Directory paths are configured in `tests/scripts/config/test-script-settings.json`. Machine-specific overrides (e.g. alternate test data folders) belong in an uncommitted `tests/scripts/config/test-script-settings.local.json`. The `docker` section of settings.json defines the canonical Docker acceptance URLs and folder paths.
+Project directory paths are defined first in `config/stats.paths.json` as logical paths. Evidence scripts resolve those logical paths from `STATS_APP_ROOT`, which is the physical root for the current environment.
+
+Test-script-specific settings remain in `tests/scripts/config/test-script-settings.json`. Machine-specific overrides (e.g. alternate test data folders) belong in an uncommitted `tests/scripts/config/test-script-settings.local.json`. The `docker` section of settings.json defines the canonical Docker acceptance URLs and folder paths for container evidence.
 
 ## Evidence Output
 
 | Folder | Contents |
 | --- | --- |
-| `tests/results/DockerRegression/` | Full M1-M5 Docker regression evidence (primary) |
+| `tests/results/DockerRegression/` | Full M1-M8 Docker regression evidence (primary) |
 | `tests/results/DockerRegression/M1/` | M1 login and user listing JSON |
 | `tests/results/DockerRegression/M2/` | M2 Stats Web HTTP status JSON |
 | `tests/results/DockerRegression/M3/` | M3 file validation JSON per fixture |
 | `tests/results/DockerRegression/M4/` | M4 ingestion record JSON per fixture |
 | `tests/results/DockerRegression/M5/` | M5 parse result JSON per fixture |
+| `tests/results/DockerRegression/M7/` | M7 transaction extraction JSON per fixture |
+| `tests/results/DockerRegression/M8/` | M8 data validation JSON per fixture |
 | `tests/results/DockerRegression/cross-module/` | Cross-module pipeline summary JSON per fixture |
 | `tests/results/M13-Containerization/` | M13 acceptance evidence |
 

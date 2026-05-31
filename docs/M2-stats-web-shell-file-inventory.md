@@ -13,7 +13,7 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `docs/M2-stats-web-shell-spec.md` | Created | Defines the Module 2 specification, including the Stats Web Shell boundary, goals, non-goals, M1 consumer requirements, deferred upload/dashboard boundaries, configuration, tests, evidence, and acceptance criteria. |
+| `docs/M2-stats-web-shell-spec.md` | Created/Modified | Defines the Module 2 specification, including the Stats Web Shell boundary, goals, non-goals, M1 consumer requirements, later-module upload checkpoint boundary, configuration, tests, evidence, and acceptance criteria. |
 | `docs/M2-stats-web-shell-file-inventory.md` | Created | Documents the M2 files created or modified and explains the purpose of each change. |
 
 ## Application Configuration and Startup
@@ -30,7 +30,7 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 | `apps/stats-web/Pages/Index.cshtml` | Modified | Updates the authenticated landing page into the dashboard-first Stats workspace shell with upload-documents and email-ingestion setup action buttons. |
 | `apps/stats-web/Pages/Index.cshtml.cs` | Modified | Supplies shell feature flags to the authenticated landing page. |
 | `apps/stats-web/Pages/Users.cshtml` | Modified | Adds shell navigation links to the administrator user-management page while preserving M1 behavior. |
-| `apps/stats-web/Pages/Upload.cshtml` | Created | Adds the authenticated upload-documents action page with disabled/deferred ingestion submission state. |
+| `apps/stats-web/Pages/Upload.cshtml` | Created/Modified | Adds the authenticated upload-documents action page and later-module checkpoint surface for M3/M4/M5/M7/M8 results. |
 | `apps/stats-web/Pages/Upload.cshtml.cs` | Created | Supplies configured API settings to the upload-documents action page. |
 | `apps/stats-web/Pages/EmailSetup.cshtml` | Created | Adds the authenticated email-ingestion setup action page with a controlled deferred state. |
 | `apps/stats-web/Pages/EmailSetup.cshtml.cs` | Created | Supplies configured API settings to the email-ingestion setup page. |
@@ -55,7 +55,8 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 ## Notes
 
 - M2 keeps authentication and authorization behavior delegated to the M1 Identity Access API.
-- Dashboard, upload documents, email setup, document tracking, and reports are shell surfaces only; OCR, workflow continuation, mailbox retrieval, and persistence remain deferred to their owning later modules.
+- Dashboard, email setup, document tracking, and reports are shell surfaces only until their owning modules exist. Upload documents is now a shell-owned presentation/orchestration surface that can call M3/M4/M5/M7/M8 while keeping reusable rules in those backend modules.
+- Official M2 acceptance evidence after M13 must come from the Docker stack and `stats-runtime`; older host-side build/browser evidence remains historical.
 - Module 2 code blocks were tagged using the `M2 - Stats Web Shell Start` and `M2 End` convention.
 
 <!-- M2 End -->

@@ -441,7 +441,7 @@ tbody tr:last-child td {
 .upload-shell-form {
   display: grid;
   gap: 0.7rem;
-  max-width: 32rem;
+  max-width: 58rem;
 }
 
 .upload-shell-form input:disabled,
@@ -533,6 +533,11 @@ tbody tr:last-child td {
   margin: 0 0 0.6rem;
 }
 
+.validation-result h4 {
+  font-size: 0.98rem;
+  margin: 0;
+}
+
 .validation-result dl {
   display: grid;
   gap: 0.45rem;
@@ -585,6 +590,87 @@ tbody tr:last-child td {
 }
 /* M5/M6 End */
 
+/* M8 - Data Validation Module Start */
+/* Presents validation output as a user-facing pre-save transaction checkpoint. */
+.processing-steps {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: 0 0 0.8rem;
+  padding: 0;
+}
+
+.processing-steps li {
+  background: rgba(89, 194, 173, 0.12);
+  border: 1px solid rgba(89, 194, 173, 0.3);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.processing-steps li::before {
+  color: var(--accent-strong);
+  content: "✓";
+  font-weight: 800;
+  margin-right: 0.35rem;
+}
+
+.result-metrics {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 0.8rem;
+}
+
+.result-metrics div {
+  background: rgba(7, 17, 22, 0.28);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.2rem;
+  min-height: 5rem;
+  padding: 0.75rem;
+}
+
+.result-metrics strong {
+  color: var(--text);
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.result-metrics span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.review-callout {
+  background: rgba(241, 193, 110, 0.12);
+  border: 1px solid rgba(241, 193, 110, 0.32);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+  padding: 0.8rem;
+}
+
+.transaction-preview {
+  margin-bottom: 0.8rem;
+}
+
+.transaction-preview table {
+  min-width: 42rem;
+}
+
+.document-summary {
+  background: rgba(7, 17, 22, 0.24);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+/* M8 End */
+
 .deferred-state[data-tone="success"] {
   color: var(--accent-strong);
 }
@@ -626,11 +712,23 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  .processing-steps,
+  .result-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .shell-nav a,
   .header-actions a,
   .header-actions button {
     flex: 1 1 9rem;
   }
   /* M2 End */
+}
+
+@media (max-width: 560px) {
+  .processing-steps,
+  .result-metrics {
+    grid-template-columns: 1fr;
+  }
 }
 /* M1 End */

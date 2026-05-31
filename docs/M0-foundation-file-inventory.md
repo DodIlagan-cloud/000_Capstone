@@ -6,17 +6,17 @@
 
 This inventory records the M0 Project Foundation files used to establish the building-block architecture boundary for Stats.
 
-M0 is no longer treated as a FastAPI service foundation module. Earlier service code and evidence under `stats/stats-ingestion-service/` remain project history and supporting evidence, while this pass makes the project-level repository conventions visible for later modules.
+M0 is no longer treated as a FastAPI service foundation module. Earlier service code and evidence references under `stats/stats-ingestion-service/` remain project history and supporting evidence when present, while the active architecture uses `apps/`, `modules/`, `contracts/`, `infrastructure/`, `docs/`, and root `tests/`.
 
 ## Architecture and Entry Points
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `README.md` | Created | Introduces the Stats building-block repository layout, foundation documents, and transitional location of existing implementation work. |
+| `README.md` | Created | Introduces the Stats building-block repository layout, foundation documents, and active architecture folders. |
 | `docs/M0-foundation-module-spec.md` | Modified | Reframes M0 as Project Foundation and aligns the repository target with the building-block module plan. |
 | `docs/building-block-module-plan.md` | Created | Defines build order, module boundaries, architecture direction, BA alignment, and the target repository segregation. |
 | `docs/building-block-module-io-map.md` | Created | Defines starting input/output handoffs and reusable contract families for standalone modules. |
-| `stats/README.md` | Created | Marks the existing `stats/` code as a transitional implementation surface until later module migrations are specified. |
+| Historical `stats/` references | Historical | Earlier mixed-service references are retained only as project history when present; active implementation work belongs in `apps/` or `modules/`. |
 
 ## Repository Boundary Scaffolding
 
@@ -43,9 +43,9 @@ M0 is no longer treated as a FastAPI service foundation module. Earlier service 
 | File | Change Type | Description |
 | --- | --- | --- |
 | `README.md` | Modified | Adds the project-wide rule that runtime values belong in config files or supported environment/secret providers. |
-| `docs/M0-foundation-module-spec.md` | Modified | Defines the runtime configuration standard for reusable modules, Stats apps, transitional code, tools, and infrastructure. |
-| `docs/building-block-module-plan.md` | Modified | Adds config-driven runtime values to architecture direction and per-module standards. |
-| `docs/specs/module-spec-template.md` | Modified | Prompts later module specs to name owned runtime values, config samples, override paths, and providers. |
+| `docs/M0-foundation-module-spec.md` | Modified | Defines the runtime configuration standard and the spec-first build rule for reusable modules, Stats apps, transitional code, tools, and infrastructure. |
+| `docs/building-block-module-plan.md` | Modified | Adds config-driven runtime values and the spec-first implementation authority to architecture direction and per-module standards. |
+| `docs/specs/module-spec-template.md` | Modified | Prompts later module specs to name owned runtime values, config samples, override paths, providers, and their spec-first build authority. |
 | `apps/README.md` | Modified | Applies the config-driven runtime rule to Stats-specific applications. |
 | `modules/README.md` | Modified | Applies the config-driven runtime rule to reusable building-block modules. |
 <!-- M0 Foundation End -->
@@ -56,7 +56,7 @@ M0 is no longer treated as a FastAPI service foundation module. Earlier service 
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `.gitignore` | Modified | Keeps generated Python, local runtime, IDE, .NET build, and local document-render output out of version control. |
+| `.gitignore` | Modified | Keeps generated Python, local runtime, IDE, .NET build, local container env files, and local document-render output out of version control. |
 | `docs/M0-foundation-file-inventory.md` | Modified | Replaces the older service-shaped inventory with this project-foundation architecture inventory. |
 
 ## Existing M0 Supporting Artefacts
@@ -69,8 +69,8 @@ These tracked artefacts still demonstrate conventions established earlier in M0:
 | Evidence workflow skill | `skills/module-test-evidence/` | Guides actual Windows screenshot and raw-output evidence capture. |
 | File inventory skill | `skills/module-file-inventory/` | Supports later module inventories. |
 | File tagging skill | `skills/module-file-tagging/` | Supports requested module comments and traceability tags. |
-| Initial M0 evidence | `stats/stats-ingestion-service/tests/results/M0-FoundationInitial/` | Demonstrates test result summary, raw output, checklist, screenshot index, and actual screenshots. |
-| M0 tagging retest evidence | `stats/stats-ingestion-service/tests/results/M0-TaggingAdded/` | Demonstrates retesting after tagged executable files changed. |
+| Initial M0 evidence | Historical `stats/stats-ingestion-service/tests/results/M0-FoundationInitial/` reference | Demonstrates the earlier evidence pattern as project history only. |
+| M0 tagging retest evidence | Historical `stats/stats-ingestion-service/tests/results/M0-TaggingAdded/` reference | Demonstrates earlier retesting after tagged executable files changed as project history only. |
 
 ## Updated M0 Architecture Test Evidence
 
@@ -86,6 +86,16 @@ These tracked artefacts still demonstrate conventions established earlier in M0:
 
 ## Verification Notes
 
+<!-- M13 - Containerization Start -->
+Official M0 architecture-foundation verification now runs through the M13 container-first module runner:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_module_unit_tests.ps1
+```
+
+The M0 check is included in that runner and executes inside `stats-runtime`. Historical host-side M0 evidence remains project history only.
+<!-- M13 End -->
+
 This M0 architecture execution should be checked by:
 
 1. Confirming the target top-level boundaries are visible in the repository.
@@ -94,4 +104,4 @@ This M0 architecture execution should be checked by:
 4. Confirming the building-block plan and I/O map remain the architecture reference.
 5. Confirming ignored caches, local runtime files, and build outputs do not appear as Git changes.
 
-Migrations of active implementation code from `stats/` into `apps/` or `modules/` should be planned in the owning later module spec so history and cross-module boundaries remain reviewable.
+Any future migration of active implementation code into `apps/` or `modules/` should be planned in the owning later module spec so history and cross-module boundaries remain reviewable.

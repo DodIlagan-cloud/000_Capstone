@@ -20,9 +20,9 @@ This document lists the files created and modified for the merged **M3 File Vali
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `modules/file-validation-module/README.md` | Created/Modified | Documents local runtime, tests, configuration, validation behavior, and ingestion behavior. |
+| `modules/file-validation-module/README.md` | Created/Modified | Documents the M13 container-first runtime/test boundary, configuration, validation behavior, and ingestion behavior. |
 | `modules/file-validation-module/requirements.txt` | Created | Lists FastAPI, multipart upload, config, and test dependencies. |
-| `modules/file-validation-module/config/defaults.env` | Created/Modified | Provides safe committed defaults for local validation policy and ingestion storage/runtime settings. |
+| `modules/file-validation-module/config/defaults.env` | Created/Modified | Provides safe committed defaults for validation policy and ingestion storage/runtime settings. |
 | `modules/file-validation-module/.env.example` | Created/Modified | Provides local override examples. |
 | `modules/file-validation-module/app/main.py` | Created/Modified | Starts the merged File Validation and Ingestion API. |
 | `modules/file-validation-module/app/config.py` | Created/Modified | Loads runtime settings from defaults, optional local overrides, and environment variables. |
@@ -39,24 +39,24 @@ This document lists the files created and modified for the merged **M3 File Vali
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `modules/file-validation-module/tests/conftest.py` | Created/Modified | Provides the FastAPI test client fixture and resets ingestion test state. |
-| `modules/file-validation-module/tests/test_foundation.py` | Created/Modified | Verifies app import, health/root endpoints, and settings defaults. |
-| `modules/file-validation-module/tests/test_validation_service.py` | Created | Verifies core validation behavior for accepted and rejected files. |
-| `modules/file-validation-module/tests/test_validation_api.py` | Created | Verifies the multipart validation API and request policy override behavior. |
-| `modules/file-validation-module/tests/test_ingestion_api.py` | Created | Verifies ingestion creation, status lookup, rejected validation handling, and idempotent duplicate behavior. |
+| `tests/unit/file_validation_module/conftest.py` | Created/Modified | Provides the active FastAPI test client fixture and resets ingestion test state for container-executed tests. |
+| `tests/unit/file_validation_module/test_foundation.py` | Created/Modified | Verifies app import, health/root endpoints, and settings defaults. |
+| `tests/unit/file_validation_module/test_validation_service.py` | Created | Verifies core validation behavior for accepted and rejected files. |
+| `tests/unit/file_validation_module/test_validation_api.py` | Created | Verifies the multipart validation API and request policy override behavior. |
+| `tests/unit/file_validation_module/test_ingestion_api.py` | Created | Verifies ingestion creation, status lookup, rejected validation handling, and idempotent duplicate behavior. |
 
 ## Stats Web Integration Surface
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `apps/stats-web/appsettings.json` | Modified | Adds the configured File Validation and Ingestion API base URLs for local validation and intake. |
+| `apps/stats-web/appsettings.json` | Modified | Adds the configured File Validation and Ingestion API base URLs for container-first validation and intake. |
 | `apps/stats-web/Program.cs` | Modified | Adds `FileValidationBaseUrl` to the Stats Web downstream configuration options. |
 | `apps/stats-web/Pages/Upload.cshtml` | Modified | Enables file selection and prepares automatic validation result states without implementing parsing. |
 | `apps/stats-web/Pages/Upload.cshtml.cs` | Modified | Exposes the configured validation API base URL to the upload page. |
 | `apps/stats-web/wwwroot/js/upload.js` | Created | Automatically calls M3 validation when a file is selected and renders accepted/rejected states. |
 | `apps/stats-web/wwwroot/css/access.css` | Modified | Styles selected-file summaries and validation result states. |
 | `apps/stats-data/README.md` | Modified | Documents that accepted intake files live under configured `STORAGE_ROOT` as Stats-owned data. |
-| `tests/integration/test_stats_web_orchestration_config.py` | Modified | Verifies Stats Web uses one merged file intake service for validation and ingestion. |
+| `tests/integration/test_stats_web_orchestration_config.py` | Modified | Verifies Stats Web uses container-first downstream endpoints and keeps host-side process startup disabled by default. |
 
 ## Evidence
 
@@ -73,16 +73,20 @@ This document lists the files created and modified for the merged **M3 File Vali
 
 ## Verification
 
-Run from:
+<!-- M13 - Containerization Start -->
+Official M3/M4 verification runs through the M13 container-first runners:
 
 ```powershell
-C:\000_Capstone\modules\file-validation-module
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_module_unit_tests.ps1
 ```
-
-Command:
 
 ```powershell
-pytest
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_docker_full_regression_evidence.ps1
 ```
+
+Historical host-side `pytest` and Stats Web build evidence from 2026-05-24 is retained only as development history. It is not valid M3/M4 acceptance evidence after M13.
+
+Generated intake content under `apps/stats-data/data/` is runtime state and must remain ignored/untracked. If evidence references saved handoff paths, the evidence should record metadata and paths without promoting copied intake files into version control.
+<!-- M13 End -->
 
 <!-- M3 End -->

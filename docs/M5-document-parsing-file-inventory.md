@@ -19,7 +19,7 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 | `docs/building-block-module-plan.md` | Modified | Aligns the roadmap so M5 is the merged Document Parsing module and former M6 classification is included in M5. |
 | `docs/building-block-module-io-map.md` | Modified | Defines the M5 input/output contract from file intake to transaction processing. |
 | `contracts/extraction/README.md` | Modified | Adds the concrete M5 Document Parsing request/result contract summary. |
-| `.dockerignore` | Modified | Allows approved `tests/input` files into the Stats runtime image so container-first M5 tests can use real project test data. |
+| `.dockerignore` | Modified | Keeps real `tests/input` source files out of the Docker build context; container-first evidence runners copy approved local fixtures into the running container explicitly. |
 
 ## Standalone Module
 
@@ -43,13 +43,13 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `apps/stats-web/appsettings.json` | Modified | Adds the configured Document Parsing API base URL and local orchestration entry. |
-| `apps/stats-web/Program.cs` | Modified | Adds `DocumentParsingBaseUrl` to Stats Web downstream configuration. |
-| `apps/stats-web/Pages/Upload.cshtml` | Modified | Removes the manual parse/send button and displays parse summary plus full M5 JSON output. |
+| `apps/stats-web/appsettings.json` | Modified | Adds configured container-internal downstream API base URLs and keeps host-side local orchestration disabled by default. |
+| `apps/stats-web/Program.cs` | Modified | Adds document parsing, transaction extraction, and data validation downstream configuration. |
+| `apps/stats-web/Pages/Upload.cshtml` | Modified | Displays a user-facing transaction check result after M8 validation while keeping raw M5/M7/M8 details behind developer details. |
 | `apps/stats-web/Pages/Upload.cshtml.cs` | Modified | Exposes the configured parsing API base URL to the upload page. |
-| `apps/stats-web/wwwroot/js/upload.js` | Modified | Runs validate -> ingest -> parse automatically and renders the M5-to-M7 audit JSON plus the full parse response behind a separate developer detail view. |
+| `apps/stats-web/wwwroot/js/upload.js` | Modified | Runs validate -> ingest -> parse -> extract -> validate automatically and renders M8 transaction check results, with raw details hidden behind developer details. |
 | `apps/stats-web/wwwroot/css/access.css` | Modified | Styles parse result and JSON output states. |
-| `tests/integration/test_stats_web_orchestration_config.py` | Modified | Verifies Stats Web knows the M5 local service endpoint. |
+| `tests/integration/test_stats_web_orchestration_config.py` | Modified | Verifies Stats Web uses container-first downstream endpoints and keeps host-side process startup disabled by default. |
 | `modules/file-validation-module/app/routes/ingestions.py` | Created | Restores the File Intake ingestion API surface required by the seamless validate -> ingest -> parse flow. |
 
 ## M13 Runtime Alignment Surface
@@ -100,64 +100,22 @@ Host-side runs are development diagnostics only and must be superseded by contai
 
 ## Verification
 
-Historical host-side diagnostic command:
+Official container-first diagnostic command:
 
 ```powershell
-cd C:\000_Capstone
-$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests/input'
-pytest tests\unit\document_parsing_module
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_module_unit_tests.ps1
 ```
 
-Latest host-side diagnostic result after M7 handoff audit update: **20 passed, 1 cache warning**.
+This runs M5 tests inside `stats-runtime` with the other module suites.
 
-Historical host-side Stats Web orchestration diagnostic:
+Official full regression/evidence command:
 
 ```powershell
-pytest tests\integration\test_stats_web_orchestration_config.py
+powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_docker_full_regression_evidence.ps1
 ```
 
-Result: **4 passed, 1 cache warning**.
+This runs the containerized validate -> ingest -> parse -> extract -> validate flow. Historical host-side M5 diagnostics from earlier development were superseded by the M13 container-first policy and must not be recorded as acceptance evidence.
 
-Historical host-side File Intake diagnostic with approved TestData:
-
-```powershell
-cd C:\000_Capstone
-$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests/input'
-pytest tests\unit\file_validation_module
-```
-
-Result: **17 passed, 1 cache warning**.
-
-Historical host-side Stats Web compile diagnostic:
-
-```powershell
-dotnet build C:\000_Capstone\apps\stats-web\stats.Web.csproj -o C:\000_Capstone\tests\\results\\M5-DocumentParsing-M0-M4\stats-web-build-check-2026-05-28
-```
-
-Result: **build succeeded, 0 warnings, 0 errors**.
-
-Historical host-side app-flow diagnostic:
-
-```powershell
-$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests/input'
-powershell -ExecutionPolicy Bypass -File tests\scripts\M5-DocumentParsing\run_m5_actual_app_flow_evidence.ps1
-```
-
-Result: **validated, ingested, parsed, and displayed full M5 JSON output**.
-
-Official replacement evidence must be generated through `tests\scripts\regression\run_docker_full_regression_evidence.ps1` or `tests\scripts\M13-Containerization\run_docker_acceptance_evidence.ps1`.
-
-Historical host-side M7-aligned OCR quality diagnostic:
-
-```powershell
-cd C:\000_Capstone
-$tmp='C:\000_Capstone\tests\results\pytest-tmp\m5-ocr-quality'
-$env:TMP='C:\000_Capstone\tests\results\pytest-tmp'
-$env:TEMP='C:\000_Capstone\tests\results\pytest-tmp'
-$env:STATS_TESTDATA_DIR='C:\000_Capstone\tests\input'
-pytest tests\unit\document_parsing_module --basetemp $tmp
-```
-
-Result: **18 passed, 1 cache warning**.
+The M5 `m7_handoff` payload remains part of the API/debug contract and evidence checks, but it is not the normal Upload page output for users.
 
 <!-- M5/M6 End -->

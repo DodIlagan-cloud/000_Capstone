@@ -23,6 +23,7 @@ Current implemented module folders:
 - `file-validation-module/` for merged M3 validation and M4 ingestion behavior.
 - `document-parsing-module/` for merged M5 parsing/OCR and retired M6 classification behavior.
 - `transaction-extraction-module/` for M7 transaction and financial field candidate extraction.
+- `data-validation-module/` for M8 transaction cleaning, validation, and duplicate detection.
 
 <!-- M0 Foundation Start -->
 <!-- Applies the project runtime configuration rule to reusable modules. -->

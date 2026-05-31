@@ -9,10 +9,15 @@ Stats will be developed as an integrating product built from reusable modules.
 - A reusable module should not depend on Stats UI code or Stats-specific page flows.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
 - Each module gets its own spec, folder, README, tests, evidence, configuration sample, and container wiring. From M13 onward, official module tests and evidence run through the Stats container.
+- The current module spec is the source of truth for what will be built. Architecture decisions must be recorded in the owning spec before implementation, test, UI, or evidence changes are made.
 
 <!-- M0 Foundation Start -->
 <!-- Defines the project-wide configuration boundary for every later building block. -->
 - Runtime values must be supplied through config files or supported environment/secret providers instead of being hardcoded in source code.
+- `config/stats.runtime.json` is the overall runtime configuration registry for paths, URLs, ports, database settings, secrets, storage providers, OCR settings, service endpoints, test fixtures, and cloud-ready settings.
+- `config/stats.logging.json` is the overall logging registry for log level, format, redaction behavior, correlation/request context, and stdout/stderr collection.
+- Directory paths must resolve from the central logical path map in `config/stats.paths.json` plus the environment-specific `STATS_APP_ROOT`. Local, container, and cloud roots must be interchangeable without source-code edits.
+- Durable document storage must remain behind a configured storage-provider boundary so local filesystem storage can later move to Azure Blob Storage or another cloud provider.
 - Committed configuration must contain only safe defaults or examples; real secrets and local developer overrides stay uncommitted.
 - Testing must be part of the build loop. Each module change must identify its unit, API, integration, E2E/browser, container, and evidence checks before it is treated as complete.
 - Privacy, security, and data governance must be part of the build loop for modules that handle users, files, OCR text, transactions, logs, screenshots, evidence, database records, or runtime secrets.
@@ -58,7 +63,7 @@ Stats will be developed as an integrating product built from reusable modules.
 Every standalone module must provide:
 
 1. A module spec with goals, non-goals, tasks, and acceptance criteria.
-2. A local run command and test command.
+2. Official runtime and test commands. From M13 onward, those commands must execute through the Stats container; host/local commands are diagnostics only.
 3. A clear input/output contract.
 4. Module-local automated tests.
 5. Evidence for its acceptance tests.
@@ -68,10 +73,12 @@ Every standalone module must provide:
 9. Config-driven real-data tests and evidence when a module processes user-like files, records, extracted text, transactions, emails, or stored workflow artefacts.
 10. A build-loop test path that states which unit, API, integration, E2E/browser, container, and evidence checks are required for acceptance.
 11. A privacy/security/data handling note when the module processes sensitive users, files, OCR text, financial values, logs, screenshots, evidence, or secrets.
+12. A spec-first implementation note showing how the module code, tests, UI behavior, and evidence will be checked against the current spec.
+13. Logging behavior aligned to `config/stats.logging.json`, including redaction and container stdout/stderr collection.
 
 <!-- M0 Foundation Start -->
 <!-- Requires modules to keep runtime configuration outside source literals. -->
-9. Config-defined runtime values for environment-dependent URLs, hosts, ports, database targets, secrets, tokens, file paths, feature switches, and cloud resource settings.
+9. Config-defined runtime values for environment-dependent URLs, hosts, ports, database targets, secrets, tokens, file paths, storage providers, feature switches, and cloud resource settings.
 <!-- M0 Foundation End -->
 
 ## Module Map
@@ -193,5 +200,6 @@ M5 merges OCR/text extraction and document classification into one reusable pars
 We are implementing only <module name> as a standalone reusable module/building block for the Stats project.
 Use docs/building-block-module-plan.md as the architecture boundary.
 First create the module spec, tasks, contracts, acceptance criteria, and test plan.
+Treat the approved/current spec as the source of truth for what will be built; update the spec before changing implementation direction.
 Do not add Stats-specific UI or logic unless this module is apps/stats-web.
 ```
