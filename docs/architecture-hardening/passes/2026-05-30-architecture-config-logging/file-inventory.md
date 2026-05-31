@@ -62,6 +62,7 @@ These changes were added after Qodo, Copilot, and Claude reviewed PR #6. They ad
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/claude-review.md` | Added the Claude review record. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/copilot-rereview-2026-05-30.md` | Added the Copilot second-pass review record. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-rereview-2026-05-31.md` | Added the Qodo second-pass review record. |
+| `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/qodo-rereview-runtime-config-2026-05-31.md` | Added the Qodo review record for the Stats Web runtime config/logging implementation. |
 | `docs/architecture-hardening/passes/2026-05-30-architecture-config-logging/reviews/review-triage.md` | Added consolidated triage, merge-readiness decisions, and the next hardening-pass plan. |
 | `config/stats.logging.json` | Added `stderr` to `LOG_DESTINATION.allowedValues` to match the stdout/stderr container logging rule. |
 | `config/stats.runtime.json` | Added logging authority note, converted `modulePorts` to metadata objects, added `STATS_WEB_HOST_PORT`, and changed `DOCUMENT_REFERENCE_ROOTS` from prose default to `null` plus note. |
@@ -71,6 +72,7 @@ These changes were added after Qodo, Copilot, and Claude reviewed PR #6. They ad
 | `infrastructure/containers/stats/.env.container.example` | Added `STATS_WEB_HOST_PORT` and clarified host/container port behavior. |
 | `apps/stats-web/appsettings.json` | Changed M7/M8 browser downstream defaults to blank values so Upload uses the same-origin proxy instead of direct `127.0.0.1:8016/8017` browser calls. |
 | `apps/stats-web/Program.cs` | Added Stats Web central runtime/path/logging loader, module port defaults from `stats.runtime.json`, `STATS_APP_ROOT` path resolution, JSON/plain console logging bootstrap, CORS wiring, and correlation ID middleware. |
+| `apps/stats-web/Program.cs` | Added descriptive central JSON parse errors, explicit CORS-policy registration only when origins are configured, and startup visibility for loaded central config paths/counts. |
 | `apps/stats-web/appsettings.json` | Updated all browser-facing API defaults to same-origin blank values so M1/M3/M5/M7/M8 browser calls route through the Stats Web proxy by default. |
 | `modules/identity-access-module/config/defaults.env` | Narrowed default CORS origins from `*` to local Stats Web origins. |
 | `docs/M1-user-management-access-control-spec.md` | Updated the M1 CORS default to match the narrowed module default. |

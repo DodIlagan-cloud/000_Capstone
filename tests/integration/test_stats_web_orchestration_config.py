@@ -10,10 +10,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 STATS_WEB_ROOT = REPO_ROOT / "apps" / "stats-web"
 APPSETTINGS_FILE = STATS_WEB_ROOT / "appsettings.json"
 PROGRAM_FILE = STATS_WEB_ROOT / "Program.cs"
+RUNTIME_CONFIG_FILE = REPO_ROOT / "config" / "stats.runtime.json"
 
 
 def _load_appsettings() -> dict:
     return json.loads(APPSETTINGS_FILE.read_text(encoding="utf-8"))
+
+
+def _load_runtime_config() -> dict:
+    return json.loads(RUNTIME_CONFIG_FILE.read_text(encoding="utf-8"))
 
 
 def test_stats_web_keeps_local_orchestrator_disabled_by_default():
@@ -83,3 +88,31 @@ def test_stats_web_resolves_local_paths_from_central_runtime():
     assert "config/stats.paths.json" in program_source
     assert "centralRuntime.ResolvePath(configuredPath)" in program_source
     assert "Path.Combine(environment.ContentRootPath" not in program_source
+
+
+def test_stats_web_cors_defaults_are_explicit_and_comma_separated():
+    """Ensure CORS defaults do not collapse multiple origins into one malformed origin."""
+    runtime_config = _load_runtime_config()
+    cors_default = runtime_config["network"]["CORS_ALLOWED_ORIGINS"]["default"]
+    origins = [origin.strip() for origin in cors_default.split(",") if origin.strip()]
+
+    assert origins == ["http://localhost:8080", "http://127.0.0.1:8080"]
+    assert "8080http" not in cors_default
+
+
+def test_stats_web_handles_empty_cors_origins_explicitly():
+    """Ensure empty CORS config is intentionally skipped instead of silently registering an empty policy."""
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert "if (centralRuntime.CorsAllowedOrigins.Count > 0)" in program_source
+    assert 'app.UseCors("StatsCorsPolicy")' in program_source
+
+
+def test_stats_web_reports_central_config_parse_failures():
+    """Ensure malformed central config files produce descriptive startup errors."""
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert "ParseConfigDocument" in program_source
+    assert "could not parse the central" in program_source
+    assert "JsonException" in program_source
+    assert "Loaded central config" in program_source

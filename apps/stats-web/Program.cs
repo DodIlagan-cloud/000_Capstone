@@ -12,21 +12,21 @@ builder.Configuration.AddInMemoryCollection(centralRuntime.ConfigurationDefaults
 builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(centralRuntime);
-builder.Services.AddCors(options =>
+if (centralRuntime.CorsAllowedOrigins.Count > 0)
 {
-    options.AddPolicy(
-        "StatsCorsPolicy",
-        policy =>
-        {
-            if (centralRuntime.CorsAllowedOrigins.Count > 0)
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(
+            "StatsCorsPolicy",
+            policy =>
             {
                 policy.WithOrigins(centralRuntime.CorsAllowedOrigins.ToArray())
                     .AllowAnyHeader()
                     .AllowAnyMethod();
             }
-        }
-    );
-});
+        );
+    });
+}
 builder.Services.AddSingleton(
     new StatsApiOptions(
         builder.Configuration["StatsApi:BaseUrl"]
@@ -92,7 +92,10 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseRouting();
-app.UseCors("StatsCorsPolicy");
+if (centralRuntime.CorsAllowedOrigins.Count > 0)
+{
+    app.UseCors("StatsCorsPolicy");
+}
 app.UseMiddleware<StatsCorrelationMiddleware>();
 // M13 - Containerization Start
 // Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
@@ -509,9 +512,9 @@ public sealed class StatsCentralRuntime
             "config/stats.logging.json"
         );
 
-        using var runtimeDocument = JsonDocument.Parse(File.ReadAllText(runtimeConfigPath));
-        using var pathsDocument = JsonDocument.Parse(File.ReadAllText(pathsConfigPath));
-        using var loggingDocument = JsonDocument.Parse(File.ReadAllText(loggingConfigPath));
+        using var runtimeDocument = ParseConfigDocument(runtimeConfigPath, "runtime");
+        using var pathsDocument = ParseConfigDocument(pathsConfigPath, "paths");
+        using var loggingDocument = ParseConfigDocument(loggingConfigPath, "logging");
 
         var runtimeRoot = runtimeDocument.RootElement;
         var ports = ReadDefaultMap(runtimeRoot.GetProperty("modulePorts"));
@@ -535,6 +538,15 @@ public sealed class StatsCentralRuntime
         };
 
         runtime.ConfigurationDefaults = runtime.BuildConfigurationDefaults();
+        Console.WriteLine(
+            "[StatsWeb] Loaded central config. AppRoot={0}; RuntimeConfig={1}; PathsConfig={2}; LoggingConfig={3}; ModulePorts={4}; CorsOrigins={5}.",
+            runtime.AppRoot,
+            runtime.RuntimeConfigPath,
+            runtime.PathsConfigPath,
+            runtime.LoggingConfigPath,
+            runtime.ModulePorts.Count,
+            runtime.CorsAllowedOrigins.Count
+        );
         return runtime;
     }
 
@@ -599,6 +611,28 @@ public sealed class StatsCentralRuntime
         }
 
         return resolvedPath;
+    }
+
+    private static JsonDocument ParseConfigDocument(string path, string configName)
+    {
+        try
+        {
+            return JsonDocument.Parse(File.ReadAllText(path));
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                $"Stats Web could not parse the central {configName} configuration file at {path}. Fix the JSON syntax before startup.",
+                exception
+            );
+        }
+        catch (IOException exception)
+        {
+            throw new InvalidOperationException(
+                $"Stats Web could not read the central {configName} configuration file at {path}.",
+                exception
+            );
+        }
     }
 
     private static Dictionary<string, string> ReadDefaultMap(JsonElement section)

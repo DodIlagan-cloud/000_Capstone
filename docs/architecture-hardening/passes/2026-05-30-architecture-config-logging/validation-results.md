@@ -15,6 +15,7 @@
 | Stats Web build | Passed | `dotnet build apps\stats-web\stats.Web.csproj` completed with `0 Warning(s)` and `0 Error(s)`. |
 | Docker Compose config validation | Passed | `docker compose --file infrastructure\compose\stats-runtime.compose.yml --env-file infrastructure\compose\.env.container config` rendered successfully with interpolated runtime values. |
 | Combined post-runtime-hardening gate | Passed | `79 passed`: Stats Web orchestration/config/logging contract, architecture hardening contract, M13 container contract, and M8 data validation unit tests. |
+| Qodo runtime config follow-up | Passed | Added tests for comma-separated CORS defaults, explicit empty-CORS behavior, and descriptive central config parse errors/startup visibility. |
 | Docker full regression | Passed | `63 passed`, `0 failed`, `1 skipped`. |
 | Optimized web-flow evidence | Completed before review fixes | Browser screenshots captured. Upload reached validation, ingestion, and parsing, then failed at browser-side transaction extraction due direct M7/M8 URLs. Static configuration tests now verify this gap is fixed by blanking M7/M8 browser downstream URLs so the same-origin proxy is used. A fresh browser evidence run should be captured before PR #6 leaves draft if full E2E proof is required. |
 

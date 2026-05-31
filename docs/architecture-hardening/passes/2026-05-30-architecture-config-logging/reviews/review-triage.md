@@ -9,6 +9,7 @@ Review inputs:
 - `claude-review.md`
 - `copilot-rereview-2026-05-30.md`
 - `qodo-rereview-2026-05-31.md`
+- `qodo-rereview-runtime-config-2026-05-31.md`
 
 ## Triage Summary
 
@@ -185,3 +186,19 @@ Remaining follow-up after this PR:
 - Add CI workflow execution for the hardening gates.
 - Add process supervision/graceful shutdown strategy for the single-container runtime.
 - Decide whether fresh browser E2E evidence is required before PR #6 leaves draft.
+
+## Third-Pass Qodo Runtime Config Review
+
+Qodo reviewed the Stats Web runtime config/logging implementation and verified the eight original merge-readiness items remain addressed.
+
+Decisions and fixes from this review:
+
+- Qodo reported a missing comma in `CORS_ALLOWED_ORIGINS`, but local verification showed the current branch already has the correct comma-separated value. This is marked stale/false positive, and a regression test was added to lock the expected value.
+- Stats Web now wraps central JSON parsing with descriptive startup errors that name the config file and config type.
+- Stats Web now only registers/applies the named CORS policy when explicit allowed origins are configured, avoiding silent empty-policy behavior.
+- Stats Web now emits startup visibility for central config loading before returning from `StatsCentralRuntime.Load`.
+
+Validation after these fixes:
+
+- `dotnet build apps\stats-web\stats.Web.csproj`
+- `pytest tests\integration\test_stats_web_orchestration_config.py`
