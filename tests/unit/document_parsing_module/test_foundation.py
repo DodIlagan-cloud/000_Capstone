@@ -37,7 +37,7 @@ def test_root_endpoint(client):
 
 
 def test_settings_configured_values(monkeypatch):
-    monkeypatch.setenv("SUPPORTED_DOCUMENT_TYPES", "bank_statement,receipt,invoice,utility_bill,unknown")
+    monkeypatch.setenv("SUPPORTED_DOCUMENT_TYPES", "statement,receipt,invoice,payment_proof,utility_bill,unknown")
     monkeypatch.delenv("TESSDATA_PREFIX", raising=False)
     settings = Settings()
 
@@ -46,5 +46,8 @@ def test_settings_configured_values(monkeypatch):
     assert settings.api_port == 8015
     assert "application/pdf" in settings.supported_mime_types
     assert "invoice" in settings.supported_document_types
+    assert "statement" in settings.supported_document_types
+    assert settings.document_classification_vocabulary_path.name == "document-classification.vocabulary.json"
+    assert settings.document_classification_rules_path.name == "document-classification.rules.json"
     assert settings.redact_evidence_output is True
     assert settings.tessdata_prefix == ""

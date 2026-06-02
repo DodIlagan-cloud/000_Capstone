@@ -2,12 +2,8 @@
 Verifies the standalone Data Validation Module application foundation.
 M8 End"""
 
-from app.config import Settings
-from app.main import app
-
-
-def test_app_imports_successfully():
-    assert app.title == "Data Validation Module"
+def test_app_imports_successfully(module_app):
+    assert module_app.title == "Data Validation Module"
 
 
 def test_health_endpoint(client):
@@ -33,10 +29,10 @@ def test_root_endpoint(client):
     }
 
 
-def test_settings_configured_values(monkeypatch):
+def test_settings_configured_values(monkeypatch, settings_cls):
     monkeypatch.setenv("MIN_RECORD_CONFIDENCE", "0.72")
     monkeypatch.setenv("ENABLE_DUPLICATE_DETECTION", "false")
-    settings = Settings()
+    settings = settings_cls()
 
     assert settings.app_name == "Data Validation Module"
     assert settings.api_prefix == "/api/v1"

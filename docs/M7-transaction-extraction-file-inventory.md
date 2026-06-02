@@ -31,10 +31,10 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 | `modules/transaction-extraction-module/app/config.py` | Created | Loads defaults, local overrides, and environment values. |
 | `modules/transaction-extraction-module/app/main.py` | Created | Creates the FastAPI app and registers health/extraction routes. |
 | `modules/transaction-extraction-module/app/models/common.py` | Created | Defines health/root response models. |
-| `modules/transaction-extraction-module/app/models/extraction.py` | Created | Defines request/result, candidate, finding, summary, and evaluation models. |
+| `modules/transaction-extraction-module/app/models/extraction.py` | Created/Modified | Defines request/result, classification subtype, OCR word-block input, candidate, finding, summary, reconciliation, extracted table groups, and evaluation models. |
 | `modules/transaction-extraction-module/app/routes/health.py` | Created | Adds `/health` and `/` metadata endpoints. |
 | `modules/transaction-extraction-module/app/routes/extractions.py` | Created | Adds `POST /api/v1/extractions`. |
-| `modules/transaction-extraction-module/app/services/extraction_service.py` | Created/Modified | Adds deterministic transaction and financial field candidate extraction, M5 input-quality handling, weak-OCR handling, and OCR-tolerant receipt/invoice field rules. |
+| `modules/transaction-extraction-module/app/services/extraction_service.py` | Created/Modified | Adds deterministic transaction and financial field candidate extraction, M5 document type/subtype alignment, generic statement/table row reconstruction, OCR layout-aware row extraction, OCR layout repair for orphan description fragments and split credit markers, side-column exclusion, OCR-token statement row fallback, statement metadata/entity extraction, reconciliation, extracted table output, M5 input-quality handling, weak-OCR handling, and OCR-tolerant receipt/invoice field rules. Review hardening on 2026-06-02 makes the orphan-prefix retention behavior explicit so stale prefix fragments do not leak between rows. |
 
 ## Tests
 
@@ -43,7 +43,7 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 | `tests/unit/transaction_extraction_module/__init__.py` | Created | Marks the M7 test package. |
 | `tests/unit/transaction_extraction_module/conftest.py` | Created/Modified | Provides isolated FastAPI test client setup and focused OCR-style text fixtures for the M7 module. |
 | `tests/unit/transaction_extraction_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, and settings defaults/overrides. |
-| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Created/Modified | Verifies missing text, bank statement extraction, proof-of-payment extraction, single-line OCR receipt/invoice extraction, unknown document confidence handling, M5 quality/finding handoff, weak-OCR handoff, and no-candidate findings. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Created/Modified | Verifies missing text, generic statement/table extraction, OCR layout repair, proof-of-payment extraction, single-line OCR receipt/invoice extraction, unknown document confidence handling, M5 quality/finding handoff, weak-OCR handoff, section-aware non-transaction handling, and no-candidate findings. Review hardening on 2026-06-02 adds targeted generic layout regressions for stale prefixes, side-column amount exclusion, and split credit markers. |
 | `tests/unit/transaction_extraction_module/test_extraction_api.py` | Created | Verifies the JSON extraction endpoint returns candidates, explicit missing-text findings, and accepts M5-shaped parse results. |
 
 ## Evidence Artefacts
@@ -95,7 +95,13 @@ From M13 onward, official M7 verification must run inside `stats-runtime` throug
 ## Current Implementation Notes
 
 - The extractor is deterministic and rule-based for this first M7 pass.
-- It detects common amount/date patterns, transaction words, transfer/receipt fields, receipt totals, GST fields, invoice/reference identifiers, card receipt amounts, and statement-level amount/date fields.
+- It detects common amount/date patterns, transaction words, transfer/receipt fields, receipt totals, GST fields, invoice/reference identifiers, card receipt amounts, and generic statement/table amount/date fields.
+- It reconstructs generic statement/table rows from repeated date/date/description/amount structures, including multi-line descriptions, OCR-flattened statement rows, and month/day dates that need statement-year context.
+- It repairs generic OCR layout rows by using transaction-table row context to attach nearby orphan description text, exclude side-column/advisory text, and pair split `CR` markers with the transaction amount.
+- It accepts the current M5 `statement` top-level type and uses `document_subtype` such as `credit_card_statement` as a prioritization hint. Historical `bank_statement` is kept only as a compatibility alias.
+- It treats issuer/provider names as extracted metadata and reporting dimensions, not issuer-specific parser control logic.
+- It returns grouped extracted-data tables so the Upload page can display all extracted data, not only transaction rows.
+- M7 tests and fixtures are structure-based. They must not depend on issuer names, bank names, merchant names, source filenames, or institution-specific parser branches.
 - It accepts M5-shaped payloads, including classification, quality, metadata, page text, and parse findings.
 - It converts M5 low-text/OCR-disabled/OCR-failure/weak-OCR signals into M7 input-quality findings.
 - It does not rerun OCR or call Tesseract.

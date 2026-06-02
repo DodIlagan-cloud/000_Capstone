@@ -69,6 +69,7 @@ class Settings:
     max_page_count: int
     enable_field_extraction: bool
     enable_transaction_rows: bool
+    enable_line_items: bool
 
     def __init__(self):
         config_values = _load_config_values()
@@ -100,6 +101,10 @@ class Settings:
         )
         self.enable_transaction_rows = _parse_bool(
             _config_value(config_values, "ENABLE_TRANSACTION_ROWS"),
+            True,
+        )
+        self.enable_line_items = _parse_bool(
+            config_values.get("ENABLE_LINE_ITEMS"),
             True,
         )
 

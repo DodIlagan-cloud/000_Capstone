@@ -23,8 +23,8 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `apps/stats-web/Pages/Upload.cshtml.cs` | Modified | Adds transaction extraction and data validation base URLs to the upload page model. |
 | `apps/stats-web/appsettings.json` | Modified | Adds local downstream URLs and local orchestration entries for M7 and M8. |
 | `apps/stats-web/Program.cs` | Modified | Adds proxy routing for `/api/v1/extractions` and `/api/v1/validations`. |
-| `apps/stats-web/wwwroot/js/upload.js` | Modified | Hides raw M5/M7 JSON details from the normal upload flow and renders a user-facing transaction check results checkpoint after M5 parsing, M7 extraction, and M8 validation. |
-| `apps/stats-web/wwwroot/css/access.css` | Modified | Adds responsive result metrics, processing steps, review callout, document summary, and transaction preview table styling for the upload checkpoint. |
+| `apps/stats-web/wwwroot/js/upload.js` | Modified | Hides raw M3/M4/M5/M7 JSON and intermediate module cards from the normal upload flow, shows one plain-language processing panel, and renders user-facing extracted-data tables plus the transaction check results checkpoint after M5 parsing, M7 extraction, and M8 validation. |
+| `apps/stats-web/wwwroot/css/access.css` | Modified | Adds responsive result metrics, processing steps, review callout, document summary, and transaction preview table styling for the upload checkpoint and intermediate processing state. |
 
 ## Runtime Files
 
@@ -37,10 +37,10 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `modules/data-validation-module/app/config.py` | Created | Loads defaults, local overrides, and environment values. |
 | `modules/data-validation-module/app/main.py` | Created | Creates the FastAPI app and registers health/validation routes. |
 | `modules/data-validation-module/app/models/common.py` | Created | Defines health/root response models. |
-| `modules/data-validation-module/app/models/validation.py` | Created | Defines request/result, normalized record, finding, summary, and evaluation models. |
+| `modules/data-validation-module/app/models/validation.py` | Created/Modified | Defines request/result, normalized record, finding, review item, summary, and evaluation models. |
 | `modules/data-validation-module/app/routes/health.py` | Created | Adds `/health` and `/` metadata endpoints. |
 | `modules/data-validation-module/app/routes/validations.py` | Created | Adds `POST /api/v1/validations`. |
-| `modules/data-validation-module/app/services/validation_service.py` | Created | Adds deterministic transaction normalization, validation findings, financial field normalization, and same-batch duplicate detection. |
+| `modules/data-validation-module/app/services/validation_service.py` | Created/Modified | Adds deterministic transaction normalization, validation findings, financial field normalization, same-batch duplicate detection, and guided review item generation from repaired OCR, suspicious text, duplicate, invalid, and reconciliation signals. Review hardening on 2026-06-02 separates low-confidence diagnostics for fields, entities, and references. |
 
 ## Container and Test Runner Wiring
 
@@ -61,7 +61,7 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `tests/unit/data_validation_module/conftest.py` | Created | Provides isolated FastAPI test client setup and M7-shaped candidate fixtures. |
 | `tests/unit/data_validation_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, and settings defaults/overrides. |
 | `tests/unit/data_validation_module/test_validation_api.py` | Created | Verifies the JSON validation endpoint, missing-candidate findings, and upstream finding passthrough. |
-| `tests/unit/data_validation_module/test_validation_service.py` | Created | Verifies normalization, warnings, invalid records, same-batch duplicate detection, duplicate detection opt-out, and financial field quality status. |
+| `tests/unit/data_validation_module/test_validation_service.py` | Created/Modified | Verifies normalization, warnings, invalid records, same-batch duplicate detection, duplicate detection opt-out, financial field/entity/reference quality status, richer M7 candidate groups, section-aware transaction review gating, repaired OCR review items, and reconciliation review items. |
 
 ## Verification
 
@@ -139,13 +139,16 @@ Visible user labels found: Transaction check results, Save ready transactions, D
 
 - The validator is deterministic and rule-based for this first M8 pass.
 - It accepts M7-shaped transaction and financial field candidates.
-- It normalizes dates to ISO format where possible, cleans descriptions, uppercases currencies, and derives signed amounts from debit/credit direction.
+- It normalizes transaction and optional posted dates to ISO format where possible, cleans descriptions, uppercases currencies, and derives signed amounts from debit/credit direction.
 - It flags missing dates, blank descriptions, zero amounts, unknown directions, low-confidence records, low-confidence fields, missing field values, and same-batch duplicates.
+- It flags transaction candidates from non-transaction source sections so statement summaries, fees, rewards, and unknown financial blocks are held for review instead of treated as clean save-ready rows.
+- It returns guided review items so the Upload page can show exceptions first instead of requiring users to inspect every extracted row.
 - Duplicate detection is limited to the supplied validation batch.
 - It does not query the Stats database or check already persisted transactions.
 - Stats Web now calls M7 then M8 after a successful parse and shows transaction check results instead of exposing raw M5/M7 JSON in the normal upload view.
 - The Upload page should treat M8 as a pre-save checkpoint: users review transaction readiness before any future M9 database write.
 - The visible output should use user-facing labels such as transaction check results, ready to save, needs review, and possible duplicate instead of module/debug labels.
+- The normal Upload page should not show intermediate technical cards such as Accepted, Queued for processing, ingestion IDs, processing file paths, workflow names, or raw module status as the main user-facing result.
 - M9 remains responsible for persistence and database duplicate checks.
 - M10/M11 remain responsible for composing and displaying user-facing workflow summaries.
 

@@ -15,6 +15,7 @@ const dataValidationBaseUrl = document.body.dataset.dataValidationBaseUrl ?? "";
 
 let selectedFile = null;
 let acceptedValidation = null;
+const uploadSteps = ["File accepted", "Document uploaded", "Text read", "Transactions checked"];
 
 function formatFileSize(bytes) {
   if (bytes < 1024) {
@@ -65,6 +66,15 @@ function humanizeStatus(value) {
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Pending";
 }
 
+function documentClassificationLabel(classification = {}, fallbackType = "unknown") {
+  const subtype = classification.document_subtype;
+  if (subtype && subtype !== "unknown") {
+    return humanizeStatus(subtype);
+  }
+
+  return humanizeStatus(classification.document_type || fallbackType || "unknown");
+}
+
 function userRecordStatus(record) {
   if (record.duplicate_of) {
     return "Possible duplicate";
@@ -76,6 +86,121 @@ function userRecordStatus(record) {
     return "Needs review";
   }
   return "Ready";
+}
+
+function formatTableCell(value) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  return String(value);
+}
+
+function renderExtractedDataTables(extractionResult) {
+  const tables = extractionResult?.document_tables || [];
+  if (!tables.length) {
+    return null;
+  }
+
+  const section = document.createElement("section");
+  section.className = "extracted-data";
+  const heading = document.createElement("h4");
+  heading.textContent = "Extracted data";
+  section.append(heading);
+
+  tables.forEach((tableGroup) => {
+    const tableSection = document.createElement("section");
+    tableSection.className = "extracted-data-table";
+
+    const title = document.createElement("h5");
+    title.textContent = tableGroup.title || humanizeStatus(tableGroup.table_id);
+    tableSection.append(title);
+
+    const rows = tableGroup.rows || [];
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No rows found.";
+      tableSection.append(empty);
+      section.append(tableSection);
+      return;
+    }
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "table-wrap";
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    (tableGroup.columns || []).forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headerRow.append(th);
+    });
+    thead.append(headerRow);
+
+    const tbody = document.createElement("tbody");
+    rows.forEach((rowData) => {
+      const row = document.createElement("tr");
+      const values = rowData.values || {};
+      (tableGroup.columns || []).forEach((column) => {
+        const cell = document.createElement("td");
+        const value = values[column];
+        if (column.toLowerCase() === "status") {
+          const pill = document.createElement("span");
+          const status = formatTableCell(value);
+          pill.className = status === "Ready" || status === "extracted" ? "state-pill" : "state-pill pending";
+          pill.textContent = status;
+          cell.append(pill);
+        } else {
+          cell.textContent = formatTableCell(value);
+        }
+        row.append(cell);
+      });
+      tbody.append(row);
+    });
+    table.append(thead, tbody);
+    tableWrap.append(table);
+    tableSection.append(tableWrap);
+    section.append(tableSection);
+  });
+
+  return section;
+}
+
+function renderProcessingProgress(activeIndex, title = "Processing document", message = "Stats is checking the document.") {
+  parseResult.hidden = false;
+  parseResult.dataset.status = "accepted";
+  parseResult.replaceChildren();
+
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+
+  const copy = document.createElement("p");
+  copy.textContent = message;
+
+  const steps = document.createElement("ol");
+  steps.className = "processing-steps";
+  uploadSteps.forEach((label, index) => {
+    const item = document.createElement("li");
+    const marker = document.createElement("span");
+    marker.className = "step-marker";
+
+    if (index < activeIndex) {
+      item.dataset.state = "done";
+      marker.textContent = "Done";
+    } else if (index === activeIndex) {
+      item.dataset.state = "active";
+      marker.textContent = "Now";
+    } else {
+      item.dataset.state = "pending";
+      marker.textContent = "Next";
+    }
+
+    const text = document.createElement("span");
+    text.textContent = label;
+    item.append(marker, text);
+    steps.append(item);
+  });
+
+  parseResult.append(heading, copy, steps);
 }
 
 function renderSelectedFile(file) {
@@ -92,14 +217,14 @@ function renderSelectedFile(file) {
 }
 
 function renderValidationResult(result) {
-  validationResult.hidden = false;
+  validationResult.hidden = true;
   validationResult.dataset.status = result.status;
   validationResult.replaceChildren();
 
   const findings = result.findings || [];
   const metadata = result.metadata || {};
   const heading = document.createElement("h3");
-  heading.textContent = result.status === "accepted" ? "Accepted" : "Rejected";
+  heading.textContent = result.status === "accepted" ? "File checked" : "File needs review";
 
   const metadataList = document.createElement("dl");
   [
@@ -159,6 +284,7 @@ async function validateSelectedFile(file) {
   ingestionResult.hidden = true;
   parseResult.hidden = true;
   setValidationState("Validating file.", "pending");
+  renderProcessingProgress(0, "Checking document", "Stats is checking whether this file can be processed.");
 
   try {
     const response = await fetch(statsApiUrl(fileValidationBaseUrl, "/api/v1/files/validate"), {
@@ -175,6 +301,7 @@ async function validateSelectedFile(file) {
 
     if (result.status === "accepted") {
       acceptedValidation = result;
+      renderProcessingProgress(1, "Processing document", "The file is accepted. Stats is uploading it for processing.");
       setValidationState("File accepted. Sending it to processing.", "pending");
       await sendAcceptedFileToProcessing();
       return;
@@ -187,12 +314,12 @@ async function validateSelectedFile(file) {
 }
 
 function renderIngestionResult(record) {
-  ingestionResult.hidden = false;
+  ingestionResult.hidden = true;
   ingestionResult.dataset.status = record.status === "queued" ? "accepted" : "rejected";
   ingestionResult.replaceChildren();
 
   const heading = document.createElement("h3");
-  heading.textContent = record.status === "queued" ? "Queued for processing" : "Not queued";
+  heading.textContent = record.status === "queued" ? "Document uploaded" : "Document upload needs review";
 
   const handoff = record.handoff || {};
   const source = record.source || {};
@@ -237,10 +364,11 @@ function renderParseResult(result) {
 
   const documentInfo = result.document || {};
   const classification = result.classification || {};
+  const documentTypeLabel = documentClassificationLabel(classification, documentInfo.document_type);
   const details = document.createElement("dl");
   [
     ["File", documentInfo.original_filename || selectedFile?.name || "Selected document"],
-    ["Document type", humanizeStatus(classification.document_type || documentInfo.document_type || "unknown")],
+    ["Document type", documentTypeLabel],
     ["Text read", result.status === "failed" ? "Needs review" : "Yes"],
   ].forEach(([label, value]) => {
     const row = document.createElement("div");
@@ -299,8 +427,133 @@ function buildValidationRequest(extractionResult) {
     document_type: extractionResult.document_type,
     transaction_candidates: extractionResult.transaction_candidates || [],
     financial_field_candidates: extractionResult.financial_field_candidates || [],
+    section_candidates: extractionResult.section_candidates || [],
+    entity_candidates: extractionResult.entity_candidates || [],
+    reference_candidates: extractionResult.reference_candidates || [],
+    line_item_candidates: extractionResult.line_item_candidates || [],
+    reconciliation: extractionResult.reconciliation || null,
     findings: extractionResult.findings || [],
   };
+}
+
+function reviewItemRecord(reviewItem, records) {
+  return (records || []).find((record) => record.record_id === reviewItem.record_id);
+}
+
+function renderReviewItems(result) {
+  const reviewItems = result.review_items || [];
+  if (!reviewItems.length) {
+    return null;
+  }
+
+  const section = document.createElement("section");
+  section.className = "guided-review";
+  const heading = document.createElement("h4");
+  heading.textContent = "Needs review";
+  const copy = document.createElement("p");
+  copy.textContent = "Stats found a few items that need attention before everything is saved.";
+  section.append(heading, copy);
+
+  reviewItems.forEach((item) => {
+    const row = document.createElement("article");
+    row.className = "review-item";
+    const title = document.createElement("h5");
+    title.textContent = item.title || "Review item";
+    const message = document.createElement("p");
+    message.textContent = item.message || "This item needs review.";
+    row.append(title, message);
+
+    const record = reviewItemRecord(item, result.normalized_records);
+    if (record) {
+      const details = document.createElement("dl");
+      [
+        ["Date", record.transaction_date || "Needs review"],
+        ["Description", record.description || "Needs review"],
+        ["Amount", formatMoney(record.amount, record.currency)],
+        ["Status", userRecordStatus(record)],
+      ].forEach(([label, value]) => {
+        const itemRow = document.createElement("div");
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = label;
+        description.textContent = value;
+        itemRow.append(term, description);
+        details.append(itemRow);
+      });
+      row.append(details);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "review-actions";
+    ["Edit", "Accept", "Exclude"].forEach((label) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.disabled = true;
+      button.title = "Review actions will be enabled when save workflow is connected.";
+      actions.append(button);
+    });
+    row.append(actions);
+    section.append(row);
+  });
+
+  return section;
+}
+
+function renderReadyTransactions(result) {
+  const records = (result.normalized_records || []).filter((record) => userRecordStatus(record) === "Ready");
+  if (!records.length) {
+    return null;
+  }
+
+  const section = document.createElement("section");
+  section.className = "ready-transactions";
+  const heading = document.createElement("h4");
+  heading.textContent = "Ready transactions";
+  section.append(heading);
+  section.append(renderRecordsTable(records));
+  return section;
+}
+
+function renderRecordsTable(records) {
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "table-wrap transaction-preview";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  ["Date", "Description", "Amount", "Status"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headerRow.append(th);
+  });
+  thead.append(headerRow);
+
+  const tbody = document.createElement("tbody");
+  records.forEach((record) => {
+    const row = document.createElement("tr");
+    const status = userRecordStatus(record);
+    [
+      record.transaction_date || "Needs review",
+      record.description || "Needs review",
+      formatMoney(record.amount, record.currency),
+      status,
+    ].forEach((value, index) => {
+      const cell = document.createElement("td");
+      if (index === 3) {
+        const pill = document.createElement("span");
+        pill.className = status === "Ready" ? "state-pill" : "state-pill pending";
+        pill.textContent = value;
+        cell.append(pill);
+      } else {
+        cell.textContent = value;
+      }
+      row.append(cell);
+    });
+    tbody.append(row);
+  });
+  table.append(thead, tbody);
+  tableWrap.append(table);
+  return tableWrap;
 }
 
 function renderTransactionCheckResult(result, parsePayload, extractionResult) {
@@ -316,7 +569,7 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
 
   const summary = result.summary || {};
   const readyCount = summary.valid_record_count ?? 0;
-  const reviewCount = (summary.warning_record_count ?? 0) + (summary.invalid_record_count ?? 0);
+  const reviewCount = summary.review_item_count ?? ((summary.warning_record_count ?? 0) + (summary.invalid_record_count ?? 0));
 
   const steps = document.createElement("ol");
   steps.className = "processing-steps";
@@ -345,6 +598,21 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
 
   parseResult.append(heading, intro, steps, metrics);
 
+  const guidedReview = renderReviewItems(result);
+  if (guidedReview) {
+    parseResult.append(guidedReview);
+  }
+
+  const readyTransactions = renderReadyTransactions(result);
+  if (readyTransactions) {
+    parseResult.append(readyTransactions);
+  }
+
+  const extractedTables = renderExtractedDataTables(extractionResult);
+  if (extractedTables) {
+    parseResult.append(extractedTables);
+  }
+
   const findings = result.findings || [];
   if (reviewCount > 0 || findings.length) {
     const reviewPanel = document.createElement("div");
@@ -360,55 +628,14 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
     parseResult.append(reviewPanel);
   }
 
-  const records = result.normalized_records || [];
-  if (records.length) {
-    const tableWrap = document.createElement("div");
-    tableWrap.className = "table-wrap transaction-preview";
-    const table = document.createElement("table");
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-    ["Date", "Description", "Amount", "Status"].forEach((label) => {
-      const th = document.createElement("th");
-      th.textContent = label;
-      headerRow.append(th);
-    });
-    thead.append(headerRow);
-
-    const tbody = document.createElement("tbody");
-    records.slice(0, 8).forEach((record) => {
-      const row = document.createElement("tr");
-      const status = userRecordStatus(record);
-      [
-        record.transaction_date || "Needs review",
-        record.description || "Needs review",
-        formatMoney(record.amount, record.currency),
-        status,
-      ].forEach((value, index) => {
-        const cell = document.createElement("td");
-        if (index === 3) {
-          const pill = document.createElement("span");
-          pill.className = status === "Ready" ? "state-pill" : "state-pill pending";
-          pill.textContent = value;
-          cell.append(pill);
-        } else {
-          cell.textContent = value;
-        }
-        row.append(cell);
-      });
-      tbody.append(row);
-    });
-    table.append(thead, tbody);
-    tableWrap.append(table);
-    parseResult.append(tableWrap);
-  }
-
   const parseDocument = parsePayload.document || {};
   const parseClassification = parsePayload.classification || {};
+  const documentTypeLabel = documentClassificationLabel(parseClassification, result.document_type);
   const documentSummary = document.createElement("dl");
   documentSummary.className = "document-summary";
   [
     ["File", parseDocument.original_filename || selectedFile?.name || "Selected document"],
-    ["Document type", humanizeStatus(parseClassification.document_type || result.document_type || "unknown")],
+    ["Document type", documentTypeLabel],
     ["Text read", parsePayload.status === "failed" ? "Needs review" : "Yes"],
     ["Processing result", reviewCount > 0 ? "Needs review" : "Ready to save"],
   ].forEach(([label, value]) => {
@@ -488,6 +715,7 @@ async function sendAcceptedFileToProcessing() {
 
   try {
     setValidationState("Sending accepted file to processing.", "pending");
+    renderProcessingProgress(1, "Processing document", "Uploading the accepted document.");
 
     const user = await window.statsAccess.currentUser();
     formData.append("submitted_by", user.email);
@@ -505,6 +733,7 @@ async function sendAcceptedFileToProcessing() {
     renderIngestionResult(record);
 
     if (record.status === "queued" || record.status === "duplicate") {
+      renderProcessingProgress(2, "Reading document", "The document is uploaded. Stats is reading the text.");
       setValidationState("Document ingested. Parsing document.", "pending");
       await parseAcceptedFile(record);
       return;
@@ -526,6 +755,7 @@ async function parseAcceptedFile(record) {
   formData.append("sha256", metadata.sha256 || "");
 
   try {
+    renderProcessingProgress(2, "Reading document", "Stats is reading the document text. This may take a little while for images.");
     const response = await fetch(statsApiUrl(documentParsingBaseUrl, "/api/v1/parses"), {
       method: "POST",
       body: formData,
@@ -536,13 +766,14 @@ async function parseAcceptedFile(record) {
     }
 
     const result = await response.json();
-    renderParseResult(result);
 
     if (result.status === "failed") {
+      renderParseResult(result);
       setValidationState("Document parsing needs review.", "error");
       return;
     }
 
+    renderProcessingProgress(3, "Checking transactions", "Text was read. Stats is checking transaction candidates.");
     setValidationState("Document parsed. Extracting transaction candidates.", "pending");
     const extraction = await extractTransactions(result);
     setValidationState("Transaction candidates extracted. Validating data.", "pending");

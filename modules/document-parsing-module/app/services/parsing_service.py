@@ -8,7 +8,7 @@ import os
 import re
 import time
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +22,7 @@ from app.models.parsing import (
     EvaluationMetadata,
     FindingSeverity,
     M7HandoffAudit,
+    OcrWordBlock,
     PageParseResult,
     ParseFinding,
     ParseMetadata,
@@ -87,6 +88,7 @@ class OcrAttempt:
     orientation: int
     psm: int
     variant: str
+    word_blocks: list[OcrWordBlock] = field(default_factory=list)
     attempt_count: int = 1
 
 
@@ -231,7 +233,12 @@ def _image_variants(image: Image.Image) -> list[tuple[str, Image.Image]]:
     ]
 
 
-def _ocr_image_with_confidence(image: Image.Image, language: str, psm: int) -> tuple[str, Optional[float]]:
+def _ocr_image_with_confidence(
+    image: Image.Image,
+    language: str,
+    psm: int,
+    page_number: int = 1,
+) -> tuple[str, Optional[float], list[OcrWordBlock]]:
     import pytesseract
 
     if settings.tesseract_cmd:
@@ -249,13 +256,27 @@ def _ocr_image_with_confidence(image: Image.Image, language: str, psm: int) -> t
         )
         words: list[str] = []
         confidences: list[float] = []
-        for raw_text, raw_confidence in zip(data.get("text", []), data.get("conf", [])):
+        blocks: list[OcrWordBlock] = []
+        for index, (raw_text, raw_confidence) in enumerate(zip(data.get("text", []), data.get("conf", []))):
             token = str(raw_text).strip()
-            if token:
-                words.append(token)
             try:
                 confidence = float(raw_confidence)
             except (TypeError, ValueError):
+                confidence = None
+            if token:
+                words.append(token)
+                blocks.append(
+                    OcrWordBlock(
+                        page_number=page_number,
+                        text=token,
+                        confidence=confidence if confidence is not None and confidence >= 0 else None,
+                        x=float(data.get("left", [0])[index]),
+                        y=float(data.get("top", [0])[index]),
+                        width=float(data.get("width", [0])[index]),
+                        height=float(data.get("height", [0])[index]),
+                    )
+                )
+            if confidence is None:
                 continue
             if confidence >= 0:
                 confidences.append(confidence)
@@ -263,11 +284,11 @@ def _ocr_image_with_confidence(image: Image.Image, language: str, psm: int) -> t
         text = " ".join(words).strip()
         mean_confidence = sum(confidences) / len(confidences) if confidences else None
         if text:
-            return text, mean_confidence
+            return text, mean_confidence, blocks
     except Exception:
         pass
 
-    return pytesseract.image_to_string(image, lang=language, config=config).strip(), None
+    return pytesseract.image_to_string(image, lang=language, config=config).strip(), None, []
 
 
 def _ocr_quality(text: str, mean_confidence: Optional[float]) -> tuple[float, float, int]:
@@ -297,7 +318,7 @@ def _rotate_image(image: Image.Image, degrees: int) -> Image.Image:
     return image.rotate(degrees, expand=True)
 
 
-def _ocr_best_image(image: Image.Image, language: str) -> OcrAttempt:
+def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1) -> OcrAttempt:
     prepared_image = _prepare_image_for_ocr(image)
     orientations = [0, 90, 180, 270] if settings.ocr_retry_orientations else [0]
     psm_values = settings.ocr_psm_values or [6]
@@ -318,7 +339,7 @@ def _ocr_best_image(image: Image.Image, language: str) -> OcrAttempt:
         for variant_name, variant in _image_variants(rotated):
             for psm in psm_values:
                 attempt_count += 1
-                text, mean_confidence = _ocr_image_with_confidence(variant, language, psm)
+                text, mean_confidence, word_blocks = _ocr_image_with_confidence(variant, language, psm, page_number)
                 quality_score, alnum_ratio, keyword_hits = _ocr_quality(text, mean_confidence)
                 attempt = OcrAttempt(
                     text=text,
@@ -329,6 +350,7 @@ def _ocr_best_image(image: Image.Image, language: str) -> OcrAttempt:
                     orientation=orientation,
                     psm=psm,
                     variant=variant_name,
+                    word_blocks=word_blocks,
                 )
                 if attempt.quality_score > best_attempt.quality_score:
                     best_attempt = attempt
@@ -338,11 +360,19 @@ def _ocr_best_image(image: Image.Image, language: str) -> OcrAttempt:
 
 def _ocr_image_content(content: bytes, language: str) -> tuple[str, list[PageParseResult], int, dict[str, object]]:
     with Image.open(io.BytesIO(content)) as image:
-        attempt = _ocr_best_image(image, language)
+        attempt = _ocr_best_image(image, language, 1)
 
     return (
         attempt.text,
-        [PageParseResult(page_number=1, text=attempt.text, text_length=len(attempt.text), empty=not bool(attempt.text.strip()))],
+        [
+            PageParseResult(
+                page_number=1,
+                text=attempt.text,
+                text_length=len(attempt.text),
+                empty=not bool(attempt.text.strip()),
+                ocr_word_blocks=attempt.word_blocks,
+            )
+        ],
         1,
         _ocr_quality_metadata([attempt]),
     )
@@ -404,7 +434,7 @@ def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str,
             page = document.load_page(page_number - 1)
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
             image = Image.open(io.BytesIO(pixmap.tobytes("png")))
-            attempt = _ocr_best_image(image, language)
+            attempt = _ocr_best_image(image, language, page_number)
             attempts.append(attempt)
             page_text = attempt.text
             pages.append(
@@ -413,6 +443,7 @@ def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str,
                     text=page_text,
                     text_length=len(page_text),
                     empty=not bool(page_text.strip()),
+                    ocr_word_blocks=attempt.word_blocks,
                 )
             )
             if page_text:
@@ -629,6 +660,7 @@ def parse_document_content(
         redaction_applied=redaction_applied,
         redaction_finding_counts=redaction_counts,
         predicted_document_type=classification.document_type,
+        predicted_document_subtype=classification.document_subtype,
         classification_confidence=classification.confidence,
         classification_reason_codes=classification.reason_codes,
         classification_status=classification.status,

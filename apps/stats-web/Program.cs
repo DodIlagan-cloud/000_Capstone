@@ -732,7 +732,7 @@ public sealed class StatsCentralRuntime
 
         if (LoggingDefaults.TryGetValue("LOG_LEVEL", out var logLevel))
         {
-            defaults["Logging:LogLevel:Default"] = logLevel;
+            defaults["Logging:LogLevel:Default"] = StatsLoggingBootstrap.ToDotNetLogLevelName(logLevel);
         }
 
         return defaults;
@@ -863,15 +863,28 @@ public static class StatsLoggingBootstrap
         return new StatsLoggingOptions(includeCorrelationId, redactSensitiveValues, "stdout");
     }
 
-    private static LogLevel ParseLogLevel(string value)
+    public static string ToDotNetLogLevelName(string value)
     {
         return value.ToUpperInvariant() switch
         {
-            "DEBUG" => LogLevel.Debug,
-            "INFO" => LogLevel.Information,
-            "WARNING" => LogLevel.Warning,
-            "ERROR" => LogLevel.Error,
-            "CRITICAL" => LogLevel.Critical,
+            "DEBUG" => "Debug",
+            "INFO" => "Information",
+            "WARNING" => "Warning",
+            "ERROR" => "Error",
+            "CRITICAL" => "Critical",
+            _ => "Information",
+        };
+    }
+
+    private static LogLevel ParseLogLevel(string value)
+    {
+        return ToDotNetLogLevelName(value) switch
+        {
+            "Debug" => LogLevel.Debug,
+            "Information" => LogLevel.Information,
+            "Warning" => LogLevel.Warning,
+            "Error" => LogLevel.Error,
+            "Critical" => LogLevel.Critical,
             _ => LogLevel.Information,
         };
     }

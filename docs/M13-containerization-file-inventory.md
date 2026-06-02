@@ -37,7 +37,7 @@ Current status: **implementation updated** for project-wide container-first test
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `tests/integration/test_m13_containerization_contract.py` | Created / Updated | Contract checks cover `stats-db` service in Compose, `stats-db-data` volume, `DATABASE_URL` pointing to `stats-db`, `depends_on`, Dockerfile build-time verification steps for Tesseract/PyMuPDF/pytesseract/Pillow, startup script database wait and `init_db`, Stats Web `/health`, and the required `tests/input/` evidence runner policy. |
+| `tests/integration/test_m13_containerization_contract.py` | Created / Updated | Contract checks cover `stats-db` service in Compose, `stats-db-data` volume, `DATABASE_URL` pointing to `stats-db`, `depends_on`, Dockerfile build-time verification steps for Tesseract/PyMuPDF/pytesseract/Pillow, startup script database wait and `init_db`, Stats Web `/health`, shared document-classification JSON packaging/loadability, and the required `tests/input/` evidence runner policy. |
 | `tests/results/M13-Containerization/M13_containerization_terminal_check.py` | Created / Updated | Evidence runner for live container validation. It now requires `tests/input/`, copies every supported local fixture into `stats-runtime`, parses each file through M5, requires image files to use `strategy: tesseract_ocr`, and forces PDFs through OCR to exercise PyMuPDF plus Tesseract. |
 | `tests/input/README.md` | Created | Documents the local fixture directory contract. Real source files in this folder stay local-only and are ignored by Git. |
 | `.gitignore` | Updated | Ignores local source files under `tests/input/` while allowing `tests/input/README.md` to be committed. |

@@ -1,0 +1,142 @@
+{
+  "rules": [
+    {
+      "document_type": "statement",
+      "document_subtype": "credit_card_statement",
+      "reason_code": "CREDIT_CARD_STATEMENT_SIGNALS",
+      "required_any": ["credit card", "card type", "mastercard", "visa"],
+      "signals": [
+        "statement of account",
+        "credit limit",
+        "minimum amount due",
+        "payment due date",
+        "finance charge",
+        "previous balance",
+        "unbilled installment",
+        "total outstanding balance",
+        "amount due"
+      ],
+      "minimum_score": 0.38
+    },
+    {
+      "document_type": "statement",
+      "document_subtype": "account_statement",
+      "reason_code": "ACCOUNT_STATEMENT_SIGNALS",
+      "required_any": ["account statement", "account number"],
+      "signals": [
+        "opening balance",
+        "closing balance",
+        "available balance",
+        "deposits",
+        "withdrawals",
+        "running balance",
+        "transaction history",
+        "statement period"
+      ],
+      "minimum_score": 0.38
+    },
+    {
+      "document_type": "receipt",
+      "document_subtype": "payment_terminal_receipt",
+      "reason_code": "PAYMENT_TERMINAL_RECEIPT_SIGNALS",
+      "required_any": ["eftpos", "terminal", "approved", "merchant copy", "rrn", "aid", "tvr", "tsi", "auth"],
+      "signals": [
+        "purchase",
+        "rrn",
+        "aid",
+        "tvr",
+        "tsi",
+        "card",
+        "auth",
+        "merchant",
+        "total"
+      ],
+      "minimum_score": 0.34
+    },
+    {
+      "document_type": "receipt",
+      "document_subtype": "tax_receipt",
+      "reason_code": "RECEIPT_SIGNALS",
+      "required_any": ["receipt", "tax invoice", "total"],
+      "signals": [
+        "subtotal",
+        "gst",
+        "includes gst",
+        "purchase",
+        "merchant",
+        "total",
+        "approved",
+        "card"
+      ],
+      "minimum_score": 0.35
+    },
+    {
+      "document_type": "invoice",
+      "document_subtype": "medical_invoice",
+      "reason_code": "MEDICAL_INVOICE_SIGNALS",
+      "required_any": ["tax invoice no", "invoice", "nhi", "dob", "lab"],
+      "signals": [
+        "tests",
+        "price",
+        "price incl",
+        "service fee",
+        "payment history",
+        "paid",
+        "owing",
+        "gst",
+        "gender",
+        "phone"
+      ],
+      "minimum_score": 0.35
+    },
+    {
+      "document_type": "invoice",
+      "document_subtype": "service_invoice",
+      "reason_code": "INVOICE_SIGNALS",
+      "required_any": ["invoice", "tax invoice", "bill to"],
+      "signals": [
+        "amount due",
+        "invoice number",
+        "invoice no",
+        "payment terms",
+        "due date",
+        "subtotal",
+        "gst",
+        "paid",
+        "owing"
+      ],
+      "minimum_score": 0.35
+    },
+    {
+      "document_type": "payment_proof",
+      "document_subtype": "bank_transfer_proof",
+      "reason_code": "PAYMENT_PROOF_SIGNALS",
+      "required_any": ["transfer successful", "confirmation no", "transfer amount"],
+      "signals": [
+        "transfer to",
+        "transfer from",
+        "confirmation",
+        "reference",
+        "payment",
+        "sent via",
+        "account"
+      ],
+      "minimum_score": 0.35
+    },
+    {
+      "document_type": "utility_bill",
+      "document_subtype": "unknown",
+      "reason_code": "UTILITY_BILL_SIGNALS",
+      "required_any": ["utility", "electricity", "water", "gas", "meter", "kwh"],
+      "signals": [
+        "usage",
+        "charges",
+        "billing period",
+        "due date",
+        "amount due",
+        "service address"
+      ],
+      "minimum_score": 0.35
+    }
+  ]
+}

@@ -11,6 +11,7 @@ STATS_WEB_ROOT = REPO_ROOT / "apps" / "stats-web"
 APPSETTINGS_FILE = STATS_WEB_ROOT / "appsettings.json"
 PROGRAM_FILE = STATS_WEB_ROOT / "Program.cs"
 UPLOAD_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "upload.js"
+PUBLISHED_UPLOAD_JS_FILE = REPO_ROOT / "stats-web" / "wwwroot" / "js" / "upload.js"
 RUNTIME_CONFIG_FILE = REPO_ROOT / "config" / "stats.runtime.json"
 
 
@@ -20,6 +21,11 @@ def _load_appsettings() -> dict:
 
 def _load_runtime_config() -> dict:
     return json.loads(RUNTIME_CONFIG_FILE.read_text(encoding="utf-8"))
+
+
+def _load_upload_js() -> str:
+    upload_js_path = UPLOAD_JS_FILE if UPLOAD_JS_FILE.exists() else PUBLISHED_UPLOAD_JS_FILE
+    return upload_js_path.read_text(encoding="utf-8")
 
 
 def test_stats_web_keeps_local_orchestrator_disabled_by_default():
@@ -83,6 +89,8 @@ def test_stats_web_wires_central_logging_and_correlation():
     assert "LOG_INCLUDE_CORRELATION_ID" in program_source
     assert "LOG_REDACT_SENSITIVE_VALUES" in program_source
     assert "LOG_DESTINATION" in program_source
+    assert "ToDotNetLogLevelName(logLevel)" in program_source
+    assert '"INFO" => "Information"' in program_source
 
 
 def test_stats_web_uses_structured_startup_logging():
@@ -146,7 +154,7 @@ def test_stats_web_reports_central_config_parse_failures():
 
 def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     """Ensure blank browser base URLs intentionally resolve to relative Stats Web proxy URLs."""
-    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+    upload_source = _load_upload_js()
 
     assert "function statsApiUrl" in upload_source
     assert "return normalizedBase ? `${normalizedBase}${normalizedPath}` : normalizedPath;" in upload_source
@@ -155,3 +163,17 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert 'statsApiUrl(documentParsingBaseUrl, "/api/v1/parses")' in upload_source
     assert 'statsApiUrl(transactionExtractionBaseUrl, "/api/v1/extractions")' in upload_source
     assert 'statsApiUrl(dataValidationBaseUrl, "/api/v1/validations")' in upload_source
+
+
+def test_upload_js_hides_intermediate_module_cards_from_normal_user_flow():
+    """Ensure Upload renders a plain-language progress/checkpoint flow instead of M3/M4 technical cards."""
+    upload_source = _load_upload_js()
+
+    assert "renderProcessingProgress" in upload_source
+    assert "Transaction check results" in upload_source
+    assert "Save ready transactions" in upload_source
+    assert "Developer details" in upload_source
+    assert 'validationResult.hidden = true;' in upload_source
+    assert 'ingestionResult.hidden = true;' in upload_source
+    assert 'heading.textContent = result.status === "accepted" ? "Accepted" : "Rejected";' not in upload_source
+    assert 'heading.textContent = record.status === "queued" ? "Queued for processing" : "Not queued";' not in upload_source

@@ -226,6 +226,8 @@
     "OCR_MIN_QUALITY_SCORE": {"purpose": "Minimum OCR quality score.", "secret": false},
     "OCR_MIN_ALNUM_RATIO": {"purpose": "Minimum OCR alphanumeric ratio.", "secret": false},
     "SUPPORTED_DOCUMENT_TYPES": {"purpose": "Document types supported by parsing/extraction.", "secret": false},
+    "DOCUMENT_CLASSIFICATION_VOCABULARY_PATH": {"purpose": "Shared document classification vocabulary JSON path.", "secret": false},
+    "DOCUMENT_CLASSIFICATION_RULES_PATH": {"purpose": "Shared document classification rules JSON path.", "secret": false},
     "CLASSIFICATION_CONFIDENCE_THRESHOLD": {"purpose": "Minimum classification confidence.", "secret": false},
     "CLASSIFICATION_ALLOW_UNKNOWN": {"purpose": "Whether unknown classification is allowed.", "secret": false},
     "EXTRACTION_TIMEOUT_SECONDS": {"purpose": "Document extraction timeout.", "secret": false},

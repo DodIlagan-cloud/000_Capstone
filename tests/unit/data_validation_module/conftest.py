@@ -9,18 +9,59 @@ from fastapi.testclient import TestClient
 import pytest
 
 MODULE_ROOT = Path(__file__).resolve().parents[3] / "modules" / "data-validation-module"
-for module_name in list(sys.modules):
-    if module_name == "app" or module_name.startswith("app."):
-        del sys.modules[module_name]
-if str(MODULE_ROOT) not in sys.path:
-    sys.path.insert(0, str(MODULE_ROOT))
+def _activate_module_root() -> None:
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            del sys.modules[module_name]
+    module_root_path = str(MODULE_ROOT)
+    if module_root_path in sys.path:
+        sys.path.remove(module_root_path)
+    sys.path.insert(0, module_root_path)
+
+
+_activate_module_root()
 
 from app.main import app
 
 
 @pytest.fixture()
+def module_app():
+    _activate_module_root()
+    from app.main import app as active_app
+
+    return active_app
+
+
+@pytest.fixture()
+def settings_cls():
+    _activate_module_root()
+    from app.config import Settings
+
+    return Settings
+
+
+@pytest.fixture()
+def validation_request_cls():
+    _activate_module_root()
+    from app.models.validation import DataValidationRequest
+
+    return DataValidationRequest
+
+
+@pytest.fixture()
+def validate_data_func():
+    _activate_module_root()
+    from app.services.validation_service import validate_data
+
+    return validate_data
+
+
+@pytest.fixture()
 def client():
-    return TestClient(app)
+    _activate_module_root()
+    from app.main import app as active_app
+
+    return TestClient(active_app)
 
 
 @pytest.fixture()
@@ -28,7 +69,7 @@ def m7_candidates() -> dict[str, object]:
     return {
         "extraction_id": "extract_test",
         "parse_id": "parse_test",
-        "document_type": "bank_statement",
+        "document_type": "statement",
         "document": {
             "original_filename": "statement.pdf",
             "sha256": "abc123",
@@ -48,11 +89,11 @@ def m7_candidates() -> dict[str, object]:
             {
                 "candidate_id": "txn_0002",
                 "date_text": "Nov 05 2023",
-                "description": "Purchase Grocery Store",
+                "description": "Purchase General Store",
                 "amount": 2345.67,
                 "currency": "PHP",
                 "direction": "debit",
-                "source": {"page_number": 1, "line_number": 6, "text": "Nov 05 2023 Purchase Grocery Store 2,345.67"},
+                "source": {"page_number": 1, "line_number": 6, "text": "Nov 05 2023 Purchase General Store 2,345.67"},
                 "confidence": 0.88,
                 "reason_codes": ["AMOUNT_DETECTED", "DATE_DETECTED"],
             },

@@ -13,6 +13,10 @@ from app.models.validation import (
     DataValidationResult,
     NormalizedFinancialField,
     NormalizedTransactionRecord,
+    ReviewItem,
+    ValidatedEntity,
+    ValidatedLineItem,
+    ValidatedReference,
     ValidationEvaluation,
     ValidationFinding,
     ValidationStatus,
@@ -35,6 +39,15 @@ MONTH_FORMATS = (
 )
 SPACE_PATTERN = re.compile(r"\s+")
 NON_KEY_PATTERN = re.compile(r"[^a-z0-9]+")
+NON_TRANSACTION_SECTIONS = {
+    "statement_summary",
+    "fees_or_interest",
+    "rewards_or_points",
+    "unknown_financial_block",
+}
+OCR_REPAIR_REASON_CODES = {
+    "SIDE_COLUMN_TEXT_EXCLUDED",
+}
 
 
 def validate_data(request: DataValidationRequest) -> DataValidationResult:
@@ -53,12 +66,19 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
         settings.require_transaction_direction,
     )
 
-    if not request.transaction_candidates and not request.financial_field_candidates:
+    if (
+        not request.transaction_candidates
+        and not request.financial_field_candidates
+        and not request.section_candidates
+        and not request.entity_candidates
+        and not request.reference_candidates
+        and not request.line_item_candidates
+    ):
         findings.append(
             ValidationFinding(
                 code="MISSING_CANDIDATES",
                 severity="error",
-                message="At least one transaction or financial field candidate is required for validation.",
+                message="At least one M7 candidate is required for validation.",
             )
         )
         return _result(
@@ -67,6 +87,9 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
             status=ValidationStatus.failed,
             records=[],
             fields=[],
+            entities=[],
+            references=[],
+            line_items=[],
             findings=findings,
             min_confidence=min_confidence,
             duplicate_detection_enabled=duplicate_detection_enabled,
@@ -96,7 +119,24 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
     if duplicate_detection_enabled:
         _mark_duplicates(records, findings)
 
-    fields = [_normalize_field(candidate, min_confidence, findings) for candidate in request.financial_field_candidates]
+    _apply_ocr_review_gates(records, findings)
+
+    require_section_context = bool(request.section_candidates)
+    fields = [
+        _normalize_field(candidate, min_confidence, findings, require_section_context)
+        for candidate in request.financial_field_candidates
+    ]
+    entities = [_normalize_entity(candidate, min_confidence, findings) for candidate in request.entity_candidates]
+    references = [_normalize_reference(candidate, min_confidence, findings) for candidate in request.reference_candidates]
+    line_items = [_normalize_line_item(candidate, min_confidence, findings) for candidate in request.line_item_candidates]
+    if request.reconciliation and request.reconciliation.status == "needs_review":
+        findings.append(
+            ValidationFinding(
+                code="DOCUMENT_RECONCILIATION_REVIEW",
+                severity="warning",
+                message="Statement summary and extracted transactions do not reconcile.",
+            )
+        )
 
     status = ValidationStatus.completed_with_warnings if findings else ValidationStatus.completed
     if any(finding.severity == "error" for finding in findings):
@@ -108,6 +148,9 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
         status=status,
         records=records,
         fields=fields,
+        entities=entities,
+        references=references,
+        line_items=line_items,
         findings=findings,
         min_confidence=min_confidence,
         duplicate_detection_enabled=duplicate_detection_enabled,
@@ -123,6 +166,7 @@ def _normalize_transaction_candidate(
 ) -> NormalizedTransactionRecord:
     reason_codes = list(candidate.reason_codes)
     normalized_date = _normalize_date(candidate.date_text)
+    normalized_posted_date = _normalize_date(candidate.posted_date_text)
     description = _normalize_description(candidate.description)
     currency = (candidate.currency or settings.default_currency).upper()
     direction = _normalize_direction(candidate.direction)
@@ -172,6 +216,18 @@ def _normalize_transaction_candidate(
             )
         )
 
+    section_label = (candidate.source.section_label if candidate.source else None) or ""
+    if section_label in NON_TRANSACTION_SECTIONS:
+        reason_codes.append("NON_TRANSACTION_SECTION")
+        findings.append(
+            ValidationFinding(
+                code="NON_TRANSACTION_SECTION",
+                severity="warning",
+                message="Transaction candidate came from a non-transaction source section and requires review.",
+                record_id=candidate.candidate_id,
+            )
+        )
+
     if candidate.confidence < min_confidence:
         reason_codes.append("LOW_CONFIDENCE_RECORD")
         findings.append(
@@ -191,11 +247,14 @@ def _normalize_transaction_candidate(
         for code in ["MISSING_TRANSACTION_DATE", "UNKNOWN_DIRECTION", "LOW_CONFIDENCE_RECORD"]
     ):
         quality_status = "warning"
+    elif "NON_TRANSACTION_SECTION" in reason_codes:
+        quality_status = "warning"
 
     return NormalizedTransactionRecord(
         record_id=f"record_{candidate.candidate_id}",
         source_candidate_id=candidate.candidate_id,
         transaction_date=normalized_date,
+        posted_date=normalized_posted_date,
         description=description,
         amount=amount,
         currency=currency,
@@ -212,10 +271,21 @@ def _normalize_field(
     candidate,
     min_confidence: float,
     findings: list[ValidationFinding],
+    require_section_context: bool,
 ) -> NormalizedFinancialField:
     reason_codes = list(candidate.reason_codes)
     value = (candidate.normalized_value or candidate.value_text).strip()
     quality_status = "valid"
+    if require_section_context and not (candidate.source and candidate.source.section_label):
+        reason_codes.append("MISSING_SECTION_CONTEXT")
+        quality_status = "warning"
+        findings.append(
+            ValidationFinding(
+                code="MISSING_SECTION_CONTEXT",
+                severity="warning",
+                message="Financial field does not include source-section context.",
+            )
+        )
     if candidate.confidence < min_confidence:
         reason_codes.append("LOW_CONFIDENCE_FIELD")
         quality_status = "warning"
@@ -239,10 +309,84 @@ def _normalize_field(
 
     return NormalizedFinancialField(
         field_name=candidate.field_name.strip().lower(),
+        field_label=candidate.field_label,
+        value_type=candidate.value_type,
         value=value,
         currency=(candidate.currency.upper() if candidate.currency else None),
         confidence=round(candidate.confidence, 3),
         source=candidate.source,
+        quality_status=quality_status,
+        reason_codes=reason_codes,
+    )
+
+
+def _normalize_entity(candidate, min_confidence: float, findings: list[ValidationFinding]) -> ValidatedEntity:
+    reason_codes = list(candidate.reason_codes)
+    value = (candidate.normalized_value or candidate.value_text).strip()
+    quality_status = _candidate_quality(candidate.confidence, min_confidence, reason_codes, "LOW_CONFIDENCE_ENTITY")
+    if quality_status == "warning":
+        findings.append(
+            ValidationFinding(
+                code="LOW_CONFIDENCE_ENTITY",
+                severity="warning",
+                message="Entity candidate confidence is below the configured validation threshold.",
+            )
+        )
+    return ValidatedEntity(
+        entity_id=candidate.entity_id,
+        entity_type=candidate.entity_type.strip().lower(),
+        value=value,
+        source=candidate.source,
+        confidence=round(candidate.confidence, 3),
+        quality_status=quality_status,
+        reason_codes=reason_codes,
+    )
+
+
+def _normalize_reference(candidate, min_confidence: float, findings: list[ValidationFinding]) -> ValidatedReference:
+    reason_codes = list(candidate.reason_codes)
+    value = (candidate.normalized_value or candidate.value_text).strip()
+    quality_status = _candidate_quality(candidate.confidence, min_confidence, reason_codes, "LOW_CONFIDENCE_REFERENCE")
+    if quality_status == "warning":
+        findings.append(
+            ValidationFinding(
+                code="LOW_CONFIDENCE_REFERENCE",
+                severity="warning",
+                message="Reference candidate confidence is below the configured validation threshold.",
+            )
+        )
+    if _looks_unmasked_sensitive(value, candidate.masked):
+        reason_codes.append("UNMASKED_SENSITIVE_REFERENCE")
+        quality_status = "warning"
+        findings.append(
+            ValidationFinding(
+                code="UNMASKED_SENSITIVE_REFERENCE",
+                severity="warning",
+                message="Reference candidate appears to contain sensitive digits without masking.",
+            )
+        )
+    return ValidatedReference(
+        reference_id=candidate.reference_id,
+        reference_type=candidate.reference_type.strip().lower(),
+        value=value,
+        masked=candidate.masked,
+        source=candidate.source,
+        confidence=round(candidate.confidence, 3),
+        quality_status=quality_status,
+        reason_codes=reason_codes,
+    )
+
+
+def _normalize_line_item(candidate, min_confidence: float, findings: list[ValidationFinding]) -> ValidatedLineItem:
+    reason_codes = list(candidate.reason_codes)
+    quality_status = _candidate_quality(candidate.confidence, min_confidence, reason_codes)
+    return ValidatedLineItem(
+        line_item_id=candidate.line_item_id,
+        description=_normalize_description(candidate.description),
+        amount=round(abs(candidate.amount), 2) if candidate.amount is not None else None,
+        currency=(candidate.currency or settings.default_currency).upper() if candidate.amount is not None else candidate.currency,
+        source=candidate.source,
+        confidence=round(candidate.confidence, 3),
         quality_status=quality_status,
         reason_codes=reason_codes,
     )
@@ -272,6 +416,49 @@ def _mark_duplicates(records: list[NormalizedTransactionRecord], findings: list[
             )
         else:
             seen[key] = record.record_id
+
+
+def _apply_ocr_review_gates(records: list[NormalizedTransactionRecord], findings: list[ValidationFinding]) -> None:
+    for record in records:
+        if OCR_REPAIR_REASON_CODES.intersection(record.reason_codes):
+            _mark_record_warning(record, "OCR_REPAIR_REVIEW")
+            findings.append(
+                ValidationFinding(
+                    code="OCR_REPAIR_REVIEW",
+                    severity="warning",
+                    message="Transaction text was repaired from OCR layout evidence and should be reviewed.",
+                    record_id=record.record_id,
+                )
+            )
+        if _looks_like_suspicious_ocr_description(record.description):
+            _mark_record_warning(record, "SUSPICIOUS_OCR_TEXT")
+            findings.append(
+                ValidationFinding(
+                    code="SUSPICIOUS_OCR_TEXT",
+                    severity="warning",
+                    message="Transaction description may contain OCR text damage.",
+                    record_id=record.record_id,
+                )
+            )
+
+
+def _mark_record_warning(record: NormalizedTransactionRecord, reason_code: str) -> None:
+    if reason_code not in record.reason_codes:
+        record.reason_codes.append(reason_code)
+    if record.quality_status == "valid":
+        record.quality_status = "warning"
+
+
+def _looks_like_suspicious_ocr_description(description: str) -> bool:
+    words = description.split()
+    if not words:
+        return True
+    first_word = re.sub(r"[^A-Za-z]", "", words[0])
+    if len(first_word) <= 1:
+        return True
+    if re.match(r"^[I1]ang\b", description, re.IGNORECASE):
+        return True
+    return False
 
 
 def _normalize_date(value: str | None) -> str | None:
@@ -309,6 +496,31 @@ def _dedupe_text(value: str) -> str:
     return NON_KEY_PATTERN.sub("", value.lower())
 
 
+def _candidate_quality(
+    confidence: float,
+    min_confidence: float,
+    reason_codes: list[str],
+    low_confidence_code: str = "LOW_CONFIDENCE_FIELD",
+) -> str:
+    if confidence < min_confidence:
+        reason_codes.append(low_confidence_code)
+        return "warning"
+    return "valid"
+
+
+def _looks_unmasked_sensitive(value: str, masked: bool) -> bool:
+    return not masked and bool(re.search(r"\d{8,}", value))
+
+
+def _document_financial_summary(fields: list[NormalizedFinancialField]) -> dict[str, str]:
+    # Transaction-table values stay with normalized records; this summary is for document-level facts.
+    return {
+        field.field_name: field.value
+        for field in fields
+        if field.source and field.source.section_label != "transaction_table"
+    }
+
+
 def _option_min_confidence(request: DataValidationRequest) -> float:
     if request.options and request.options.min_confidence is not None:
         return request.options.min_confidence
@@ -328,15 +540,22 @@ def _result(
     status: ValidationStatus,
     records: list[NormalizedTransactionRecord],
     fields: list[NormalizedFinancialField],
+    entities: list[ValidatedEntity],
+    references: list[ValidatedReference],
+    line_items: list[ValidatedLineItem],
     findings: list[ValidationFinding],
     min_confidence: float,
     duplicate_detection_enabled: bool,
 ) -> DataValidationResult:
-    finding_counts = dict(Counter(finding.code for finding in findings))
     valid_records = [record for record in records if record.quality_status == "valid"]
     warning_records = [record for record in records if record.quality_status == "warning"]
     invalid_records = [record for record in records if record.quality_status == "invalid"]
     duplicates = [record for record in records if record.duplicate_of]
+    review_items = _build_review_items(request, records, findings)
+    finding_counts = dict(Counter(finding.code for finding in findings))
+    reconciliation_delta = request.reconciliation.difference if request.reconciliation else None
+    document_review_status = _document_review_status(review_items, invalid_records)
+    recommended_action = _recommended_action(document_review_status, valid_records, review_items)
     debit_total = round(sum(record.amount for record in records if record.direction == "debit"), 2)
     credit_total = round(sum(record.amount for record in records if record.direction == "credit"), 2)
     net_total = round(sum(record.signed_amount for record in records), 2)
@@ -349,9 +568,17 @@ def _result(
         invalid_record_count=len(invalid_records),
         duplicate_record_count=len(duplicates),
         financial_field_count=len(fields),
+        section_candidate_count=len(request.section_candidates),
+        entity_count=len(entities),
+        reference_count=len(references),
+        line_item_count=len(line_items),
         debit_total=debit_total,
         credit_total=credit_total,
         net_total=net_total,
+        review_item_count=len(review_items),
+        document_review_status=document_review_status,
+        recommended_action=recommended_action,
+        reconciliation_delta=reconciliation_delta,
     )
     evaluation = ValidationEvaluation(
         validation_id=validation_id,
@@ -375,7 +602,103 @@ def _result(
         document_type=request.document_type,
         normalized_records=records,
         financial_fields=fields,
+        section_candidates=request.section_candidates,
+        validated_entities=entities,
+        validated_references=references,
+        validated_line_items=line_items,
+        document_financial_summary=_document_financial_summary(fields),
+        review_items=review_items,
         summary=summary,
         evaluation=evaluation,
         findings=findings,
     )
+
+
+def _build_review_items(
+    request: DataValidationRequest,
+    records: list[NormalizedTransactionRecord],
+    findings: list[ValidationFinding],
+) -> list[ReviewItem]:
+    items: list[ReviewItem] = []
+    if request.reconciliation and request.reconciliation.status == "needs_review":
+        delta = request.reconciliation.difference
+        items.append(
+            ReviewItem(
+                review_id="review_document_reconciliation",
+                item_type="document_reconciliation",
+                title="Statement totals do not match",
+                message=f"Extracted transactions differ from the document summary by {settings.default_currency} {abs(delta or 0):,.2f}.",
+                reason_codes=[*request.reconciliation.reason_codes, "DOCUMENT_RECONCILIATION_REVIEW"],
+                recommended_action="review_reconciliation",
+            )
+        )
+    finding_by_record: dict[str, list[ValidationFinding]] = {}
+    for finding in findings:
+        if finding.record_id:
+            finding_by_record.setdefault(finding.record_id, []).append(finding)
+
+    for record in records:
+        if record.quality_status == "valid" and not record.duplicate_of:
+            continue
+        record_findings = finding_by_record.get(record.record_id, [])
+        title, message = _record_review_copy(record, record_findings)
+        items.append(
+            ReviewItem(
+                review_id=f"review_{record.record_id}",
+                item_type="transaction",
+                severity="warning" if record.quality_status != "invalid" else "error",
+                title=title,
+                message=message,
+                record_id=record.record_id,
+                source=record.source,
+                reason_codes=record.reason_codes,
+                recommended_action="edit_accept_or_exclude",
+            )
+        )
+
+    return items
+
+
+def _record_review_copy(
+    record: NormalizedTransactionRecord,
+    record_findings: list[ValidationFinding],
+) -> tuple[str, str]:
+    reason_codes = set(record.reason_codes)
+    if record.duplicate_of:
+        return "Possible duplicate", "This transaction matches another row in the current upload."
+    if "SUSPICIOUS_OCR_TEXT" in reason_codes:
+        return "Check OCR text", f"Description may be missing characters: {record.description}"
+    if "OCR_REPAIR_REVIEW" in reason_codes:
+        return "Check repaired transaction", "Stats repaired this row from nearby OCR text."
+    if "INVALID_AMOUNT" in reason_codes or "MISSING_DESCRIPTION" in reason_codes:
+        return "Fix incomplete transaction", "Required transaction details are missing or invalid."
+    if "MISSING_TRANSACTION_DATE" in reason_codes or "UNKNOWN_DIRECTION" in reason_codes:
+        return "Check transaction details", "Date or debit/credit direction needs confirmation."
+    if record_findings:
+        return "Review transaction", record_findings[0].message
+    return "Review transaction", "This transaction needs confirmation before saving."
+
+
+def _document_review_status(
+    review_items: list[ReviewItem],
+    invalid_records: list[NormalizedTransactionRecord],
+) -> str:
+    if invalid_records:
+        return "blocked"
+    if review_items:
+        return "needs_review"
+    return "ready"
+
+
+def _recommended_action(
+    document_review_status: str,
+    valid_records: list[NormalizedTransactionRecord],
+    review_items: list[ReviewItem],
+) -> str:
+    if document_review_status == "blocked":
+        return "fix_blocking_errors"
+    if review_items and valid_records:
+        return "review_items_before_saving_all"
+    if review_items:
+        return "review_items"
+    return "save_ready_transactions"

@@ -28,7 +28,7 @@ Primary result:
 - `text` and per-page text results.
 - `metadata` for extraction method, OCR engine, page counts, elapsed time, language, page limit, OCR quality score, OCR mean confidence, selected orientation, selected PSM, and OCR attempt count.
 - `strategy` decision showing the selected parse strategy and fallback readiness.
-- `classification` with document type, confidence, status, reason codes, and scores.
+- `classification` with document type, document subtype, confidence, status, reason codes, and scores from the shared classification vocabulary/rules.
 - `quality` and `evaluation` fields for measurable project outcomes.
 - `evidence` preview with personal information, card numbers, and account numbers redacted.
 - `findings` for unsupported files, OCR dependency gaps, OCR retry/quality signals, low text, or ambiguous classification.

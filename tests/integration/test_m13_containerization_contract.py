@@ -6,6 +6,7 @@
 #   From M13 onward, official execution of this contract belongs inside the
 #   Stats runtime container via tests/scripts/regression/run_module_unit_tests.ps1.
 
+import json
 from pathlib import Path
 
 REPO_ROOT       = Path(__file__).parent.parent.parent
@@ -18,6 +19,8 @@ TEST_INPUT_DIR  = REPO_ROOT / "tests/input"
 EVIDENCE_RUNNER = REPO_ROOT / "tests/scripts" / "M13-Containerization" / "run_docker_acceptance_evidence.ps1"
 REGRESSION_RUNNER = REPO_ROOT / "tests/scripts" / "regression" / "run_docker_full_regression_evidence.ps1"
 MODULE_UNIT_RUNNER = REPO_ROOT / "tests/scripts" / "regression" / "run_module_unit_tests.ps1"
+CLASSIFICATION_VOCABULARY = REPO_ROOT / "config" / "document-classification.vocabulary.json"
+CLASSIFICATION_RULES = REPO_ROOT / "config" / "document-classification.rules.json"
 
 
 # -- File existence -----------------------------------------------------------
@@ -99,6 +102,28 @@ def test_dockerfile_copies_central_config_for_fail_fast_startup():
     assert "STATS_RUNTIME_CONFIG=/app/config/stats.runtime.json" in content
     assert "STATS_PATHS_CONFIG=/app/config/stats.paths.json" in content
     assert "STATS_LOGGING_CONFIG=/app/config/stats.logging.json" in content
+
+
+def test_document_classification_json_contract_is_packaged_and_loadable():
+    content = DOCKERFILE.read_text()
+    assert "COPY config/ /app/config/" in content, \
+        "Dockerfile must package shared classification config with the Stats runtime"
+    assert CLASSIFICATION_VOCABULARY.exists(), f"Classification vocabulary JSON not found at {CLASSIFICATION_VOCABULARY}"
+    assert CLASSIFICATION_RULES.exists(), f"Classification rules JSON not found at {CLASSIFICATION_RULES}"
+
+    vocabulary = json.loads(CLASSIFICATION_VOCABULARY.read_text())
+    rules = json.loads(CLASSIFICATION_RULES.read_text())
+
+    assert "document_types" in vocabulary
+    assert "document_subtypes" in vocabulary
+    assert "statement" in vocabulary["document_types"]
+    assert "credit_card_statement" in vocabulary["document_subtypes"]["statement"]
+    assert rules.get("rules"), "Classification rules JSON must contain at least one rule"
+    for rule in rules["rules"]:
+        assert rule["document_type"] in vocabulary["document_types"]
+        assert rule["document_subtype"] in vocabulary["document_subtypes"][rule["document_type"]]
+        assert rule.get("reason_code")
+        assert rule.get("required_any") or rule.get("signals")
 
 
 def test_dockerfile_packages_transaction_extraction_module():

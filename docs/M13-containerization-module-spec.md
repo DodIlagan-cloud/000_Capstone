@@ -119,6 +119,7 @@ The Dockerfile must:
 - Install Tesseract and the English OCR language data package from the base OS package manager.
 - Install all Python module dependencies from each module's `requirements.txt`.
 - Copy all module source code under their respective paths inside the image.
+- Copy shared root `config/` files, including document-classification vocabulary and rules JSON, so M5 classification uses the same contract inside the container that the specs define.
 - Copy the built Stats Web output from the build stage.
 - Set `TESSDATA_PREFIX` to the correct tessdata directory inside the image.
 - Set `TESSERACT_CMD` to the Tesseract executable path inside the image.
@@ -303,6 +304,7 @@ Container-executed contract checks must verify:
 - The Compose file exists at the expected path.
 - The Dockerfile references Tesseract installation.
 - The Dockerfile references tessdata language data installation.
+- The Dockerfile packages shared classification vocabulary/rules JSON and the files are valid JSON with the expected top-level contract.
 - The startup script starts each module API before Stats Web.
 - The startup script performs health checks before proceeding.
 - The `.env.container.example` documents the required OCR environment variables.
