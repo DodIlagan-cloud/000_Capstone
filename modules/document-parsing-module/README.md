@@ -10,7 +10,7 @@ It owns reusable document parsing behavior:
 - direct PDF text extraction
 - Tesseract OCR fallback for scanned PDFs and supported images when configured
 - EXIF-aware image normalization, orientation retry, OCR preprocessing, and OCR quality scoring
-- document classification as bank statement, receipt, invoice, utility bill, or unknown
+- document classification using shared type/subtype vocabulary and generic text-signal rules
 - parse quality and evaluation metadata
 - redacted evidence previews for ethical data handling
 
@@ -52,5 +52,14 @@ Local override values may be placed in `.env`, which should remain uncommitted.
 Tesseract is a Stats runtime dependency made available to this module when OCR fallback is enabled. Cloud/runtime portability belongs to the M13 top-level Stats container.
 
 Image OCR can be tuned through `OCR_PSM_VALUES`, `OCR_RETRY_ORIENTATIONS`, `OCR_MIN_CONFIDENCE`, `OCR_MIN_QUALITY_SCORE`, and `OCR_MIN_ALNUM_RATIO`. M5 records the selected orientation, selected PSM, attempt count, mean confidence, and quality score in parse metadata so downstream modules can evaluate OCR reliability.
+
+Document classification is driven by root shared config:
+
+```text
+config/document-classification.vocabulary.json
+config/document-classification.rules.json
+```
+
+Runtime uploads do not mutate these files; unknown document shapes are flagged for later developer-reviewed vocabulary/rule updates.
 
 <!-- M5/M6 End -->

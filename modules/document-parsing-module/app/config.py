@@ -76,6 +76,8 @@ class Settings:
     ocr_min_quality_score: float
     ocr_min_alnum_ratio: float
     supported_document_types: List[str]
+    document_classification_vocabulary_path: Path
+    document_classification_rules_path: Path
     classification_confidence_threshold: float
     classification_allow_unknown: bool
     extraction_timeout_seconds: int
@@ -121,6 +123,12 @@ class Settings:
         self.supported_document_types = self._parse_csv_values(
             _config_value(config_values, "SUPPORTED_DOCUMENT_TYPES"),
             lowercase=True,
+        )
+        self.document_classification_vocabulary_path = self._resolve_stats_path(
+            config_values.get("DOCUMENT_CLASSIFICATION_VOCABULARY_PATH", "config/document-classification.vocabulary.json")
+        )
+        self.document_classification_rules_path = self._resolve_stats_path(
+            config_values.get("DOCUMENT_CLASSIFICATION_RULES_PATH", "config/document-classification.rules.json")
         )
         self.classification_confidence_threshold = _parse_float(
             _config_value(config_values, "CLASSIFICATION_CONFIDENCE_THRESHOLD"),
@@ -186,6 +194,24 @@ class Settings:
         configured_path = Path(value)
         if configured_path.is_absolute():
             return configured_path
+
+        return (SERVICE_ROOT / configured_path).resolve()
+
+    @staticmethod
+    def _resolve_stats_path(value: str) -> Path:
+        configured_path = Path(value)
+        if configured_path.is_absolute():
+            return configured_path
+
+        app_root = Path(os.environ.get("STATS_APP_ROOT", "")).resolve() if os.environ.get("STATS_APP_ROOT") else None
+        if app_root:
+            candidate = app_root / configured_path
+            if candidate.exists():
+                return candidate.resolve()
+
+        repo_root_candidate = SERVICE_ROOT.parents[1] / configured_path
+        if repo_root_candidate.exists():
+            return repo_root_candidate.resolve()
 
         return (SERVICE_ROOT / configured_path).resolve()
 

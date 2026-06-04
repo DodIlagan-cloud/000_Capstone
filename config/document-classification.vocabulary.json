@@ -1,0 +1,49 @@
+{
+  "document_types": [
+    "statement",
+    "receipt",
+    "invoice",
+    "payment_proof",
+    "utility_bill",
+    "unknown"
+  ],
+  "document_subtypes": {
+    "statement": [
+      "credit_card_statement",
+      "account_statement",
+      "loan_statement",
+      "unknown"
+    ],
+    "receipt": [
+      "sales_receipt",
+      "tax_receipt",
+      "payment_terminal_receipt",
+      "card_receipt",
+      "medical_receipt",
+      "unknown"
+    ],
+    "invoice": [
+      "service_invoice",
+      "medical_invoice",
+      "tax_invoice",
+      "utility_invoice",
+      "unknown"
+    ],
+    "payment_proof": [
+      "bank_transfer_proof",
+      "card_payment_proof",
+      "eftpos_proof",
+      "unknown"
+    ],
+    "utility_bill": [
+      "electricity_bill",
+      "water_bill",
+      "gas_bill",
+      "telecommunications_bill",
+      "unknown"
+    ],
+    "unknown": [
+      "unknown"
+    ]
+  }
+}

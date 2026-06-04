@@ -6,7 +6,12 @@ M5/M6 End"""
 def test_parse_endpoint_returns_trace_classification_and_evaluation(client, monkeypatch, sample_pdf_content):
     monkeypatch.setattr(
         "app.services.parsing_service._extract_pdf_text",
-        lambda content, page_limit: ("Bank Statement Account Balance Transaction Debit Credit Closing Balance", [], 1),
+        lambda content, page_limit: (
+            "Account Statement Account Number 12345 Opening Balance 100.00 "
+            "Closing Balance 50.00 Deposits Withdrawals Running Balance Transaction History",
+            [],
+            1,
+        ),
     )
 
     response = client.post(
@@ -20,7 +25,8 @@ def test_parse_endpoint_returns_trace_classification_and_evaluation(client, monk
     assert payload["status"] == "completed"
     assert payload["document"]["ingestion_id"] == "ing_api_1"
     assert payload["document"]["source_type"] == "manual_upload"
-    assert payload["classification"]["document_type"] == "bank_statement"
+    assert payload["classification"]["document_type"] == "statement"
+    assert payload["classification"]["document_subtype"] == "account_statement"
     assert payload["evaluation"]["document_id"] == "ing_api_1"
     assert payload["strategy"]["selected_strategy"] == "pdf_text"
     assert payload["m7_handoff"]["parse_id"] == payload["parse_id"]

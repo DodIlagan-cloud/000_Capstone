@@ -10,6 +10,7 @@ It owns reusable transaction extraction behavior:
 - consuming parsed text and classification context from M5
 - detecting transaction-like candidate rows
 - detecting document-level financial field candidates
+- detecting source sections, entities, references, and optional line-item candidates
 - returning source line/page and confidence metadata
 - returning explicit findings for missing, ambiguous, unsupported, or low-confidence extraction states
 - exposing evaluation metadata for later evidence
@@ -41,5 +42,7 @@ config/defaults.env
 ```
 
 Local override values may be placed in `.env`, which should remain uncommitted.
+
+`ENABLE_LINE_ITEMS` controls whether item/service row candidates are emitted from receipt, invoice, and itemized financial sections.
 
 <!-- M7 End -->
