@@ -15,6 +15,7 @@ const dataValidationBaseUrl = document.body.dataset.dataValidationBaseUrl ?? "";
 
 let selectedFile = null;
 let acceptedValidation = null;
+const uploadSteps = ["File accepted", "Document uploaded", "Text read", "Transactions checked"];
 
 function formatFileSize(bytes) {
   if (bytes < 1024) {
@@ -65,6 +66,15 @@ function humanizeStatus(value) {
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Pending";
 }
 
+function documentClassificationLabel(classification = {}, fallbackType = "unknown") {
+  const subtype = classification.document_subtype;
+  if (subtype && subtype !== "unknown") {
+    return humanizeStatus(subtype);
+  }
+
+  return humanizeStatus(classification.document_type || fallbackType || "unknown");
+}
+
 function userRecordStatus(record) {
   if (record.duplicate_of) {
     return "Possible duplicate";
@@ -76,6 +86,300 @@ function userRecordStatus(record) {
     return "Needs review";
   }
   return "Ready";
+}
+
+function formatTableCell(value) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  return String(value);
+}
+
+function numericValue(value) {
+  const parsed = Number(String(value ?? "").replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function transactionFieldsComplete(record) {
+  return Boolean(
+    record.transaction_date
+      && record.description
+      && Number(record.amount) > 0
+      && record.currency
+      && ["debit", "credit"].includes(String(record.direction || "").toLowerCase()),
+  );
+}
+
+function createReviewState(result) {
+  const records = (result.normalized_records || []).map((record) => ({ ...record }));
+  const installments = (result.normalized_installments || []).map((installment) => ({ ...installment }));
+  return {
+    records,
+    installments,
+    acceptedRecordIds: new Set(
+      records
+        .filter((record) => userRecordStatus(record) === "Ready" && transactionFieldsComplete(record))
+        .map((record) => record.record_id),
+    ),
+    acceptedInstallmentIds: new Set(
+      installments
+        .filter((installment) => userRecordStatus(installment) === "Ready" && installmentFieldsComplete(installment))
+        .map((installment) => installment.installment_id),
+    ),
+  };
+}
+
+function localRecordStatus(record, reviewState) {
+  if (reviewState.acceptedRecordIds.has(record.record_id) && transactionFieldsComplete(record)) {
+    return "Ready";
+  }
+  return userRecordStatus(record);
+}
+
+function installmentFieldsComplete(installment) {
+  return Boolean(
+    installment.description
+      && installment.currency
+      && (
+        Number(installment.principal_amount) > 0
+        || Number(installment.current_billing_amount) > 0
+        || Number(installment.remaining_balance) > 0
+      ),
+  );
+}
+
+function localInstallmentStatus(installment, reviewState) {
+  if (reviewState.acceptedInstallmentIds.has(installment.installment_id) && installmentFieldsComplete(installment)) {
+    return "Ready";
+  }
+  return userRecordStatus(installment);
+}
+
+function editableRecordFields(record) {
+  return [
+    ["transaction_date", "Date", "date"],
+    ["posted_date", "Posted date", "date"],
+    ["description", "Description", "text"],
+    ["amount", "Amount", "number"],
+    ["currency", "Currency", "text"],
+    ["direction", "Direction", "select"],
+  ].map(([name, label, type]) => ({ name, label, type, value: record[name] ?? "" }));
+}
+
+function editableInstallmentFields(installment) {
+  return [
+    ["purchase_date", "Purchase date", "date"],
+    ["posted_date", "Posted date", "date"],
+    ["description", "Description", "text"],
+    ["principal_amount", "Principal amount", "number"],
+    ["current_billing_amount", "Current billed", "number"],
+    ["remaining_balance", "Remaining balance", "number"],
+    ["currency", "Currency", "text"],
+    ["term_text", "Term", "text"],
+  ].map(([name, label, type]) => ({ name, label, type, value: installment[name] ?? "" }));
+}
+
+function fieldValueFromInput(input, fieldName) {
+  if (["amount", "principal_amount", "current_billing_amount", "remaining_balance"].includes(fieldName)) {
+    return Math.abs(numericValue(input.value));
+  }
+  if (fieldName === "currency") {
+    return input.value.trim().toUpperCase() || "PHP";
+  }
+  return input.value.trim();
+}
+
+function applyEditedRecord(record, values) {
+  Object.assign(record, values);
+  record.direction = String(record.direction || "").toLowerCase();
+  record.amount = Math.abs(numericValue(record.amount));
+  record.signed_amount = record.direction === "credit" ? record.amount : -record.amount;
+  if (transactionFieldsComplete(record) && record.quality_status === "invalid") {
+    record.quality_status = "warning";
+  }
+}
+
+function applyEditedInstallment(installment, values) {
+  Object.assign(installment, values);
+  ["principal_amount", "current_billing_amount", "remaining_balance"].forEach((fieldName) => {
+    if (installment[fieldName] !== "" && installment[fieldName] !== null && installment[fieldName] !== undefined) {
+      installment[fieldName] = Math.abs(numericValue(installment[fieldName]));
+    }
+  });
+  installment.currency = String(installment.currency || "PHP").trim().toUpperCase();
+  if (installmentFieldsComplete(installment) && installment.quality_status === "invalid") {
+    installment.quality_status = "warning";
+  }
+}
+
+function reconciliationSnapshot(reviewState, extractionResult) {
+  const reconciliation = extractionResult?.reconciliation || null;
+  if (!reconciliation || reconciliation.status === "not_available" || reconciliation.total_due === null || reconciliation.total_due === undefined) {
+    return {
+      available: false,
+      matched: true,
+      debitTotal: 0,
+      creditTotal: 0,
+      computedTotalDue: null,
+      documentTotalDue: null,
+      difference: null,
+      currency: "PHP",
+    };
+  }
+
+  const debitTotal = reviewState.records
+    .filter((record) => record.direction === "debit")
+    .reduce((total, record) => total + numericValue(record.amount), 0);
+  const creditTotal = reviewState.records
+    .filter((record) => record.direction === "credit")
+    .reduce((total, record) => total + numericValue(record.amount), 0);
+  const statementCreditTotal = numericValue(reconciliation.credit_total);
+  const effectiveCreditTotal = statementCreditTotal > 0 ? statementCreditTotal : creditTotal;
+  const previousBalance = numericValue(reconciliation.previous_balance);
+  const documentTotalDue = numericValue(reconciliation.total_due);
+  const computedTotalDue = previousBalance + debitTotal - effectiveCreditTotal;
+  const difference = computedTotalDue - documentTotalDue;
+
+  return {
+    available: true,
+    matched: Math.abs(difference) <= 0.01,
+    debitTotal,
+    creditTotal: effectiveCreditTotal,
+    computedTotalDue,
+    documentTotalDue,
+    difference,
+    currency: "PHP",
+  };
+}
+
+function displayRowsForExtractedTable(tableGroup) {
+  const rows = tableGroup.rows || [];
+  if (tableGroup.table_id !== "statement_summary") {
+    return rows;
+  }
+
+  const seenFields = new Set();
+  return rows.filter((rowData) => {
+    const values = rowData.values || {};
+    const field = String(values.Field || values.FIELD || "").trim();
+    const canonical = field.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    if (!canonical || canonical === "purchase") {
+      return false;
+    }
+    if (seenFields.has(canonical)) {
+      return false;
+    }
+    seenFields.add(canonical);
+    return true;
+  });
+}
+
+function renderExtractedDataTables(extractionResult) {
+  const tables = (extractionResult?.document_tables || []).filter((tableGroup) => tableGroup.table_id !== "transactions");
+  if (!tables.length) {
+    return null;
+  }
+
+  const section = document.createElement("details");
+  section.className = "extracted-data";
+  const heading = document.createElement("summary");
+  heading.textContent = "View all extracted data";
+  section.append(heading);
+
+  tables.forEach((tableGroup) => {
+    const tableSection = document.createElement("section");
+    tableSection.className = "extracted-data-table";
+
+    const title = document.createElement("h5");
+    title.textContent = tableGroup.title || humanizeStatus(tableGroup.table_id);
+    tableSection.append(title);
+
+    const rows = displayRowsForExtractedTable(tableGroup);
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No rows found.";
+      tableSection.append(empty);
+      section.append(tableSection);
+      return;
+    }
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "table-wrap";
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    (tableGroup.columns || []).forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headerRow.append(th);
+    });
+    thead.append(headerRow);
+
+    const tbody = document.createElement("tbody");
+    rows.forEach((rowData) => {
+      const row = document.createElement("tr");
+      const values = rowData.values || {};
+      (tableGroup.columns || []).forEach((column) => {
+        const cell = document.createElement("td");
+        const value = values[column];
+        if (column.toLowerCase() === "status") {
+          const pill = document.createElement("span");
+          const status = formatTableCell(value);
+          pill.className = status === "Ready" || status === "extracted" ? "state-pill" : "state-pill pending";
+          pill.textContent = status;
+          cell.append(pill);
+        } else {
+          cell.textContent = formatTableCell(value);
+        }
+        row.append(cell);
+      });
+      tbody.append(row);
+    });
+    table.append(thead, tbody);
+    tableWrap.append(table);
+    tableSection.append(tableWrap);
+    section.append(tableSection);
+  });
+
+  return section;
+}
+
+function renderProcessingProgress(activeIndex, title = "Processing document", message = "Stats is checking the document.") {
+  parseResult.hidden = false;
+  parseResult.dataset.status = "accepted";
+  parseResult.replaceChildren();
+
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+
+  const copy = document.createElement("p");
+  copy.textContent = message;
+
+  const steps = document.createElement("ol");
+  steps.className = "processing-steps";
+  uploadSteps.forEach((label, index) => {
+    const item = document.createElement("li");
+    const marker = document.createElement("span");
+    marker.className = "step-marker";
+
+    if (index < activeIndex) {
+      item.dataset.state = "done";
+      marker.textContent = "Done";
+    } else if (index === activeIndex) {
+      item.dataset.state = "active";
+      marker.textContent = "Now";
+    } else {
+      item.dataset.state = "pending";
+      marker.textContent = "Next";
+    }
+
+    const text = document.createElement("span");
+    text.textContent = label;
+    item.append(marker, text);
+    steps.append(item);
+  });
+
+  parseResult.append(heading, copy, steps);
 }
 
 function renderSelectedFile(file) {
@@ -92,14 +396,14 @@ function renderSelectedFile(file) {
 }
 
 function renderValidationResult(result) {
-  validationResult.hidden = false;
+  validationResult.hidden = true;
   validationResult.dataset.status = result.status;
   validationResult.replaceChildren();
 
   const findings = result.findings || [];
   const metadata = result.metadata || {};
   const heading = document.createElement("h3");
-  heading.textContent = result.status === "accepted" ? "Accepted" : "Rejected";
+  heading.textContent = result.status === "accepted" ? "File checked" : "File needs review";
 
   const metadataList = document.createElement("dl");
   [
@@ -159,6 +463,7 @@ async function validateSelectedFile(file) {
   ingestionResult.hidden = true;
   parseResult.hidden = true;
   setValidationState("Validating file.", "pending");
+  renderProcessingProgress(0, "Checking document", "Stats is checking whether this file can be processed.");
 
   try {
     const response = await fetch(statsApiUrl(fileValidationBaseUrl, "/api/v1/files/validate"), {
@@ -175,6 +480,7 @@ async function validateSelectedFile(file) {
 
     if (result.status === "accepted") {
       acceptedValidation = result;
+      renderProcessingProgress(1, "Processing document", "The file is accepted. Stats is uploading it for processing.");
       setValidationState("File accepted. Sending it to processing.", "pending");
       await sendAcceptedFileToProcessing();
       return;
@@ -187,12 +493,12 @@ async function validateSelectedFile(file) {
 }
 
 function renderIngestionResult(record) {
-  ingestionResult.hidden = false;
+  ingestionResult.hidden = true;
   ingestionResult.dataset.status = record.status === "queued" ? "accepted" : "rejected";
   ingestionResult.replaceChildren();
 
   const heading = document.createElement("h3");
-  heading.textContent = record.status === "queued" ? "Queued for processing" : "Not queued";
+  heading.textContent = record.status === "queued" ? "Document uploaded" : "Document upload needs review";
 
   const handoff = record.handoff || {};
   const source = record.source || {};
@@ -237,10 +543,11 @@ function renderParseResult(result) {
 
   const documentInfo = result.document || {};
   const classification = result.classification || {};
+  const documentTypeLabel = documentClassificationLabel(classification, documentInfo.document_type);
   const details = document.createElement("dl");
   [
     ["File", documentInfo.original_filename || selectedFile?.name || "Selected document"],
-    ["Document type", humanizeStatus(classification.document_type || documentInfo.document_type || "unknown")],
+    ["Document type", documentTypeLabel],
     ["Text read", result.status === "failed" ? "Needs review" : "Yes"],
   ].forEach(([label, value]) => {
     const row = document.createElement("div");
@@ -299,11 +606,340 @@ function buildValidationRequest(extractionResult) {
     document_type: extractionResult.document_type,
     transaction_candidates: extractionResult.transaction_candidates || [],
     financial_field_candidates: extractionResult.financial_field_candidates || [],
+    section_candidates: extractionResult.section_candidates || [],
+    entity_candidates: extractionResult.entity_candidates || [],
+    reference_candidates: extractionResult.reference_candidates || [],
+    line_item_candidates: extractionResult.line_item_candidates || [],
+    installment_candidates: extractionResult.installment_candidates || [],
+    reconciliation: extractionResult.reconciliation || null,
     findings: extractionResult.findings || [],
   };
 }
 
-function renderTransactionCheckResult(result, parsePayload, extractionResult) {
+function reviewItemRecord(reviewItem, records) {
+  return (records || []).find((record) => record.record_id === reviewItem.record_id);
+}
+
+function reviewItemInstallment(reviewItem, installments) {
+  return (installments || []).find((installment) => installment.installment_id === reviewItem.record_id);
+}
+
+function renderReviewItemEditor(record, onChange, options = {}) {
+  const form = document.createElement("form");
+  form.className = "review-edit-form";
+
+  const inputs = new Map();
+  const fields = options.kind === "installment" ? editableInstallmentFields(record) : editableRecordFields(record);
+  fields.forEach((field) => {
+    const label = document.createElement("label");
+    label.textContent = field.label;
+
+    let input;
+    if (field.type === "select") {
+      input = document.createElement("select");
+      ["debit", "credit"].forEach((optionValue) => {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = humanizeStatus(optionValue);
+        option.selected = String(field.value).toLowerCase() === optionValue;
+        input.append(option);
+      });
+    } else {
+      input = document.createElement("input");
+      input.type = field.type;
+      input.value = field.value;
+      if (["amount", "principal_amount", "current_billing_amount", "remaining_balance"].includes(field.name)) {
+        input.step = "0.01";
+        input.min = "0";
+      }
+    }
+
+    input.name = field.name;
+    inputs.set(field.name, input);
+    label.append(input);
+    form.append(label);
+  });
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "submit";
+  saveButton.textContent = "Save edit";
+  form.append(saveButton);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = {};
+    inputs.forEach((input, fieldName) => {
+      values[fieldName] = fieldValueFromInput(input, fieldName);
+    });
+    if (options.kind === "installment") {
+      applyEditedInstallment(record, values);
+    } else {
+      applyEditedRecord(record, values);
+    }
+    onChange();
+  });
+
+  return form;
+}
+
+function renderReviewItems(result, reviewState, onChange) {
+  const reviewItems = (result.review_items || []).filter((item) => {
+    if (!item.record_id) {
+      return true;
+    }
+    const record = reviewItemRecord(item, reviewState.records);
+    if (record) {
+      return localRecordStatus(record, reviewState) !== "Ready";
+    }
+    const installment = reviewItemInstallment(item, reviewState.installments);
+    return installment && localInstallmentStatus(installment, reviewState) !== "Ready";
+  });
+  if (!reviewItems.length) {
+    return null;
+  }
+
+  const section = document.createElement("section");
+  section.className = "guided-review";
+  const heading = document.createElement("h4");
+  heading.textContent = "Needs review";
+  const copy = document.createElement("p");
+  copy.textContent = "Stats found a few items that need attention before everything is saved.";
+  section.append(heading, copy);
+
+  reviewItems.forEach((item) => {
+    const row = document.createElement("article");
+    row.className = "review-item";
+    const title = document.createElement("h5");
+    title.textContent = item.title || "Review item";
+    const message = document.createElement("p");
+    message.textContent = item.message || "This item needs review.";
+    row.append(title, message);
+
+    const record = reviewItemRecord(item, reviewState.records);
+    const installment = reviewItemInstallment(item, reviewState.installments);
+    if (record) {
+      const details = document.createElement("dl");
+      [
+        ["Date", record.transaction_date || "Needs review"],
+        ["Description", record.description || "Needs review"],
+        ["Amount", formatMoney(record.amount, record.currency)],
+        ["Status", localRecordStatus(record, reviewState)],
+      ].forEach(([label, value]) => {
+        const itemRow = document.createElement("div");
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = label;
+        description.textContent = value;
+        itemRow.append(term, description);
+        details.append(itemRow);
+      });
+      row.append(details);
+    }
+    if (installment) {
+      const details = document.createElement("dl");
+      [
+        ["Purchase date", installment.purchase_date || "Needs review"],
+        ["Description", installment.description || "Needs review"],
+        ["Principal", installment.principal_amount ? formatMoney(installment.principal_amount, installment.currency) : "Needs review"],
+        ["Term", installment.term_text || "Needs review"],
+        ["Status", localInstallmentStatus(installment, reviewState)],
+      ].forEach(([label, value]) => {
+        const itemRow = document.createElement("div");
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = label;
+        description.textContent = value;
+        itemRow.append(term, description);
+        details.append(itemRow);
+      });
+      row.append(details);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "review-actions";
+    if (record) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.textContent = "Edit";
+      editButton.addEventListener("click", () => {
+        const existingForm = row.querySelector(".review-edit-form");
+        if (existingForm) {
+          existingForm.remove();
+          return;
+        }
+        row.append(renderReviewItemEditor(record, onChange));
+      });
+
+      const acceptButton = document.createElement("button");
+      acceptButton.type = "button";
+      acceptButton.textContent = "Accept";
+      acceptButton.disabled = !transactionFieldsComplete(record);
+      acceptButton.title = acceptButton.disabled ? "Complete transaction details before accepting this row." : "";
+      acceptButton.addEventListener("click", () => {
+        reviewState.acceptedRecordIds.add(record.record_id);
+        record.quality_status = "valid";
+        onChange();
+      });
+
+      actions.append(editButton, acceptButton);
+    }
+    if (installment) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.textContent = "Edit";
+      editButton.addEventListener("click", () => {
+        const existingForm = row.querySelector(".review-edit-form");
+        if (existingForm) {
+          existingForm.remove();
+          return;
+        }
+        row.append(renderReviewItemEditor(installment, onChange, { kind: "installment" }));
+      });
+
+      const acceptButton = document.createElement("button");
+      acceptButton.type = "button";
+      acceptButton.textContent = "Accept";
+      acceptButton.disabled = !installmentFieldsComplete(installment);
+      acceptButton.title = acceptButton.disabled ? "Complete installment details before accepting this row." : "";
+      acceptButton.addEventListener("click", () => {
+        reviewState.acceptedInstallmentIds.add(installment.installment_id);
+        installment.quality_status = "valid";
+        onChange();
+      });
+
+      actions.append(editButton, acceptButton);
+    }
+    row.append(actions);
+    section.append(row);
+  });
+
+  return section;
+}
+
+function renderReconciliationStatus(snapshot, allRowsAccepted) {
+  if (!snapshot.available) {
+    return null;
+  }
+
+  const panel = document.createElement("section");
+  panel.className = snapshot.matched && allRowsAccepted ? "reconciliation-status matched" : "reconciliation-status";
+  const heading = document.createElement("h4");
+  heading.textContent = snapshot.matched ? "Totals match the document" : "Totals still need review";
+  const copy = document.createElement("p");
+  copy.textContent = snapshot.matched
+    ? "The edited transaction total aligns with the document summary."
+    : `The transaction total is off by ${formatMoney(snapshot.difference, snapshot.currency)}. Review edited rows before saving.`;
+  panel.append(heading, copy);
+
+  const details = document.createElement("dl");
+  [
+    ["Document total due", formatMoney(snapshot.documentTotalDue, snapshot.currency)],
+    ["Computed total due", formatMoney(snapshot.computedTotalDue, snapshot.currency)],
+    ["Difference", formatMoney(snapshot.difference, snapshot.currency)],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value;
+    row.append(term, description);
+    details.append(row);
+  });
+  panel.append(details);
+  return panel;
+}
+
+function renderReadyTransactions(reviewState, reconciliationMatched, onChange) {
+  const records = reviewState.records.filter((record) => localRecordStatus(record, reviewState) === "Ready");
+  if (!records.length) {
+    return null;
+  }
+
+  const section = document.createElement("section");
+  section.className = "ready-transactions";
+  const heading = document.createElement("h4");
+  heading.textContent = reconciliationMatched ? "Ready transactions" : "Accepted transactions";
+  section.append(heading);
+  if (!reconciliationMatched) {
+    const copy = document.createElement("p");
+    copy.textContent = "These rows are accepted locally, but final save readiness waits for the document totals to match.";
+    section.append(copy);
+  }
+  section.append(renderRecordsTable(records, reviewState, onChange));
+  return section;
+}
+
+function renderRecordsTable(records, reviewState, onChange) {
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "table-wrap transaction-preview";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  ["Date", "Description", "Amount", "Status", "Actions"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headerRow.append(th);
+  });
+  thead.append(headerRow);
+
+  const tbody = document.createElement("tbody");
+  records.forEach((record) => {
+    const row = document.createElement("tr");
+    const status = localRecordStatus(record, reviewState);
+    [
+      record.transaction_date || "Needs review",
+      record.description || "Needs review",
+      formatMoney(record.amount, record.currency),
+      status,
+    ].forEach((value, index) => {
+      const cell = document.createElement("td");
+      if (index === 3) {
+        const pill = document.createElement("span");
+        pill.className = status === "Ready" ? "state-pill" : "state-pill pending";
+        pill.textContent = value;
+        cell.append(pill);
+      } else {
+        cell.textContent = value;
+      }
+      row.append(cell);
+    });
+    const actionCell = document.createElement("td");
+    actionCell.className = "row-action-cell";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "row-edit-action";
+    editButton.textContent = "Edit";
+    editButton.addEventListener("click", () => {
+      const nextRow = row.nextElementSibling;
+      if (nextRow?.classList.contains("inline-edit-row")) {
+        nextRow.remove();
+        return;
+      }
+
+      const editRow = document.createElement("tr");
+      editRow.className = "inline-edit-row";
+      const editCell = document.createElement("td");
+      editCell.colSpan = 5;
+      editCell.append(renderReviewItemEditor(record, onChange));
+      editRow.append(editCell);
+      row.after(editRow);
+    });
+    actionCell.append(editButton);
+    row.append(actionCell);
+    tbody.append(row);
+  });
+  table.append(thead, tbody);
+  tableWrap.append(table);
+  return tableWrap;
+}
+
+function renderTransactionCheckResult(result, parsePayload, extractionResult, existingReviewState = null) {
+  const reviewState = existingReviewState || createReviewState(result);
+  const rerender = () => renderTransactionCheckResult(result, parsePayload, extractionResult, reviewState);
+  const reconciliation = reconciliationSnapshot(reviewState, extractionResult);
+  const allRowsAccepted = reviewState.records.every((record) => localRecordStatus(record, reviewState) === "Ready");
+  const finalReady = allRowsAccepted && reconciliation.matched;
+
   parseResult.hidden = false;
   parseResult.dataset.status = result.status === "failed" ? "rejected" : "accepted";
   parseResult.replaceChildren();
@@ -315,8 +951,11 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
   intro.textContent = "Review what Stats found before saving transactions.";
 
   const summary = result.summary || {};
-  const readyCount = summary.valid_record_count ?? 0;
-  const reviewCount = (summary.warning_record_count ?? 0) + (summary.invalid_record_count ?? 0);
+  const acceptedCount = reviewState.records.filter((record) => localRecordStatus(record, reviewState) === "Ready").length;
+  const unacceptedCount = reviewState.records.length - acceptedCount;
+  const reconciliationReviewCount = reconciliation.available && !reconciliation.matched ? 1 : 0;
+  const readyCount = finalReady ? acceptedCount : 0;
+  const reviewCount = unacceptedCount + reconciliationReviewCount;
 
   const steps = document.createElement("ol");
   steps.className = "processing-steps";
@@ -345,6 +984,26 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
 
   parseResult.append(heading, intro, steps, metrics);
 
+  const reconciliationStatus = renderReconciliationStatus(reconciliation, allRowsAccepted);
+  if (reconciliationStatus) {
+    parseResult.append(reconciliationStatus);
+  }
+
+  const guidedReview = renderReviewItems(result, reviewState, rerender);
+  if (guidedReview) {
+    parseResult.append(guidedReview);
+  }
+
+  const readyTransactions = renderReadyTransactions(reviewState, reconciliation.matched, rerender);
+  if (readyTransactions) {
+    parseResult.append(readyTransactions);
+  }
+
+  const extractedTables = renderExtractedDataTables(extractionResult);
+  if (extractedTables) {
+    parseResult.append(extractedTables);
+  }
+
   const findings = result.findings || [];
   if (reviewCount > 0 || findings.length) {
     const reviewPanel = document.createElement("div");
@@ -353,64 +1012,27 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
     reviewHeading.textContent = `${reviewCount || findings.length} item${(reviewCount || findings.length) === 1 ? "" : "s"} need review`;
     const reviewCopy = document.createElement("p");
     const duplicateCount = summary.duplicate_record_count ?? 0;
-    reviewCopy.textContent = duplicateCount
-      ? `${duplicateCount} transaction may already appear in this upload.`
-      : "Some transaction details need a quick check before saving.";
+    if (reconciliationReviewCount) {
+      reviewCopy.textContent = "Document totals must align before the future database save step can run.";
+    } else {
+      reviewCopy.textContent = duplicateCount
+        ? `${duplicateCount} transaction may already appear in this upload.`
+        : "Some transaction details need a quick check before saving.";
+    }
     reviewPanel.append(reviewHeading, reviewCopy);
     parseResult.append(reviewPanel);
   }
 
-  const records = result.normalized_records || [];
-  if (records.length) {
-    const tableWrap = document.createElement("div");
-    tableWrap.className = "table-wrap transaction-preview";
-    const table = document.createElement("table");
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-    ["Date", "Description", "Amount", "Status"].forEach((label) => {
-      const th = document.createElement("th");
-      th.textContent = label;
-      headerRow.append(th);
-    });
-    thead.append(headerRow);
-
-    const tbody = document.createElement("tbody");
-    records.slice(0, 8).forEach((record) => {
-      const row = document.createElement("tr");
-      const status = userRecordStatus(record);
-      [
-        record.transaction_date || "Needs review",
-        record.description || "Needs review",
-        formatMoney(record.amount, record.currency),
-        status,
-      ].forEach((value, index) => {
-        const cell = document.createElement("td");
-        if (index === 3) {
-          const pill = document.createElement("span");
-          pill.className = status === "Ready" ? "state-pill" : "state-pill pending";
-          pill.textContent = value;
-          cell.append(pill);
-        } else {
-          cell.textContent = value;
-        }
-        row.append(cell);
-      });
-      tbody.append(row);
-    });
-    table.append(thead, tbody);
-    tableWrap.append(table);
-    parseResult.append(tableWrap);
-  }
-
   const parseDocument = parsePayload.document || {};
   const parseClassification = parsePayload.classification || {};
+  const documentTypeLabel = documentClassificationLabel(parseClassification, result.document_type);
   const documentSummary = document.createElement("dl");
   documentSummary.className = "document-summary";
   [
     ["File", parseDocument.original_filename || selectedFile?.name || "Selected document"],
-    ["Document type", humanizeStatus(parseClassification.document_type || result.document_type || "unknown")],
+    ["Document type", documentTypeLabel],
     ["Text read", parsePayload.status === "failed" ? "Needs review" : "Yes"],
-    ["Processing result", reviewCount > 0 ? "Needs review" : "Ready to save"],
+    ["Processing result", finalReady ? "Ready for future save" : "Needs review"],
   ].forEach(([label, value]) => {
     const row = document.createElement("div");
     const term = document.createElement("dt");
@@ -429,7 +1051,9 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult) {
   saveButton.className = "primary-action";
   saveButton.textContent = "Save ready transactions";
   saveButton.disabled = true;
-  saveButton.title = "This will be enabled when database saving is connected.";
+  saveButton.title = finalReady
+    ? "Rows are ready for the future M9 database save step."
+    : "Accept all rows and resolve reconciliation before the future M9 database save step.";
 
   const reviewButton = document.createElement("button");
   reviewButton.type = "button";
@@ -488,6 +1112,7 @@ async function sendAcceptedFileToProcessing() {
 
   try {
     setValidationState("Sending accepted file to processing.", "pending");
+    renderProcessingProgress(1, "Processing document", "Uploading the accepted document.");
 
     const user = await window.statsAccess.currentUser();
     formData.append("submitted_by", user.email);
@@ -505,6 +1130,7 @@ async function sendAcceptedFileToProcessing() {
     renderIngestionResult(record);
 
     if (record.status === "queued" || record.status === "duplicate") {
+      renderProcessingProgress(2, "Reading document", "The document is uploaded. Stats is reading the text.");
       setValidationState("Document ingested. Parsing document.", "pending");
       await parseAcceptedFile(record);
       return;
@@ -526,6 +1152,7 @@ async function parseAcceptedFile(record) {
   formData.append("sha256", metadata.sha256 || "");
 
   try {
+    renderProcessingProgress(2, "Reading document", "Stats is reading the document text. This may take a little while for images.");
     const response = await fetch(statsApiUrl(documentParsingBaseUrl, "/api/v1/parses"), {
       method: "POST",
       body: formData,
@@ -536,13 +1163,14 @@ async function parseAcceptedFile(record) {
     }
 
     const result = await response.json();
-    renderParseResult(result);
 
     if (result.status === "failed") {
+      renderParseResult(result);
       setValidationState("Document parsing needs review.", "error");
       return;
     }
 
+    renderProcessingProgress(3, "Checking transactions", "Text was read. Stats is checking transaction candidates.");
     setValidationState("Document parsed. Extracting transaction candidates.", "pending");
     const extraction = await extractTransactions(result);
     setValidationState("Transaction candidates extracted. Validating data.", "pending");

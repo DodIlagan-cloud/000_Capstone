@@ -52,9 +52,12 @@ The current roadmap may still show M5 as OCR Extraction and M6 as Document Class
 - Use Tesseract OCR when configured for image files or scanned/no-text PDFs.
 - Normalize image orientation from EXIF metadata when present, then retry likely rotations when OCR quality is weak or orientation metadata is absent/unreliable.
 - Preprocess image OCR inputs with grayscale/contrast/upscale variants so JPEG screenshots and camera captures have a better chance of producing usable text.
+- For receipt and payment-terminal photos, include preprocessing attempts that improve faint thermal-printer text and terminal/customer-copy rows, such as autocontrast, sharpened contrast, and thresholded variants, without relying on merchant-specific templates.
 - Score OCR attempts using mean confidence, text volume, character quality, and financial keywords so the module can pick the best Tesseract output instead of accepting the first pass blindly.
+- OCR attempt scoring for receipt-like documents should favor preservation of transaction-critical evidence, including date/time tokens, terminal/EFTPOS/payment terms, approval/reference signals, and amount/currency tokens, so a longer or smoother OCR attempt does not win if it loses visible transaction details.
 - Use a PDF rendering dependency, preferably PyMuPDF, to render scanned PDF pages before OCR.
-- Classify parsed documents as `bank_statement`, `receipt`, `invoice`, `utility_bill`, or `unknown`.
+- Classify parsed documents using the shared document-classification vocabulary after text extraction completes, regardless of whether text came from direct PDF extraction, scanned-PDF OCR, or image OCR.
+- Return both `document_type` and optional `document_subtype` when the shared vocabulary and rule signals support a subtype.
 - Return strategy metadata explaining whether the module used PDF text extraction, OCR, disabled OCR handling, or failure handling.
 - Return quality metadata such as text length, page count, pages processed, empty-page count, and low-text status.
 - Return explicit findings for unsupported media, unreadable files, OCR disabled, Tesseract unavailable, renderer unavailable, OCR failure, no text, low text quality, and uncertain classification.
@@ -102,7 +105,7 @@ M5 returns a **Document Parsing Result**.
 | `status` | `completed`, `completed_with_warnings`, `failed`, or `unsupported`. |
 | `document` | Source filename, normalized filename, size, media type, ingestion ID, source, and hash. |
 | `text` | Extracted text for downstream processing. |
-| `pages` | Per-page/per-image text, length, and empty-page flag. |
+| `pages` | Per-page/per-image text, length, empty-page flag, and optional OCR word-block layout evidence. |
 | `metadata` | Extraction method, OCR engine, page counts, elapsed time, language, and page limit. |
 | `strategy` | Selected strategy and decision reason. |
 | `classification` | Document type, confidence, classification status, and reason codes. |
@@ -162,6 +165,72 @@ It is part of the API response for developer diagnostics, regression evidence, a
 | Scanned PDF OCR needs rendering but renderer is unavailable | `PDF_RENDERER_UNAVAILABLE` |
 | Unsupported media type | `unsupported` |
 
+## Classification Vocabulary and Rules
+
+M5 owns applying document classification, but the allowed classification labels and matching signals are shared project configuration rather than module-private constants.
+
+Planned shared files:
+
+| File | Purpose |
+| --- | --- |
+| `config/document-classification.vocabulary.json` | Machine-readable list of allowed document types and subtypes. |
+| `config/document-classification.rules.json` | Machine-readable generic signal rules used by M5 to classify extracted text. |
+| `contracts/document-classification/README.md` | Human-readable ownership, lifecycle, and downstream contract. |
+
+M5 must resolve the vocabulary and rule paths through runtime settings so the same code path works inside `stats-runtime`, in module diagnostics, and in local developer runs with explicit environment overrides. If either JSON file is missing or malformed, M5 must fall back to the committed in-code default vocabulary/rules, preserve classification behavior, and avoid mutating runtime configuration.
+
+The initial vocabulary should support generic document types:
+
+- `statement`
+- `receipt`
+- `invoice`
+- `payment_proof`
+- `utility_bill`
+- `unknown`
+
+The initial subtype vocabulary should distinguish common financial shapes without relying on issuer, bank, merchant, provider, filename, or source institution names. Examples include:
+
+- `statement / credit_card_statement`
+- `statement / account_statement`
+- `statement / loan_statement`
+- `receipt / sales_receipt`
+- `receipt / tax_receipt`
+- `receipt / payment_terminal_receipt`
+- `invoice / service_invoice`
+- `invoice / medical_invoice`
+- `payment_proof / bank_transfer_proof`
+- `payment_proof / card_payment_proof`
+- `unknown / unknown`
+
+M5 classification must use the extracted text and quality metadata produced by the selected parsing strategy:
+
+- Direct PDF text extraction.
+- Scanned-PDF rendering plus Tesseract OCR.
+- Image Tesseract OCR.
+
+The classification rules must run after extraction and should not care which extraction path produced the text. OCR quality findings may lower classification confidence or add reason codes, but they must not cause M5 to use a separate OCR-only classification vocabulary.
+
+Classification signals must be generic. For example, `statement / credit_card_statement` may be inferred from signals such as `credit card`, `card type`, `credit limit`, `minimum amount due`, `payment due date`, `finance charge`, `previous balance`, `unbilled installment`, and `total outstanding balance`. `statement / account_statement` may be inferred from signals such as `account number`, `opening balance`, `closing balance`, `available balance`, `deposits`, `withdrawals`, `running balance`, and `transaction history`. `receipt / payment_terminal_receipt` may be inferred from EFTPOS/card terminal signals such as terminal, merchant copy, approved, purchase, RRN, AID, TVR, TSI, card, and total. `invoice / medical_invoice` may be inferred from invoice signals plus healthcare/lab context such as patient identifiers, date of birth, lab, test names, service fee, payment history, paid, owing, and GST.
+
+For OCR images of retail receipts, labels such as `tax invoice`, `GST`, `EFTPOS`, `purchase`, `approved`, `total`, `subtotal`, `tax`, `receipt`, and terminal/card references are receipt signals even when the word `invoice` is present. M5 must not classify these common sales/tax receipt shapes as `unknown` merely because invoice and receipt signals overlap; the labelled receipt/payment/total evidence should support `receipt / tax_receipt` or `receipt / payment_terminal_receipt`.
+
+### Classification Output
+
+The `classification` object should include:
+
+| Field | Description |
+| --- | --- |
+| `document_type` | Top-level type from the shared vocabulary. |
+| `document_subtype` | Optional subtype from the shared vocabulary, or `unknown`. |
+| `confidence` | Confidence score after rule matching and text-quality adjustment. |
+| `status` | `classified`, `ambiguous`, `unknown`, or `unsupported`. |
+| `reason_codes` | Generic rule/evidence codes that explain the classification. |
+| `scores` | Optional per-type or per-subtype scores for diagnostics. |
+
+### Current Limitation
+
+Document classification vocabulary and matching rules are controlled configuration maintained by developers in this iteration. Runtime uploads must not automatically add, remove, or mutate document types/subtypes. When M5 encounters an unknown document shape, it should classify it as `unknown / unknown`, return a `POSSIBLE_NEW_DOCUMENT_SHAPE` finding when appropriate, preserve redacted evidence and reason codes, and rely on a later developer-reviewed iteration to update the vocabulary/rules and tests.
+
 ## Finding Codes
 
 | Code | Severity | Meaning |
@@ -213,7 +282,9 @@ Expected settings:
 | `OCR_MIN_CONFIDENCE` | `35` | Minimum acceptable mean OCR confidence before a warning is raised. |
 | `OCR_MIN_QUALITY_SCORE` | `0.35` | Minimum OCR quality score before noisy-text warning is raised. |
 | `OCR_MIN_ALNUM_RATIO` | `0.35` | Minimum alphanumeric ratio before noisy-text warning is raised. |
-| `SUPPORTED_DOCUMENT_TYPES` | `bank_statement,receipt,invoice,utility_bill,unknown` | Classification classes. |
+| `SUPPORTED_DOCUMENT_TYPES` | `statement,receipt,invoice,payment_proof,utility_bill,unknown` | Top-level classification classes. |
+| `DOCUMENT_CLASSIFICATION_VOCABULARY_PATH` | `config/document-classification.vocabulary.json` | Shared vocabulary file for classification labels. |
+| `DOCUMENT_CLASSIFICATION_RULES_PATH` | `config/document-classification.rules.json` | Shared rule/signal file for text-based classification. |
 | `CLASSIFICATION_CONFIDENCE_THRESHOLD` | `0.70` | Minimum non-unknown confidence. |
 | `EXTRACTION_TIMEOUT_SECONDS` | `30` | Processing timeout. |
 | `MAX_PAGE_COUNT` | `25` | Page processing limit. |
@@ -252,7 +323,7 @@ Stats Web should not require a separate “parse contents” button for the norm
 Stats Web may display:
 
 - parse status
-- document type
+- document type and subtype when M5 classifies a subtype, using plain user-facing labels such as `Credit card statement` or `Payment terminal receipt`
 - confidence
 - strategy
 - text length
@@ -304,7 +375,11 @@ Module-local automated tests must cover:
 - PDF renderer unavailable behavior.
 - Unsupported media type behavior.
 - Classification for supported document types.
+- Classification for supported document types/subtypes from shared vocabulary and rules.
+- Classification rule behavior for both direct PDF text and Tesseract OCR-produced text.
+- Classification rule/vocabulary loading from configured JSON paths, plus safe fallback when a configured JSON file is missing or malformed.
 - Unknown/low-confidence classification.
+- Unknown document shape behavior with `POSSIBLE_NEW_DOCUMENT_SHAPE` and no runtime vocabulary mutation.
 - Redaction of sensitive evidence values.
 - Evaluation metadata fields.
 - Multipart `/api/v1/parses` endpoint.
@@ -321,13 +396,21 @@ Actual app evidence should cover:
 <!-- M8 End -->
 - Evidence uses approved TestData.
 
+OCR-specific regression must use real approved files from `tests/input` inside the `stats-runtime` container. Tests that verify OCR behavior, OCR classification, OCR orientation retry, or OCR quality must not use generated PDFs/images, fake image bytes, monkeypatched OCR output, or synthetic OCR text as acceptance evidence. Mocks remain acceptable only for dependency-state/error-path checks that do not claim OCR extraction quality, such as simulating unavailable Tesseract or an unavailable PDF renderer.
+
+<!-- Review Hardening - 2026-06-02 Start -->
+When a real-file parsing test is run outside the official container path and no approved fixture directory is configured, the test may skip with an explicit message so developer diagnostics do not fail for a missing local setup. When `STATS_PARSING_TESTDATA_DIR` or `STATS_TESTDATA_DIR` is configured, missing directories or required files must fail fast. Inside `stats-runtime`, the official runner sets those variables to `/app/tests/input`, so missing real fixtures remain a hard failure for acceptance evidence.
+<!-- Review Hardening - 2026-06-02 End -->
+
 OCR-specific regression should cover:
 
 - EXIF orientation correction for JPEG inputs when EXIF metadata is present.
 - 0/90/180/270 retry when EXIF metadata is absent, wrong, or insufficient.
 - Multiple Tesseract PSM attempts for image layouts that are not normal paragraphs.
 - Selection of the strongest OCR attempt using confidence and text-quality scoring.
+- Real receipt-photo OCR regression for low-contrast thermal receipt rows, including terminal date/time and payment amount evidence.
 - Propagation of OCR quality metadata and findings for downstream M7 evaluation.
+- OCR word block output for scanned PDFs and images, including text, confidence, page number, and bounding boxes. M5 owns producing layout evidence; M7 owns interpreting it as tables.
 
 Regression test selection:
 
@@ -352,6 +435,8 @@ M5 is complete when:
 - JPEG/image OCR handles EXIF orientation, retries alternate rotations, and records OCR quality metadata.
 - OCR-disabled and OCR-unavailable states return explicit findings.
 - Classification output is included in the parse result.
+- Classification output includes `document_type`, `document_subtype`, confidence, status, reason codes, and diagnostic scores where available.
+- M5 uses the shared vocabulary/rules configuration and does not mutate those files at runtime.
 - Evaluation metadata is present and measurable.
 - Evidence previews are redacted.
 <!-- M8 - Data Validation Module Start -->

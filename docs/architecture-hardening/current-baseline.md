@@ -37,8 +37,8 @@ Historical or retired implementation paths must not appear in active module spec
 | M9 Stats Data and Persistence | `apps/stats-data/` | Product data module | Owns schema, migrations, persistence adapters, and stored workflow results. |
 | M10 Stats Workflow Integration | Stats product layer | Container-first integration | Connects upload, validation, parsing, extraction, validation, and persistence through contracts. |
 | M11 Dashboard and Reporting | `apps/stats-web/` plus Stats Data queries | ASP.NET Core UI | Presents persisted workflow and reporting data without absorbing processing internals. |
-| M13 Containerization | `infrastructure/` | `stats-runtime` plus `stats-db` | Runs all active modules in the app container and PostgreSQL in a separate DB container. |
-| M14 Cloud Readiness | `infrastructure/cloud/` | Later iteration | Maps central config to Azure app config, Key Vault, PostgreSQL, Blob Storage, and monitoring. |
+| M13 Containerization | `infrastructure/` | `stats-runtime` plus legacy local `stats-db` | Runs all active modules in the app container; current local Compose database wiring is transitional. |
+| M14 Cloud Readiness | `infrastructure/cloud/` | Azure deployment | Maps central config to Azure Container Apps, Key Vault, Azure SQL, Blob Storage, Fabric/Power BI, and monitoring. |
 
 ## Configuration Baseline
 
@@ -77,23 +77,24 @@ Modules may keep local logging setup code, but it must follow the central loggin
 
 The database is separate from the app runtime.
 
-Local/container MVP:
+Legacy local/container wiring:
 
 ```text
 stats-runtime  -> Stats Web, module APIs, OCR
-stats-db       -> PostgreSQL with persistent volume
+stats-db       -> PostgreSQL with persistent volume until Azure SQL-compatible M9/M1 persistence is active
 ```
 
 Cloud target:
 
 ```text
-Stats app runtime      -> Azure App Service, Azure Container Apps, or equivalent
-Managed PostgreSQL     -> Azure Database for PostgreSQL
+Stats app runtime      -> Azure Container Apps
+Operational database   -> Azure SQL Database
 Durable file storage   -> Azure Blob Storage
-Secrets/config         -> Azure Key Vault or managed app configuration
+Secrets/config         -> Azure Key Vault or Container Apps secrets
+Analytics/reporting    -> Microsoft Fabric and Power BI
 ```
 
-M13 owns local container wiring. M9 owns schema, migrations, persistence adapters, and product data ownership. M14 owns cloud deployment mapping.
+M13 owns local container wiring. M9 owns Azure SQL schema, migrations, persistence adapters, and product data ownership. M14 owns cloud deployment mapping.
 
 ## Container Baseline
 

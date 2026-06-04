@@ -39,11 +39,22 @@ class DocumentTrace(BaseModel):
     sha256: str
 
 
+class OcrWordBlock(BaseModel):
+    page_number: int
+    text: str
+    confidence: Optional[float] = None
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 class PageParseResult(BaseModel):
     page_number: int
     text: str
     text_length: int
     empty: bool
+    ocr_word_blocks: list[OcrWordBlock] = Field(default_factory=list)
 
 
 class ParseMetadata(BaseModel):
@@ -71,6 +82,7 @@ class StrategyDecision(BaseModel):
 
 class ClassificationResult(BaseModel):
     document_type: str
+    document_subtype: str = "unknown"
     confidence: float
     status: str
     reason_codes: list[str] = Field(default_factory=list)
@@ -99,6 +111,7 @@ class EvaluationMetadata(BaseModel):
     redaction_applied: bool
     redaction_finding_counts: dict[str, int]
     predicted_document_type: str
+    predicted_document_subtype: str = "unknown"
     classification_confidence: float
     classification_reason_codes: list[str]
     classification_status: str

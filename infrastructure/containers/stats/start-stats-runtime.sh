@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # M13 - Containerization Start
 # Starts all Stats module APIs in order, waits for health checks, then starts Stats Web.
 # Order: database ready -> identity DB init -> Identity API -> File Validation API -> Document Parsing API -> Transaction Extraction API -> Data Validation API -> Stats Web
@@ -24,10 +24,12 @@ DOCUMENT_PARSING_MODULE_DIR=${DOCUMENT_PARSING_MODULE_DIR:-${STATS_APP_ROOT}/mod
 TRANSACTION_EXTRACTION_MODULE_DIR=${TRANSACTION_EXTRACTION_MODULE_DIR:-${STATS_APP_ROOT}/modules/transaction-extraction-module}
 DATA_VALIDATION_MODULE_DIR=${DATA_VALIDATION_MODULE_DIR:-${STATS_APP_ROOT}/modules/data-validation-module}
 STATS_WEB_DIR=${STATS_WEB_DIR:-${STATS_APP_ROOT}/stats-web}
+STATS_DATA_DIR=${STATS_DATA_DIR:-${STATS_APP_ROOT}/apps/stats-data}
+STATS_DATA_MIGRATIONS_DIR=${STATS_DATA_MIGRATIONS_DIR:-${STATS_DATA_DIR}/migrations/azure-sql}
 
-# stats-db connection details (used for readiness check)
-DB_HOST=${DB_HOST:-stats-db}
-DB_PORT=${DB_PORT:-5432}
+# database readiness settings
+DATABASE_PROVIDER=${DATABASE_PROVIDER:-AzureSql}
+AZURE_SQL_CONNECTIONSTRING=${AZURE_SQL_CONNECTIONSTRING:-}
 
 # -- Helpers ------------------------------------------------------------------
 wait_for_health() {
@@ -49,39 +51,68 @@ wait_for_health() {
     exit 1
 }
 
-wait_for_database() {
+wait_for_azure_sql() {
     local elapsed=0
-    echo "[M13] Waiting for database at ${DB_HOST}:${DB_PORT} ..."
+    echo "[M13] Waiting for Azure SQL connectivity ..."
     while [ "${elapsed}" -lt "${HEALTH_TIMEOUT}" ]; do
-        if python3 -c "
-import socket, sys
+        if AZURE_SQL_CONNECTIONSTRING="${AZURE_SQL_CONNECTIONSTRING}" python3 -c "
+import os, sys, pyodbc
+connection_string = os.environ.get('AZURE_SQL_CONNECTIONSTRING', '')
+if not connection_string:
+    sys.exit(1)
+if 'Driver=' not in connection_string:
+    connection_string = 'Driver={ODBC Driver 18 for SQL Server};' + connection_string
+connection_string = (
+    connection_string
+    .replace('Initial Catalog=', 'Database=')
+    .replace('User ID=', 'UID=')
+    .replace('Password=', 'PWD=')
+    .replace('Encrypt=True', 'Encrypt=yes')
+    .replace('Encrypt=False', 'Encrypt=no')
+    .replace('TrustServerCertificate=True', 'TrustServerCertificate=yes')
+    .replace('TrustServerCertificate=False', 'TrustServerCertificate=no')
+)
 try:
-    s = socket.create_connection(('${DB_HOST}', ${DB_PORT}), timeout=2)
-    s.close()
+    connection = pyodbc.connect(connection_string, timeout=5)
+    connection.close()
     sys.exit(0)
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
-            echo "[M13] Database is reachable."
+            echo "[M13] Azure SQL is reachable."
             return 0
         fi
         sleep 1
         elapsed=$((elapsed + 1))
     done
 
-    echo "[M13] ERROR: Database at ${DB_HOST}:${DB_PORT} did not become reachable within ${HEALTH_TIMEOUT}s. Aborting."
+    echo "[M13] ERROR: Azure SQL did not become reachable within ${HEALTH_TIMEOUT}s. Aborting."
     exit 1
+}
+
+wait_for_database() {
+    if [ "$(echo "${DATABASE_PROVIDER}" | tr '[:upper:]' '[:lower:]')" != "azuresql" ]; then
+        echo "[M13] ERROR: DATABASE_PROVIDER must be AzureSql for the active Stats runtime."
+        exit 1
+    fi
+    wait_for_azure_sql
 }
 
 # -- Step 1: Wait for database ------------------------------------------------
 wait_for_database
 
-# -- Step 2: Identity DB init -------------------------------------------------
+# -- Step 2: Stats Data migrations -------------------------------------------
+echo "[M9] Applying Stats Data Azure SQL migrations ..."
+cd "${STATS_DATA_DIR}"
+STATS_DATA_MIGRATIONS_DIR="${STATS_DATA_MIGRATIONS_DIR}" \
+    python3 scripts/apply_azure_sql_migrations.py
+
+# -- Step 3: Identity DB init -------------------------------------------------
 echo "[M13] Initialising Identity database ..."
 cd "${IDENTITY_MODULE_DIR}"
 python3 -c "from app.db import init_db; init_db(); print('[M13] Identity DB init complete.')"
 
-# -- Step 3: Start module APIs ------------------------------------------------
+# -- Step 4: Start module APIs ------------------------------------------------
 echo "[M13] Starting Identity Access API on port ${IDENTITY_PORT} ..."
 cd "${IDENTITY_MODULE_DIR}"
 API_HOST=0.0.0.0 API_PORT=${IDENTITY_PORT} \
@@ -107,14 +138,14 @@ cd "${DATA_VALIDATION_MODULE_DIR}"
 API_HOST=0.0.0.0 API_PORT=${DATA_VALIDATION_PORT} \
     python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${DATA_VALIDATION_PORT}" &
 
-# -- Step 4: Wait for module API health ---------------------------------------
+# -- Step 5: Wait for module API health ---------------------------------------
 wait_for_health "Identity Access API"   "http://localhost:${IDENTITY_PORT}/health"
 wait_for_health "File Validation API"   "http://localhost:${FILE_VALIDATION_PORT}/health"
 wait_for_health "Document Parsing API"  "http://localhost:${DOCUMENT_PARSING_PORT}/health"
 wait_for_health "Transaction Extraction API" "http://localhost:${TRANSACTION_EXTRACTION_PORT}/health"
 wait_for_health "Data Validation API" "http://localhost:${DATA_VALIDATION_PORT}/health"
 
-# -- Step 5: Start Stats Web --------------------------------------------------
+# -- Step 6: Start Stats Web --------------------------------------------------
 echo "[M13] All module APIs healthy. Starting Stats Web on port ${STATS_WEB_PORT} ..."
 cd "${STATS_WEB_DIR}"
 exec dotnet stats.Web.dll \

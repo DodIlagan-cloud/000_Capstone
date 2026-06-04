@@ -291,12 +291,14 @@ Do not create module-local `test-results/` folders under `modules/` or `apps/`. 
 
 ### Real-Data Test Standard
 
-Modules that process realistic inputs must include a configurable real-data test path in addition to synthetic unit fixtures.
+Modules that process realistic inputs must use a configurable real-data test path for unit, API, regression, integration, E2E, container, and evidence testing.
 
 - Real-data tests must be automated where practical and runnable from the module test suite or evidence runner.
 - Real-data locations must be supplied through configuration or environment variables such as `STATS_TESTDATA_DIR`; personal drive paths must not be hardcoded in source.
 - Automated application-flow tests must use configured real application test data. When the configured real-data directory is unavailable, the test should fail or the evidence runner should stop with a clear setup message rather than silently substituting synthetic data.
+- Synthetic inline payloads must not be the primary proof of module functionality. If used for a narrow edge case, they must be documented as supplemental to `tests/input` coverage.
 - Evidence runs should set the required real-data variables and retain raw output proving the real input was processed.
+- From M14 onward, official cloud iteration evidence should repeat applicable tests against the Azure cloud-dev deployment after local container validation passes.
 - Tests must assert the business-relevant handoff, not only that the command succeeded. Examples include saved file location under configured storage, extracted text presence, classification label, parsed transaction count, validation findings, or persistence status.
 - Private/anonymized source files should remain outside source control unless a safe committed sample dataset is explicitly approved.
 

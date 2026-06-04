@@ -14,6 +14,7 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 | File | Change Type | Description |
 | --- | --- | --- |
 | `docs/M2-stats-web-shell-spec.md` | Created/Modified | Defines the Module 2 specification, including the Stats Web Shell boundary, goals, non-goals, M1 consumer requirements, later-module upload checkpoint boundary, configuration, tests, evidence, and acceptance criteria. |
+| `docs/M2-stats-web-shell-activity-flow.md` | Created | Provides the swimlane activity flow for Stats Web login, dashboard navigation, local/container orchestration, downstream module API calls, and future Azure/Fabric boundaries. |
 | `docs/M2-stats-web-shell-file-inventory.md` | Created | Documents the M2 files created or modified and explains the purpose of each change. |
 
 ## Application Configuration and Startup

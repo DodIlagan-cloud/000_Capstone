@@ -8,7 +8,8 @@
     "statsWebSettings": "apps/stats-web/appsettings.json",
     "loggingRegistry": "config/stats.logging.json",
     "containerExample": "infrastructure/containers/stats/.env.container.example",
-    "containerLocalEnv": "infrastructure/compose/.env.container"
+    "containerLocalEnv": "infrastructure/compose/.env.container",
+    "cloudEnvironmentExample": "infrastructure/cloud/azure-container-apps.env.example"
   },
   "runtimeRoot": {
     "STATS_APP_ROOT": {
@@ -82,21 +83,19 @@
     }
   },
   "database": {
-    "DATABASE_URL": {
-      "purpose": "PostgreSQL-compatible connection string used by modules that persist data.",
-      "secret": true
-    },
-    "POSTGRES_USER": {
-      "purpose": "PostgreSQL bootstrap user for local/container runtime.",
+    "DATABASE_PROVIDER": {
+      "purpose": "Database provider selector for persistence code. Active local/container/cloud runtime target is AzureSql.",
+      "default": "AzureSql",
       "secret": false
     },
-    "POSTGRES_PASSWORD": {
-      "purpose": "PostgreSQL bootstrap password for local/container runtime.",
-      "secret": true
-    },
-    "POSTGRES_DB": {
-      "purpose": "PostgreSQL database name.",
+    "DATABASE_SCHEMA": {
+      "purpose": "Default relational database schema for M9-owned Stats data tables.",
+      "default": "dbo",
       "secret": false
+    },
+    "AZURE_SQL_CONNECTIONSTRING": {
+      "purpose": "Azure SQL Database connection configuration for the cloud operational Stats store. Prefer Microsoft Entra or managed identity authentication; treat as secret when credentials are present.",
+      "secret": true
     }
   },
   "identity": {
@@ -162,13 +161,13 @@
       "secret": false
     },
     "DB_HOST": {
-      "purpose": "Database host used by container startup readiness checks.",
-      "default": "stats-db",
+      "purpose": "Reserved non-Azure database host override for diagnostics only; active runtime uses Azure SQL connection configuration.",
+      "default": null,
       "secret": false
     },
     "DB_PORT": {
-      "purpose": "Database port used by container startup readiness checks.",
-      "default": "5432",
+      "purpose": "Reserved non-Azure database port override for diagnostics only; active runtime uses Azure SQL connection configuration.",
+      "default": null,
       "secret": false
     }
   },
@@ -274,6 +273,85 @@
     "STATS_EDGE_EXECUTABLE": {
       "purpose": "Optional browser executable override for screenshot evidence.",
       "secret": false
+    }
+  },
+  "cloud": {
+    "STATS_ENVIRONMENT": {
+      "purpose": "Cloud runtime environment label such as cloud-dev, test, or prod.",
+      "default": "cloud-dev",
+      "secret": false
+    },
+    "AZURE_CONTAINER_APP_NAME": {
+      "purpose": "Azure Container Apps resource name for the Stats runtime.",
+      "secret": false
+    },
+    "AZURE_CONTAINER_APP_ENVIRONMENT": {
+      "purpose": "Azure Container Apps managed environment name.",
+      "secret": false
+    },
+    "AZURE_CONTAINER_REGISTRY": {
+      "purpose": "Azure Container Registry hostname that stores the Stats runtime image.",
+      "secret": false
+    },
+    "AZURE_KEY_VAULT_URI": {
+      "purpose": "Key Vault URI used for managed secret references.",
+      "secret": false
+    },
+    "AZURE_MANAGED_IDENTITY_CLIENT_ID": {
+      "purpose": "User-assigned managed identity client ID when a cloud runtime needs an explicit identity reference.",
+      "secret": false
+    },
+    "AZURE_SQL_SERVER": {
+      "purpose": "Azure SQL logical server name or host for the cloud operational Stats database.",
+      "example": "sql-stats-dev-001.database.windows.net",
+      "secret": false
+    },
+    "AZURE_SQL_DATABASE": {
+      "purpose": "Azure SQL database name for the cloud operational Stats database.",
+      "example": "sqldb-stats-dev",
+      "secret": false
+    },
+    "AZURE_STORAGE_ACCOUNT_NAME": {
+      "purpose": "Storage account name used when STATS_STORAGE_PROVIDER=AzureBlobStorage.",
+      "secret": false
+    },
+    "AZURE_STORAGE_CONTAINER_NAME": {
+      "purpose": "Blob container name used for durable document storage when AzureBlobStorage is enabled.",
+      "secret": false
+    },
+    "AZURE_STORAGE_CONNECTION_STRING": {
+      "purpose": "Temporary storage connection string if managed identity storage access is not yet implemented.",
+      "secret": true
+    }
+  },
+  "analytics": {
+    "FABRIC_WORKSPACE_ID": {
+      "purpose": "Microsoft Fabric workspace identifier used for curated analytics data and evidence.",
+      "secret": false
+    },
+    "FABRIC_LAKEHOUSE_ID": {
+      "purpose": "Fabric lakehouse or warehouse identifier used for curated Stats reporting data.",
+      "secret": false
+    },
+    "POWERBI_WORKSPACE_ID": {
+      "purpose": "Power BI workspace identifier for Stats reports.",
+      "secret": false
+    },
+    "POWERBI_REPORT_ID": {
+      "purpose": "Power BI report identifier for Stats dashboard/report embedding.",
+      "secret": false
+    },
+    "POWERBI_TENANT_ID": {
+      "purpose": "Microsoft Entra tenant identifier used for Power BI embedding or service principal authentication.",
+      "secret": false
+    },
+    "POWERBI_CLIENT_ID": {
+      "purpose": "Service principal client ID for app-owned Power BI embedding when required.",
+      "secret": false
+    },
+    "POWERBI_CLIENT_SECRET": {
+      "purpose": "Service principal secret for Power BI embedding when certificate or managed identity auth is not yet available.",
+      "secret": true
     }
   },
   "rule": "If a value changes by developer machine, container, cloud environment, secret rotation, deployment target, port conflict, or test fixture location, it belongs in configuration and not as an application-code literal."

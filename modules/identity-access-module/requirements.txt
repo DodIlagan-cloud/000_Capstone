@@ -7,10 +7,10 @@ pytest-asyncio
 httpx
 sqlalchemy
 alembic
+pyodbc
 
 # M1 - User Access Management Start
-# Adds PostgreSQL and authentication dependencies for user account storage.
-psycopg[binary]
+# Adds Azure SQL and authentication dependencies for user account storage.
 passlib[bcrypt]
 python-jose[cryptography]
 email-validator

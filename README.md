@@ -18,7 +18,7 @@ Use these foundation documents before starting a module:
 
 The building-block plan is the architecture boundary. Each later module should refine its own spec, contracts, tests, evidence, configuration sample, and runtime path before implementation grows.
 
-Testing is part of the build loop. Each module change must identify and run the appropriate tests during implementation, with official acceptance evidence running through the M13 Stats container from M13 onward.
+Testing is part of the build loop. Each module change must identify and run the appropriate tests during implementation. Tests that exercise module functionality must use the configured project fixture directory, `tests/input`, rather than unrelated synthetic files. Official acceptance evidence runs through the M13 Stats container from M13 onward, and through the Azure cloud-dev deployment from M14 onward where practical.
 
 Privacy, security, and data governance are also part of the build loop. Financial documents, OCR text, extracted data, credentials, logs, screenshots, and evidence must be handled according to the project privacy and data-governance policy.
 

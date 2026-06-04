@@ -3,13 +3,19 @@ Verifies the transaction extraction JSON API.
 M7 End"""
 
 
-def test_extraction_endpoint_returns_candidates(client, bank_statement_text):
+def test_extraction_endpoint_returns_candidates(client, generic_statement_table_text):
     response = client.post(
         "/api/v1/extractions",
         json={
             "parse_id": "parse_api_test",
-            "document_type": "bank_statement",
-            "text": bank_statement_text,
+            "document_type": "statement",
+            "classification": {
+                "document_type": "statement",
+                "document_subtype": "credit_card_statement",
+                "confidence": 0.9,
+                "status": "classified",
+            },
+            "text": generic_statement_table_text,
             "document": {
                 "original_filename": "statement.pdf",
                 "sha256": "abc123",
@@ -21,9 +27,9 @@ def test_extraction_endpoint_returns_candidates(client, bank_statement_text):
     assert response.status_code == 200
     assert payload["parse_id"] == "parse_api_test"
     assert payload["document"]["original_filename"] == "statement.pdf"
-    assert payload["summary"]["transaction_candidate_count"] == 2
+    assert payload["summary"]["transaction_candidate_count"] == 1
     assert payload["summary"]["financial_field_candidate_count"] >= 4
-    assert payload["evaluation"]["document_type"] == "bank_statement"
+    assert payload["evaluation"]["document_type"] == "statement"
 
 
 def test_extraction_endpoint_reports_missing_text(client):
@@ -59,6 +65,7 @@ def test_extraction_endpoint_accepts_m5_shaped_result(client, proof_of_payment_t
             },
             "classification": {
                 "document_type": "receipt",
+                "document_subtype": "payment_terminal_receipt",
                 "confidence": 0.8,
                 "status": "classified",
             },

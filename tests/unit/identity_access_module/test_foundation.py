@@ -34,16 +34,19 @@ def test_root_endpoint(client):
 
 
 # M1 - User Access Management Start
-# Verifies the configured PostgreSQL value independent of Module 1 test database overrides.
+# Verifies the configured Azure SQL value independent of Module 1 test database overrides.
 # def test_settings_defaults():
 def test_settings_configured_values(monkeypatch):
+    monkeypatch.setenv("DATABASE_PROVIDER", "AzureSql")
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("AZURE_SQL_CONNECTIONSTRING", "Server=tcp:example.database.windows.net,1433;Initial Catalog=stats;Encrypt=True;")
     settings = Settings()
 
     assert settings.app_name == "Identity Access Module"
     assert settings.app_version == "1.0.0"
     assert settings.api_prefix == "/api/v1"
-    assert settings.database_url.endswith("/stats")
+    assert settings.database_provider == "AzureSql"
+    assert "example.database.windows.net" in settings.azure_sql_connectionstring
 # M1 End
 
 

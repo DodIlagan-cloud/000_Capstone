@@ -2,12 +2,8 @@
 Verifies the standalone Transaction Extraction Module application foundation.
 M7 End"""
 
-from app.config import Settings
-from app.main import app
-
-
-def test_app_imports_successfully():
-    assert app.title == "Transaction Extraction Module"
+def test_app_imports_successfully(module_app):
+    assert module_app.title == "Transaction Extraction Module"
 
 
 def test_health_endpoint(client):
@@ -19,7 +15,7 @@ def test_health_endpoint(client):
     assert payload["service"] == "Transaction Extraction Module"
     assert payload["version"] == "1.0.0"
     assert payload["extraction"]["default_currency"] == "PHP"
-    assert "bank_statement" in payload["extraction"]["supported_document_types"]
+    assert "statement" in payload["extraction"]["supported_document_types"]
 
 
 def test_root_endpoint(client):
@@ -33,10 +29,10 @@ def test_root_endpoint(client):
     }
 
 
-def test_settings_configured_values(monkeypatch):
-    monkeypatch.setenv("SUPPORTED_DOCUMENT_TYPES", "bank_statement,receipt,invoice,utility_bill,unknown")
+def test_settings_configured_values(monkeypatch, settings_cls):
+    monkeypatch.setenv("SUPPORTED_DOCUMENT_TYPES", "statement,receipt,invoice,payment_proof,utility_bill,unknown")
     monkeypatch.setenv("MIN_TRANSACTION_CONFIDENCE", "0.61")
-    settings = Settings()
+    settings = settings_cls()
 
     assert settings.app_name == "Transaction Extraction Module"
     assert settings.api_prefix == "/api/v1"
@@ -45,3 +41,4 @@ def test_settings_configured_values(monkeypatch):
     assert settings.min_transaction_confidence == 0.61
     assert settings.enable_field_extraction is True
     assert "invoice" in settings.supported_document_types
+    assert "statement" in settings.supported_document_types

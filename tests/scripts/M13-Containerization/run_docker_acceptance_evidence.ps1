@@ -30,7 +30,6 @@ $EvidenceDirFull = Join-Path $ProjectRoot $EvidenceDir
 $ResultFile = Join-Path $EvidenceDirFull "M13-docker-acceptance-results-$Date.txt"
 $JsonDir = Join-Path $EvidenceDirFull "json-$Date"
 $StatsContainer = "stats-runtime"
-$DbContainer = "stats-db"
 $ContainerInputDir = "/tmp/m13-tests/input"
 
 if (-not (Test-Path $EvidenceDirFull)) {
@@ -225,14 +224,17 @@ foreach ($Api in $ModuleApis) {
     }
 }
 
-Section "5. stats-db schema check"
+Section "5. Azure SQL schema check"
 
-$PgOutput = docker exec $DbContainer psql -U stats -d stats -c "SELECT count(*) AS users_table_count FROM information_schema.tables WHERE table_schema='public' AND table_name='users';" 2>&1
-Write-Block ($PgOutput -join "`n")
-if ($LASTEXITCODE -eq 0 -and (($PgOutput -join "`n") -match "\b1\b")) {
-    Pass "stats-db public.users table exists"
+$SqlCheck = @'
+cd /app/modules/identity-access-module && python3 -c "from app.db import engine; from sqlalchemy import text; conn = engine.connect(); result = conn.execute(text(\"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='users'\")); print(result.scalar()); conn.close()"
+'@
+$SqlOutput = docker exec $StatsContainer sh -lc $SqlCheck 2>&1
+Write-Block ($SqlOutput -join "`n")
+if ($LASTEXITCODE -eq 0 -and (($SqlOutput -join "`n") -match "\b1\b")) {
+    Pass "Azure SQL dbo.users table exists"
 } else {
-    Fail "stats-db public.users table exists" "psql exit code $LASTEXITCODE"
+    Fail "Azure SQL dbo.users table exists" "database check exit code $LASTEXITCODE"
 }
 
 Section "6. M5 OCR parse for every tests/input fixture"

@@ -63,7 +63,9 @@ class Settings:
     cors_allowed_origins: List[str]
 
     # Declares the primary application database target for configured startup.
+    database_provider: str
     database_url: str
+    azure_sql_connectionstring: str
     database_echo: bool
     log_level: str
 
@@ -90,8 +92,14 @@ class Settings:
         )
         self.log_level = _config_value(config_values, "LOG_LEVEL")
         # M1 - User Access Management Start
-        # Uses configured database values while keeping environment overrides configurable.
-        self.database_url = _config_value(config_values, "DATABASE_URL")
+        # Uses provider-aware database values while keeping environment overrides configurable.
+        self.database_provider = config_values.get("DATABASE_PROVIDER", "AzureSql")
+        self.database_url = config_values.get("DATABASE_URL", "")
+        self.azure_sql_connectionstring = config_values.get("AZURE_SQL_CONNECTIONSTRING", "")
+        if self.database_provider.lower() == "azuresql" and not self.azure_sql_connectionstring:
+            raise RuntimeError("Missing required setting: AZURE_SQL_CONNECTIONSTRING")
+        if self.database_provider.lower() != "azuresql" and not self.database_url:
+            raise RuntimeError("Missing required setting: DATABASE_URL")
         # M1 End
         self.database_echo = _parse_bool(_config_value(config_values, "DATABASE_ECHO"))
 
