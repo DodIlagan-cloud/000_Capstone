@@ -21,11 +21,22 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    gnupg \
     python3 \
     python3-pip \
     python3-venv \
     tesseract-ocr \
     tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list \
+        -o /etc/apt/sources.list.d/microsoft-prod.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
+        msodbcsql18 \
+        unixodbc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY modules/identity-access-module/requirements.txt /requirements/identity.txt
@@ -56,21 +67,24 @@ COPY modules/README.md /app/modules/README.md
 COPY contracts/README.md /app/contracts/README.md
 COPY infrastructure/README.md /app/infrastructure/README.md
 COPY samples/README.md /app/samples/README.md
-COPY .gitignore /app/.gitignore
 COPY infrastructure/containers/stats/Dockerfile /app/infrastructure/containers/stats/Dockerfile
 COPY infrastructure/containers/stats/.env.container.example /app/infrastructure/containers/stats/.env.container.example
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/start-stats-runtime.sh
+COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh
 COPY infrastructure/compose/stats-runtime.compose.yml /app/infrastructure/compose/stats-runtime.compose.yml
 COPY apps/stats-web/Program.cs /app/apps/stats-web/Program.cs
 COPY apps/stats-web/appsettings.json /app/apps/stats-web/appsettings.json
 COPY --from=dotnet-build /app/stats-web /app/stats-web
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/start-stats-runtime.sh
+COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/run-stats-admin-bootstrap.sh
 
 RUN /usr/bin/tesseract --version \
-    && /opt/stats/runtime/bin/python -c "import fitz; import pytesseract; from PIL import Image; print('M5 OCR runtime dependencies available')" \
-    && chmod +x /app/start-stats-runtime.sh
+    && /opt/stats/runtime/bin/python -c "import fitz; import pytesseract; import pyodbc; from PIL import Image; print('M5 OCR and Azure SQL runtime dependencies available')" \
+    && chmod +x /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh
 
 ENV PATH="/opt/stats/runtime/bin:${PATH}"
+ENV DATABASE_PROVIDER=AzureSql
+ENV DATABASE_SCHEMA=dbo
 ENV STATS_APP_ROOT=/app
 ENV STATS_RUNTIME_CONFIG=/app/config/stats.runtime.json
 ENV STATS_PATHS_CONFIG=/app/config/stats.paths.json

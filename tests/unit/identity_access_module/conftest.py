@@ -26,6 +26,7 @@ for module_name in list(sys.modules):
         del sys.modules[module_name]
 sys.path.insert(0, str(MODULE_ROOT))
 os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["DATABASE_PROVIDER"] = "SQLite"
 # M1 End
 
 # M1 - User Access Management Start

@@ -16,7 +16,7 @@
 #                  --env-file infrastructure\compose\.env.container \
 #                  up --build --detach
 #   Entry point:  http://127.0.0.1:8080
-#   DB service:   stats-db (PostgreSQL 16)
+#   DB target:    Azure SQL via AZURE_SQL_CONNECTIONSTRING
 #   App service:  stats-runtime (Stats Web + M1/M3/M4/M5/M7/M8 APIs + Tesseract OCR)
 #
 # MODULES COVERED:
@@ -296,15 +296,15 @@ try {
 # ---------------------------------------------------------------------------
 Section "4. M1 -- Identity Access Module"
 
-# 4a. DB init: users table exists
+# 4a. DB init: users table exists in the configured Azure SQL target
 try {
-    $pgOut = docker exec stats-db psql -U stats -d stats -c "SELECT count(*) FROM information_schema.tables WHERE table_name='users';" 2>&1
-    if ($LASTEXITCODE -eq 0 -and $pgOut -match "1") {
-        Pass "M1: stats-db public.users table exists"
+    $dbOut = docker exec stats-runtime python3 -c "from app.db import engine; from sqlalchemy import text; conn = engine.connect(); result = conn.execute(text(\"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='users'\")); print(result.scalar()); conn.close()" 2>&1
+    if ($LASTEXITCODE -eq 0 -and $dbOut -match "1") {
+        Pass "M1: Azure SQL dbo.users table exists"
     } else {
-        Fail "M1: users table not found" "psql output: $pgOut"
+        Fail "M1: users table not found" "Azure SQL output: $dbOut"
     }
-} catch { Fail "M1: stats-db psql" $_.Exception.Message }
+} catch { Fail "M1: Azure SQL table check" $_.Exception.Message }
 
 # 4b. Login -- only if admin creds are available via env vars
 $adminEmail = First-NonEmpty $env:DEFAULT_ADMIN_EMAIL (Get-EnvFileValue "DEFAULT_ADMIN_EMAIL") ""
@@ -792,7 +792,7 @@ $md = @"
 | Service | Image | Entry point |
 | --- | --- | --- |
 | stats-runtime | stats-runtime:local | http://127.0.0.1:8080 |
-| stats-db | postgres:16-alpine | internal (stats-runtime:5432) |
+| Azure SQL | sql-stats-dev-001 / sqldb-stats-dev | configured through AZURE_SQL_CONNECTIONSTRING |
 
 Compose file: $ComposeFile
 Env file: $EnvFile (never committed; contains secrets)

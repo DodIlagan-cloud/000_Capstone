@@ -25,9 +25,9 @@ TRANSACTION_EXTRACTION_MODULE_DIR=${TRANSACTION_EXTRACTION_MODULE_DIR:-${STATS_A
 DATA_VALIDATION_MODULE_DIR=${DATA_VALIDATION_MODULE_DIR:-${STATS_APP_ROOT}/modules/data-validation-module}
 STATS_WEB_DIR=${STATS_WEB_DIR:-${STATS_APP_ROOT}/stats-web}
 
-# stats-db connection details (used for readiness check)
-DB_HOST=${DB_HOST:-stats-db}
-DB_PORT=${DB_PORT:-5432}
+# database readiness settings
+DATABASE_PROVIDER=${DATABASE_PROVIDER:-AzureSql}
+AZURE_SQL_CONNECTIONSTRING=${AZURE_SQL_CONNECTIONSTRING:-}
 
 # -- Helpers ------------------------------------------------------------------
 wait_for_health() {
@@ -49,28 +49,51 @@ wait_for_health() {
     exit 1
 }
 
-wait_for_database() {
+wait_for_azure_sql() {
     local elapsed=0
-    echo "[M13] Waiting for database at ${DB_HOST}:${DB_PORT} ..."
+    echo "[M13] Waiting for Azure SQL connectivity ..."
     while [ "${elapsed}" -lt "${HEALTH_TIMEOUT}" ]; do
-        if python3 -c "
-import socket, sys
+        if AZURE_SQL_CONNECTIONSTRING="${AZURE_SQL_CONNECTIONSTRING}" python3 -c "
+import os, sys, pyodbc
+connection_string = os.environ.get('AZURE_SQL_CONNECTIONSTRING', '')
+if not connection_string:
+    sys.exit(1)
+if 'Driver=' not in connection_string:
+    connection_string = 'Driver={ODBC Driver 18 for SQL Server};' + connection_string
+connection_string = (
+    connection_string
+    .replace('Initial Catalog=', 'Database=')
+    .replace('User ID=', 'UID=')
+    .replace('Password=', 'PWD=')
+    .replace('Encrypt=True', 'Encrypt=yes')
+    .replace('Encrypt=False', 'Encrypt=no')
+    .replace('TrustServerCertificate=True', 'TrustServerCertificate=yes')
+    .replace('TrustServerCertificate=False', 'TrustServerCertificate=no')
+)
 try:
-    s = socket.create_connection(('${DB_HOST}', ${DB_PORT}), timeout=2)
-    s.close()
+    connection = pyodbc.connect(connection_string, timeout=5)
+    connection.close()
     sys.exit(0)
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
-            echo "[M13] Database is reachable."
+            echo "[M13] Azure SQL is reachable."
             return 0
         fi
         sleep 1
         elapsed=$((elapsed + 1))
     done
 
-    echo "[M13] ERROR: Database at ${DB_HOST}:${DB_PORT} did not become reachable within ${HEALTH_TIMEOUT}s. Aborting."
+    echo "[M13] ERROR: Azure SQL did not become reachable within ${HEALTH_TIMEOUT}s. Aborting."
     exit 1
+}
+
+wait_for_database() {
+    if [ "$(echo "${DATABASE_PROVIDER}" | tr '[:upper:]' '[:lower:]')" != "azuresql" ]; then
+        echo "[M13] ERROR: DATABASE_PROVIDER must be AzureSql for the active Stats runtime."
+        exit 1
+    fi
+    wait_for_azure_sql
 }
 
 # -- Step 1: Wait for database ------------------------------------------------

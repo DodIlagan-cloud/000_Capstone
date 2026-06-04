@@ -2,6 +2,7 @@
 **/obj/
 **/__pycache__/
 **/.pytest_cache/
+.pytest_cache/
 **/tests/results/
 .git/
 .qodo/
@@ -10,4 +11,6 @@ venv/
 env/
 docx_render_check/
 tests/results/
+test-results/
+node_modules/
 infrastructure/compose/.env.container

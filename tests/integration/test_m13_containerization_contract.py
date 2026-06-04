@@ -30,6 +30,20 @@ def test_startup_script_exists():
     assert STARTUP_SCRIPT.exists(), f"Startup script not found at {STARTUP_SCRIPT}"
 
 
+def test_admin_bootstrap_runner_is_packaged_separately_from_startup():
+    runner = REPO_ROOT / "infrastructure" / "containers" / "stats" / "run-stats-admin-bootstrap.sh"
+    assert runner.exists(), f"Admin bootstrap runner not found at {runner}"
+
+    dockerfile = DOCKERFILE.read_text()
+    startup = STARTUP_SCRIPT.read_text()
+    runner_content = runner.read_text()
+
+    assert "COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh" in dockerfile
+    assert "chmod +x /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh" in dockerfile
+    assert "app.scripts.create_admin" in runner_content
+    assert "app.scripts.create_admin" not in startup
+
+
 def test_startup_script_uses_lf_line_endings():
     content = STARTUP_SCRIPT.read_bytes()
     assert b"\r\n" not in content, "Startup script must use LF line endings for Linux container execution"
@@ -85,6 +99,13 @@ def test_dockerfile_verifies_pillow_at_build_time():
         "Dockerfile must verify Pillow at build time"
 
 
+def test_dockerfile_installs_and_verifies_azure_sql_driver():
+    content = DOCKERFILE.read_text()
+    assert "msodbcsql18" in content, "Dockerfile must install the SQL Server ODBC driver"
+    assert "unixodbc" in content, "Dockerfile must install unixODBC for pyodbc"
+    assert "import pyodbc" in content, "Dockerfile must verify pyodbc at build time"
+
+
 def test_dockerfile_copies_tests_for_container_execution():
     content = DOCKERFILE.read_text()
     assert "COPY tests/" in content, "Dockerfile must copy test code into the Stats runtime image"
@@ -116,6 +137,22 @@ def test_dockerfile_packages_data_validation_module():
 def test_startup_script_waits_for_database():
     content = STARTUP_SCRIPT.read_text()
     assert "wait_for_database" in content, "Startup script must wait for the database before starting Identity API"
+    assert "wait_for_azure_sql" in content, "Startup script must support Azure SQL readiness"
+
+
+def test_startup_script_normalizes_azure_sql_odbc_connection_string():
+    content = STARTUP_SCRIPT.read_text()
+    assert "Driver={ODBC Driver 18 for SQL Server}" in content
+    assert "Initial Catalog=" in content
+    assert "Database=" in content
+    assert "User ID=" in content
+    assert "UID=" in content
+    assert "Password=" in content
+    assert "PWD=" in content
+    assert "Encrypt=True" in content
+    assert "Encrypt=yes" in content
+    assert "TrustServerCertificate=False" in content
+    assert "TrustServerCertificate=no" in content
 
 
 def test_startup_script_runs_identity_db_init():
@@ -159,26 +196,27 @@ def test_startup_script_health_checks_before_stats_web():
 
 # -- Compose file content -----------------------------------------------------
 
-def test_compose_has_stats_db_service():
-    assert "stats-db" in COMPOSE_FILE.read_text(), \
-        "Compose file must define a stats-db PostgreSQL service"
-
-
-def test_compose_has_persistent_volume():
-    assert "stats-db-data" in COMPOSE_FILE.read_text(), \
-        "Compose file must define a stats-db-data persistent volume"
-
-
-def test_compose_database_url_points_to_stats_db():
+def test_compose_uses_azure_sql_provider():
     content = COMPOSE_FILE.read_text()
-    assert "stats-db" in content and "DATABASE_URL" in content, \
-        "Compose file must wire DATABASE_URL to the stats-db service"
+    assert "DATABASE_PROVIDER" in content
+    assert "AzureSql" in content
+    assert "AZURE_SQL_CONNECTIONSTRING" in content
 
 
-def test_compose_stats_depends_on_stats_db():
+def test_compose_does_not_start_postgres_service():
     content = COMPOSE_FILE.read_text()
-    assert "depends_on" in content and "stats-db" in content, \
-        "stats service must depend on stats-db"
+    assert "postgres:" not in content.lower()
+    assert "stats-db:" not in content
+
+
+def test_compose_database_connection_uses_managed_secret_value():
+    content = COMPOSE_FILE.read_text()
+    assert 'AZURE_SQL_CONNECTIONSTRING: "${AZURE_SQL_CONNECTIONSTRING}"' in content
+
+
+def test_compose_stats_has_no_database_container_dependency():
+    content = COMPOSE_FILE.read_text()
+    assert "depends_on" not in content
 
 
 def test_compose_exposes_stats_web_port():
@@ -245,11 +283,12 @@ def test_stats_web_proxies_m7_and_m8_api_calls():
 
 # -- Env example content ------------------------------------------------------
 
-def test_env_example_documents_postgres_vars():
+def test_env_example_documents_azure_sql_vars():
     content = ENV_EXAMPLE.read_text()
-    assert "POSTGRES_USER" in content
-    assert "POSTGRES_PASSWORD" in content
-    assert "POSTGRES_DB" in content
+    assert "DATABASE_PROVIDER=AzureSql" in content
+    assert "DATABASE_SCHEMA=dbo" in content
+    assert "AZURE_SQL_CONNECTIONSTRING" in content
+    assert "POSTGRES_PASSWORD" not in content
 
 
 def test_env_example_documents_ocr_variables():
@@ -318,8 +357,8 @@ def test_docker_regression_runner_targets_stats_runtime():
 
 def test_docker_regression_runner_targets_stats_db():
     content = REGRESSION_RUNNER.read_text()
-    assert "stats-db" in content, \
-        "Regression script must verify the stats-db service"
+    assert "Azure SQL" in content or "AZURE_SQL" in content, \
+        "Regression script must verify the Azure SQL database target"
 
 
 def test_docker_regression_runner_uses_test_input():

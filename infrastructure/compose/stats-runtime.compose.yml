@@ -1,6 +1,6 @@
 # M13 - Containerization Start
-# Local full-stack Stats runtime Compose profile.
-# Starts stats-db (PostgreSQL) and the single stats-runtime container.
+# Local Stats runtime Compose profile.
+# Starts the single stats-runtime container against the configured database provider.
 #
 # Usage:
 #   cp infrastructure/containers/stats/.env.container.example infrastructure/compose/.env.container
@@ -10,28 +10,7 @@
 services:
 
   # ---------------------------------------------------------------------------
-  # stats-db: PostgreSQL database for Identity Access Module (M1)
-  # M9 (Stats Data and Persistence) owns the full schema; M13 owns this runtime wiring.
-  # ---------------------------------------------------------------------------
-  stats-db:
-    image: postgres:16-alpine
-    container_name: stats-db
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-stats}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-statspass}
-      POSTGRES_DB: ${POSTGRES_DB:-stats}
-    volumes:
-      - stats-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stats} -d ${POSTGRES_DB:-stats}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-    restart: unless-stopped
-
-  # ---------------------------------------------------------------------------
-  # stats-runtime: Single container — Stats Web + module APIs + Tesseract OCR
+  # stats-runtime: Single container - Stats Web + module APIs + Tesseract OCR
   # ---------------------------------------------------------------------------
   stats:
     build:
@@ -39,15 +18,11 @@ services:
       dockerfile: infrastructure/containers/stats/Dockerfile
     image: stats-runtime:local
     container_name: stats-runtime
-    depends_on:
-      stats-db:
-        condition: service_healthy
     ports:
       - "${STATS_WEB_HOST_PORT:-8080}:${STATS_WEB_PORT:-8080}"
     env_file:
       - .env.container
     environment:
-      # OCR defaults to enabled inside this container and can be overridden by environment.
       ALLOW_OCR_FALLBACK: "${ALLOW_OCR_FALLBACK:-true}"
       OCR_ENGINE: "${OCR_ENGINE:-tesseract}"
       STATS_APP_ROOT: "${STATS_APP_ROOT:-/app}"
@@ -63,10 +38,9 @@ services:
       STATS_WEB_PORT: "${STATS_WEB_PORT:-8080}"
       TRANSACTION_EXTRACTION_PORT: "${TRANSACTION_EXTRACTION_PORT:-8016}"
       DATA_VALIDATION_PORT: "${DATA_VALIDATION_PORT:-8017}"
-      # Wire DATABASE_URL to the stats-db Compose service
-      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-stats}:${POSTGRES_PASSWORD:-statspass}@stats-db:5432/${POSTGRES_DB:-stats}"
-      DB_HOST: "${DB_HOST:-stats-db}"
-      DB_PORT: "${DB_PORT:-5432}"
+      DATABASE_PROVIDER: "${DATABASE_PROVIDER:-AzureSql}"
+      DATABASE_SCHEMA: "${DATABASE_SCHEMA:-dbo}"
+      AZURE_SQL_CONNECTIONSTRING: "${AZURE_SQL_CONNECTIONSTRING}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:${STATS_WEB_PORT:-8080}/health"]
       interval: 30s
@@ -74,9 +48,5 @@ services:
       retries: 5
       start_period: 90s
     restart: unless-stopped
-
-volumes:
-  stats-db-data:
-    name: stats-db-data
 
 # M13 End
