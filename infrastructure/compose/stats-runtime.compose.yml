@@ -4,7 +4,9 @@
 #
 # Usage:
 #   cp infrastructure/containers/stats/.env.container.example infrastructure/compose/.env.container
-#   # Edit .env.container with real values (never commit .env.container)
+#   # Edit .env.container with real Azure SQL and secret values (never commit .env.container).
+#   # The active runtime target is AzureSql; local Compose will fail fast without
+#   # AZURE_SQL_CONNECTIONSTRING.
 #   docker compose -f infrastructure/compose/stats-runtime.compose.yml up --build
 
 services:
@@ -38,14 +40,18 @@ services:
       STATS_WEB_PORT: "${STATS_WEB_PORT:-8080}"
       TRANSACTION_EXTRACTION_PORT: "${TRANSACTION_EXTRACTION_PORT:-8016}"
       DATA_VALIDATION_PORT: "${DATA_VALIDATION_PORT:-8017}"
+      # AzureSql is the active M9/M14 runtime target. Provide
+      # AZURE_SQL_CONNECTIONSTRING in the ignored .env.container file.
       DATABASE_PROVIDER: "${DATABASE_PROVIDER:-AzureSql}"
       DATABASE_SCHEMA: "${DATABASE_SCHEMA:-dbo}"
-      AZURE_SQL_CONNECTIONSTRING: "${AZURE_SQL_CONNECTIONSTRING}"
+      AZURE_SQL_CONNECTIONSTRING: "${AZURE_SQL_CONNECTIONSTRING:?Set AZURE_SQL_CONNECTIONSTRING in infrastructure/compose/.env.container}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:${STATS_WEB_PORT:-8080}/health"]
       interval: 30s
       timeout: 10s
       retries: 5
+      # Allows first-start Azure SQL readiness, identity DB init, Tesseract-loaded
+      # module APIs, and Stats Web startup before Compose marks the container unhealthy.
       start_period: 90s
     restart: unless-stopped
 

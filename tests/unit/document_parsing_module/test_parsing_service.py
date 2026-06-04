@@ -293,3 +293,47 @@ def test_classifier_returns_unknown_when_confidence_is_low():
 
     assert result.document_type == "unknown"
     assert result.status == "unknown"
+
+
+def test_classifier_detects_bank_statement_from_expanded_signals():
+    result = classify_document(
+        text=(
+            "Bank Statement Account Number 12345 Statement Date 2026-05-31 "
+            "Opening Balance 100.00 Closing Balance 75.00 Transaction History Debit Credit"
+        ),
+        supported_document_types=["bank_statement", "receipt", "invoice", "utility_bill", "unknown"],
+        confidence_threshold=0.3,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "bank_statement"
+    assert result.status == "classified"
+    assert result.scores["bank_statement"] >= 0.3
+    assert "BANK_STATEMENT_SIGNALS" in result.reason_codes
+
+
+def test_classifier_detects_receipt_from_payment_terminal_signals():
+    result = classify_document(
+        text="Receipt Merchant Terminal EFTPOS Purchase Approved GST Subtotal Total Card",
+        supported_document_types=["bank_statement", "receipt", "invoice", "utility_bill", "unknown"],
+        confidence_threshold=0.3,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "receipt"
+    assert result.status == "classified"
+    assert result.scores["receipt"] >= 0.3
+    assert "RECEIPT_SIGNALS" in result.reason_codes
+
+
+def test_classifier_reports_ambiguous_when_top_scores_are_close():
+    result = classify_document(
+        text="Invoice Amount Due Due Date Receipt Total GST",
+        supported_document_types=["receipt", "invoice", "unknown"],
+        confidence_threshold=0.2,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "unknown"
+    assert result.status == "ambiguous"
+    assert "AMBIGUOUS_DOCUMENT_SIGNALS" in result.reason_codes

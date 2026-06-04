@@ -132,6 +132,15 @@ def test_dockerfile_packages_data_validation_module():
     assert "data-validation-module" in content, "Dockerfile must package M8 in the Stats runtime image"
 
 
+def test_dockerfile_packages_m9_azure_sql_migrations_without_intake_data():
+    content = DOCKERFILE.read_text()
+    dockerignore = (REPO_ROOT / ".dockerignore").read_text()
+    assert "COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/" in content
+    assert "COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/" in content
+    assert "COPY apps/stats-data/ /app/apps/stats-data/" not in content
+    assert "apps/stats-data/data/" in dockerignore
+
+
 # -- Startup script content ---------------------------------------------------
 
 def test_startup_script_waits_for_database():
@@ -158,6 +167,15 @@ def test_startup_script_normalizes_azure_sql_odbc_connection_string():
 def test_startup_script_runs_identity_db_init():
     content = STARTUP_SCRIPT.read_text()
     assert "init_db" in content, "Startup script must run identity DB init before starting the Identity API"
+
+
+def test_startup_script_applies_m9_migrations_before_identity_db_init():
+    lines = STARTUP_SCRIPT.read_text().splitlines()
+    migration = [i for i, line in enumerate(lines) if "apply_azure_sql_migrations.py" in line]
+    identity = [i for i, line in enumerate(lines) if "init_db" in line]
+    assert migration, "Startup script must run M9 Azure SQL migrations"
+    assert identity, "Startup script must run M1 identity DB init"
+    assert min(migration) < min(identity), "M9 migrations must run before M1 identity init"
 
 
 def test_startup_script_starts_identity_api():
@@ -209,9 +227,12 @@ def test_compose_does_not_start_postgres_service():
     assert "stats-db:" not in content
 
 
-def test_compose_database_connection_uses_managed_secret_value():
+def test_compose_database_connection_requires_ignored_local_secret_value():
     content = COMPOSE_FILE.read_text()
-    assert 'AZURE_SQL_CONNECTIONSTRING: "${AZURE_SQL_CONNECTIONSTRING}"' in content
+    assert (
+        'AZURE_SQL_CONNECTIONSTRING: '
+        '"${AZURE_SQL_CONNECTIONSTRING:?Set AZURE_SQL_CONNECTIONSTRING in infrastructure/compose/.env.container}"'
+    ) in content
 
 
 def test_compose_stats_has_no_database_container_dependency():

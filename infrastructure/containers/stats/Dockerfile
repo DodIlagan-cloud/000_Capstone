@@ -58,6 +58,8 @@ COPY modules/file-validation-module/ /app/modules/file-validation-module/
 COPY modules/document-parsing-module/ /app/modules/document-parsing-module/
 COPY modules/transaction-extraction-module/ /app/modules/transaction-extraction-module/
 COPY modules/data-validation-module/ /app/modules/data-validation-module/
+COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/
+COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/
 COPY config/ /app/config/
 COPY tests/ /app/tests/
 COPY README.md /app/README.md

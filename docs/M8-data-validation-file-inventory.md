@@ -40,7 +40,7 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `modules/data-validation-module/app/models/validation.py` | Created | Defines request/result, normalized record, finding, summary, and evaluation models. |
 | `modules/data-validation-module/app/routes/health.py` | Created | Adds `/health` and `/` metadata endpoints. |
 | `modules/data-validation-module/app/routes/validations.py` | Created | Adds `POST /api/v1/validations`. |
-| `modules/data-validation-module/app/services/validation_service.py` | Created | Adds deterministic transaction normalization, validation findings, financial field normalization, and same-batch duplicate detection. |
+| `modules/data-validation-module/app/services/validation_service.py` | Created/Modified | Adds deterministic transaction normalization, validation findings, financial field normalization, and same-batch duplicate detection. Review follow-up removed a dead date-format entry from the month-format parser list while keeping ISO date handling explicit. |
 
 ## Container and Test Runner Wiring
 

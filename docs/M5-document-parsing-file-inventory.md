@@ -69,7 +69,7 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 | --- | --- | --- |
 | `tests/unit/document_parsing_module/conftest.py` | Created | Provides FastAPI test client fixtures and approved actual-data lookup. |
 | `tests/unit/document_parsing_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, OCR readiness, and settings defaults. |
-| `tests/unit/document_parsing_module/test_parsing_service.py` | Created/Modified | Verifies PDF text extraction, OCR paths, unavailable dependency behavior, classification, redaction, evaluation fields, orientation retry, OCR quality findings, and M7 handoff audit readiness/redaction. |
+| `tests/unit/document_parsing_module/test_parsing_service.py` | Created/Modified | Verifies PDF text extraction, OCR paths, unavailable dependency behavior, classification, redaction, evaluation fields, orientation retry, OCR quality findings, and M7 handoff audit readiness/redaction. Updated after review to add direct classifier coverage for bank statements, receipts, and ambiguous matches. |
 | `tests/unit/document_parsing_module/test_parsing_api.py` | Created/Modified | Verifies the multipart parsing API, trace metadata behavior, and M7 handoff audit fields. |
 | `tests/scripts/M5-DocumentParsing/run_m5_all_inputs_manual_unit_2026_05_28.py` | Created | Repeatable manual unit-style runner for parsing every file under the approved `tests/input` directory and writing output artefacts under `tests/results`. |
 
@@ -117,5 +117,7 @@ powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_docker_ful
 This runs the containerized validate -> ingest -> parse -> extract -> validate flow. Historical host-side M5 diagnostics from earlier development were superseded by the M13 container-first policy and must not be recorded as acceptance evidence.
 
 The M5 `m7_handoff` payload remains part of the API/debug contract and evidence checks, but it is not the normal Upload page output for users.
+
+Review follow-up expanded classifier keyword signals and lowered the committed default classification threshold to fit the current transparent keyword-scored classifier. This keeps classification usable until a richer ruleset/model is introduced.
 
 <!-- M5/M6 End -->

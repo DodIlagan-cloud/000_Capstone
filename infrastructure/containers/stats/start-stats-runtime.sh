@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # M13 - Containerization Start
 # Starts all Stats module APIs in order, waits for health checks, then starts Stats Web.
 # Order: database ready -> identity DB init -> Identity API -> File Validation API -> Document Parsing API -> Transaction Extraction API -> Data Validation API -> Stats Web
@@ -24,6 +24,8 @@ DOCUMENT_PARSING_MODULE_DIR=${DOCUMENT_PARSING_MODULE_DIR:-${STATS_APP_ROOT}/mod
 TRANSACTION_EXTRACTION_MODULE_DIR=${TRANSACTION_EXTRACTION_MODULE_DIR:-${STATS_APP_ROOT}/modules/transaction-extraction-module}
 DATA_VALIDATION_MODULE_DIR=${DATA_VALIDATION_MODULE_DIR:-${STATS_APP_ROOT}/modules/data-validation-module}
 STATS_WEB_DIR=${STATS_WEB_DIR:-${STATS_APP_ROOT}/stats-web}
+STATS_DATA_DIR=${STATS_DATA_DIR:-${STATS_APP_ROOT}/apps/stats-data}
+STATS_DATA_MIGRATIONS_DIR=${STATS_DATA_MIGRATIONS_DIR:-${STATS_DATA_DIR}/migrations/azure-sql}
 
 # database readiness settings
 DATABASE_PROVIDER=${DATABASE_PROVIDER:-AzureSql}
@@ -99,12 +101,18 @@ wait_for_database() {
 # -- Step 1: Wait for database ------------------------------------------------
 wait_for_database
 
-# -- Step 2: Identity DB init -------------------------------------------------
+# -- Step 2: Stats Data migrations -------------------------------------------
+echo "[M9] Applying Stats Data Azure SQL migrations ..."
+cd "${STATS_DATA_DIR}"
+STATS_DATA_MIGRATIONS_DIR="${STATS_DATA_MIGRATIONS_DIR}" \
+    python3 scripts/apply_azure_sql_migrations.py
+
+# -- Step 3: Identity DB init -------------------------------------------------
 echo "[M13] Initialising Identity database ..."
 cd "${IDENTITY_MODULE_DIR}"
 python3 -c "from app.db import init_db; init_db(); print('[M13] Identity DB init complete.')"
 
-# -- Step 3: Start module APIs ------------------------------------------------
+# -- Step 4: Start module APIs ------------------------------------------------
 echo "[M13] Starting Identity Access API on port ${IDENTITY_PORT} ..."
 cd "${IDENTITY_MODULE_DIR}"
 API_HOST=0.0.0.0 API_PORT=${IDENTITY_PORT} \
@@ -130,14 +138,14 @@ cd "${DATA_VALIDATION_MODULE_DIR}"
 API_HOST=0.0.0.0 API_PORT=${DATA_VALIDATION_PORT} \
     python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${DATA_VALIDATION_PORT}" &
 
-# -- Step 4: Wait for module API health ---------------------------------------
+# -- Step 5: Wait for module API health ---------------------------------------
 wait_for_health "Identity Access API"   "http://localhost:${IDENTITY_PORT}/health"
 wait_for_health "File Validation API"   "http://localhost:${FILE_VALIDATION_PORT}/health"
 wait_for_health "Document Parsing API"  "http://localhost:${DOCUMENT_PARSING_PORT}/health"
 wait_for_health "Transaction Extraction API" "http://localhost:${TRANSACTION_EXTRACTION_PORT}/health"
 wait_for_health "Data Validation API" "http://localhost:${DATA_VALIDATION_PORT}/health"
 
-# -- Step 5: Start Stats Web --------------------------------------------------
+# -- Step 6: Start Stats Web --------------------------------------------------
 echo "[M13] All module APIs healthy. Starting Stats Web on port ${STATS_WEB_PORT} ..."
 cd "${STATS_WEB_DIR}"
 exec dotnet stats.Web.dll \

@@ -8,7 +8,7 @@ param(
     [string]$JobName = "job-stats-admin-bootstrap",
     [string]$Image = "acrstatsdev001.azurecr.io/stats-runtime:dev-m9-bootstrap",
     [string]$RegistryServer = "acrstatsdev001.azurecr.io",
-    [string]$RegistryIdentityResourceId = "/subscriptions/a9393569-82cd-48d5-8603-950471fea37a/resourcegroups/rg-stats-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-stats-dev-acr-pull",
+    [string]$RegistryIdentityResourceId = "/subscriptions/replace-with-subscription-id/resourcegroups/rg-stats-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-stats-dev-acr-pull",
     [string]$KeyVaultName = "kv-stats-dev-001",
     [string]$SqlConnectionSecretName = "stats-azure-sql-connectionstring",
     [string]$AdminPasswordSecretName = "stats-default-admin-password",

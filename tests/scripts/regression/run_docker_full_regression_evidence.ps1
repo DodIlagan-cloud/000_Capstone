@@ -298,7 +298,10 @@ Section "4. M1 -- Identity Access Module"
 
 # 4a. DB init: users table exists in the configured Azure SQL target
 try {
-    $dbOut = docker exec stats-runtime python3 -c "from app.db import engine; from sqlalchemy import text; conn = engine.connect(); result = conn.execute(text(\"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='users'\")); print(result.scalar()); conn.close()" 2>&1
+    $dbCheck = @'
+cd /app/modules/identity-access-module && python3 -c "from app.db import engine; from sqlalchemy import text; conn = engine.connect(); result = conn.execute(text(\"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='users'\")); print(result.scalar()); conn.close()"
+'@
+    $dbOut = docker exec stats-runtime sh -lc $dbCheck 2>&1
     if ($LASTEXITCODE -eq 0 -and $dbOut -match "1") {
         Pass "M1: Azure SQL dbo.users table exists"
     } else {

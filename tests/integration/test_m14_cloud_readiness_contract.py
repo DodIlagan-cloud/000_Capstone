@@ -103,6 +103,14 @@ def test_cloud_env_example_documents_required_variables():
         assert variable in content, f"Cloud env example must document {variable}"
 
 
+def test_cloud_env_example_explains_temporary_local_filesystem_storage():
+    content = read(CLOUD_ENV_EXAMPLE)
+
+    assert "STATS_STORAGE_PROVIDER=LocalFileSystem" in content
+    assert "Azure SQL for database persistence" in content
+    assert "AzureBlobStorage is deferred" in content
+
+
 def test_cloud_env_example_uses_placeholders_not_real_secrets():
     content = read(CLOUD_ENV_EXAMPLE).lower()
     forbidden_fragments = [
@@ -159,5 +167,12 @@ def test_admin_bootstrap_is_manual_container_app_job_not_startup():
     assert "create_admin" not in startup
     assert "First Admin Bootstrap" in cloud_readme
     assert "Run this job only against a fresh database" in cloud_readme
+
+
+def test_admin_bootstrap_uses_placeholder_subscription_id():
+    bootstrap = read(ADMIN_BOOTSTRAP_JOB)
+
+    assert "replace-with-subscription-id" in bootstrap
+    assert "a9393569-82cd-48d5-8603-950471fea37a" not in bootstrap
 
 # M14 - Cloud Readiness End

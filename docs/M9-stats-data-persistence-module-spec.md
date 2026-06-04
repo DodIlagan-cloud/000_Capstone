@@ -492,6 +492,16 @@ The M9 schema should therefore keep:
 
 Because the cloud-first target is Azure SQL Database, M9 must replace PostgreSQL-specific assumptions with an Azure SQL-compatible persistence boundary.
 
+Current runtime bootstrap flow:
+
+1. `start-stats-runtime.sh` verifies `DATABASE_PROVIDER=AzureSql`.
+2. The runtime waits for Azure SQL connectivity through `AZURE_SQL_CONNECTIONSTRING`.
+3. The runtime applies M9 migrations from `apps/stats-data/migrations/azure-sql/` using `apps/stats-data/scripts/apply_azure_sql_migrations.py`.
+4. The runtime initializes M1 identity tables.
+5. The runtime starts the module APIs and Stats Web only after database bootstrap completes.
+
+The migration runner must not print connection strings, passwords, or secret values. It may print migration filenames and non-secret status messages.
+
 Required implementation changes:
 
 | Area | Change |

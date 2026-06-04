@@ -28,6 +28,9 @@ IDENTITY_DEFAULTS = REPO_ROOT / "modules" / "identity-access-module" / "config" 
 STARTUP_SCRIPT = REPO_ROOT / "infrastructure" / "containers" / "stats" / "start-stats-runtime.sh"
 COMPOSE_FILE = REPO_ROOT / "infrastructure" / "compose" / "stats-runtime.compose.yml"
 DOCKERFILE = REPO_ROOT / "infrastructure" / "containers" / "stats" / "Dockerfile"
+MIGRATION_RUNNER = REPO_ROOT / "apps" / "stats-data" / "scripts" / "apply_azure_sql_migrations.py"
+DOCKERIGNORE = REPO_ROOT / ".dockerignore"
+M13_EVIDENCE_RUNNER = REPO_ROOT / "tests" / "scripts" / "M13-Containerization" / "run_docker_acceptance_evidence.ps1"
 
 
 def read(path: Path) -> str:
@@ -46,6 +49,9 @@ def test_m9_azure_sql_assets_exist():
         IDENTITY_DB,
         STARTUP_SCRIPT,
         COMPOSE_FILE,
+        MIGRATION_RUNNER,
+        DOCKERIGNORE,
+        M13_EVIDENCE_RUNNER,
     ]:
         assert path.exists(), f"Expected M9 Azure SQL asset at {path}"
 
@@ -116,6 +122,24 @@ def test_migration_supports_dashboard_indexes_and_duplicate_key():
         assert term in content, f"Migration must support dashboard/duplicate contract term {term}"
 
 
+def test_migration_creates_tables_before_foreign_key_dependents():
+    content = read(MIGRATION).lower()
+
+    transactions_create = content.index("create table dbo.transactions")
+    evidence_links_create = content.index("create table dbo.financial_evidence_links")
+    processing_runs_create = content.index("create table dbo.processing_runs")
+    findings_create = content.index("create table dbo.findings")
+
+    assert transactions_create < evidence_links_create, (
+        "financial_evidence_links must be created after transactions because it "
+        "declares transaction foreign keys."
+    )
+    assert processing_runs_create < findings_create, (
+        "findings must be created after processing_runs because it declares a "
+        "processing_run_id foreign key."
+    )
+
+
 def test_cloud_env_documents_azure_sql_settings_without_secret_values():
     content = read(CLOUD_ENV_EXAMPLE)
     required_terms = [
@@ -172,6 +196,8 @@ def test_startup_runtime_requires_azure_sql_and_does_not_print_connection_string
 
     assert "DATABASE_PROVIDER=${DATABASE_PROVIDER:-AzureSql}" in startup
     assert "wait_for_azure_sql" in startup
+    assert "STATS_DATA_MIGRATIONS_DIR" in startup
+    assert "scripts/apply_azure_sql_migrations.py" in startup
     assert "pyodbc.connect" in startup
     assert "DATABASE_PROVIDER must be AzureSql" in startup
     assert "stats-db" not in startup
@@ -186,7 +212,10 @@ def test_compose_uses_azure_sql_runtime_without_postgres_service():
 
     assert "DATABASE_PROVIDER: \"${DATABASE_PROVIDER:-AzureSql}\"" in compose
     assert "DATABASE_SCHEMA: \"${DATABASE_SCHEMA:-dbo}\"" in compose
-    assert "AZURE_SQL_CONNECTIONSTRING: \"${AZURE_SQL_CONNECTIONSTRING}\"" in compose
+    assert (
+        "AZURE_SQL_CONNECTIONSTRING: "
+        "\"${AZURE_SQL_CONNECTIONSTRING:?Set AZURE_SQL_CONNECTIONSTRING in infrastructure/compose/.env.container}\""
+    ) in compose
     assert "postgres:" not in compose.lower()
     assert "stats-db:" not in compose
     assert "POSTGRES_PASSWORD" not in compose
@@ -199,5 +228,47 @@ def test_dockerfile_includes_azure_sql_driver_dependencies():
     assert "msodbcsql18" in dockerfile
     assert "unixodbc" in dockerfile
     assert "import pyodbc" in dockerfile
+
+
+def test_dockerfile_packages_m9_migrations_without_runtime_intake_data():
+    dockerfile = read(DOCKERFILE)
+    dockerignore = read(DOCKERIGNORE)
+
+    assert "COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/" in dockerfile
+    assert "COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/" in dockerfile
+    assert "COPY apps/stats-data/ /app/apps/stats-data/" not in dockerfile
+    assert "apps/stats-data/data/" in dockerignore
+
+
+def test_official_container_evidence_checks_azure_sql_not_postgres():
+    runner = read(M13_EVIDENCE_RUNNER)
+
+    assert "Azure SQL schema check" in runner
+    assert "INFORMATION_SCHEMA.TABLES" in runner
+    assert "TABLE_SCHEMA='dbo'" in runner
+    assert "TABLE_NAME='users'" in runner
+    assert "psql" not in runner
+    assert "$DbContainer" not in runner
+    assert "stats-db" not in runner
+
+
+def test_m9_migration_runner_uses_azure_sql_without_printing_secrets():
+    runner = read(MIGRATION_RUNNER)
+
+    assert "AZURE_SQL_CONNECTIONSTRING" in runner
+    assert "DATABASE_PROVIDER" in runner
+    assert "AzureSql" in runner
+    assert "pyodbc.connect" in runner
+    assert "ODBC Driver 18 for SQL Server" in runner
+    assert "GO" in runner
+    assert "schema_migrations" not in runner, "Migration tracking belongs to SQL scripts, not duplicated in runner logic."
+    forbidden_fragments = [
+        "print(connection_string",
+        "print(os.environ",
+        "stats-sql-admin-password",
+        "stats-azure-sql-connectionstring",
+    ]
+    for fragment in forbidden_fragments:
+        assert fragment not in runner, f"Migration runner must not print or hardcode secret material: {fragment}"
 
 # M9 End

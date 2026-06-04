@@ -21,7 +21,6 @@ from app.models.validation import (
 
 
 MONTH_FORMATS = (
-    "%Y-%m-%d",
     "%m/%d/%Y",
     "%d/%m/%Y",
     "%m/%d/%y",
