@@ -561,7 +561,7 @@ def _layout_date_pair(tokens: list[str]) -> tuple[str, str] | None:
     return None
 
 
-def _last_layout_amount_token(tokens: list[str], confidences: object = None) -> tuple[str, float, float | None] | None:
+def _last_layout_amount_token(tokens: list[str], confidences: list[object] | None = None) -> tuple[str, float, float | None] | None:
     confidence_values = confidences if isinstance(confidences, list) else []
     for index in range(len(tokens) - 1, -1, -1):
         token = tokens[index]
@@ -576,7 +576,10 @@ def _last_layout_amount_token(tokens: list[str], confidences: object = None) -> 
     return None
 
 
-def _layout_amount_token_after_dates(tokens: list[str], confidences: object = None) -> tuple[str, float, int, float | None] | None:
+def _layout_amount_token_after_dates(
+    tokens: list[str],
+    confidences: list[object] | None = None,
+) -> tuple[str, float, int, float | None] | None:
     confidence_values = confidences if isinstance(confidences, list) else []
     side_summary_index = _side_summary_token_index(tokens)
     amount_candidates: list[tuple[str, float, int, float | None]] = []

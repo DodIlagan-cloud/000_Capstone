@@ -214,6 +214,8 @@ def _contains_signal(text: str, signal: str) -> bool:
 
 
 def _receipt_favored_result(scored_rules: list[tuple[str, str, float, list[str], dict[str, Any]]]) -> tuple[str, str, float] | None:
+    # Receipts often share invoice/payment vocabulary; prefer receipt only when
+    # multiple receipt-specific signals are present, not on a single weak tie.
     receipt_candidates = [
         (document_type, document_subtype, score, matched, rule)
         for document_type, document_subtype, score, matched, rule in scored_rules

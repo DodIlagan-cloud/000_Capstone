@@ -140,6 +140,8 @@ M14 requires all secret values to be managed outside Git:
 
 The preferred path is managed identity plus Key Vault-backed secret references. If a target environment temporarily uses Container Apps secrets directly, the secret names and ownership must still be documented and rotated before production use.
 
+The runtime Container App and manual bootstrap job may share the same user-assigned managed identity, but they are separate operational paths. Runtime identity is for normal app startup and secret/config access. Bootstrap job identity is for the operator-triggered first-admin creation job only and must not imply that privileged users are recreated on every deployment or restart.
+
 ## Storage Boundary
 
 The committed MVP remains on `STATS_STORAGE_PROVIDER=LocalFileSystem`. Cloud deployment must not assume local container storage is durable beyond the current revision lifecycle.
@@ -160,6 +162,8 @@ M14 deployment notes must provide:
 - A clear distinction between local `stats-db` Compose wiring and managed Azure SQL cloud database wiring.
 
 Modules currently using PostgreSQL-specific drivers or SQLAlchemy URLs must be migrated behind a Stats data access boundary before Azure SQL can be the operational store. M14 records the target; M9 owns schema, migrations, and provider-specific persistence changes.
+
+Cloud-dev reachability evidence may be collected before every persistence workflow is complete. However, any evidence claiming durable operational data, restart-safe retrieval, dashboard readiness, or cloud persistence completion depends on M9 applying the Azure SQL schema and migration path to the target database.
 
 ## Fabric and Power BI Boundary
 

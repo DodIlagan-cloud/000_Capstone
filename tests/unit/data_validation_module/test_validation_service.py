@@ -216,6 +216,8 @@ def test_installment_candidate_creates_review_item_without_changing_transaction_
     assert result.normalized_installments[0].quality_status == "warning"
     assert "MISSING_INSTALLMENT_TERM" in result.normalized_installments[0].reason_codes
     assert result.review_items[-1].item_type == "installment"
+    assert result.review_items[-1].record_id == result.normalized_installments[0].installment_id
+    assert "MISSING_INSTALLMENT_TERM" in result.review_items[-1].reason_codes
     assert result.review_items[-1].title == "Check installment term"
 
 

@@ -101,6 +101,8 @@ stats-access-token-secret-key
 
 If users already exist, M1 refuses the bootstrap because `create_initial_admin()` is only valid before any account exists.
 
+The runtime Container App and the bootstrap job may use the same user-assigned managed identity for image pull and secret access, but they have different responsibilities. The runtime identity starts the app and reads runtime secrets during normal operation. The bootstrap job identity is used only when the operator intentionally runs the one-time admin creation job against a fresh database.
+
 ## Azure-Side Image Build
 
 Use `build-stats-acr-image.ps1` when the image build should happen in Azure instead of on the local workstation. The script creates or reuses a resource group and Azure Container Registry, then runs `az acr build` with the repository root as the build context.
@@ -135,6 +137,18 @@ Fallback access:
 - Rotate SQL credentials before production use.
 
 M9 owns schema, migrations, persistence adapters, and any move from PostgreSQL-oriented local module drivers to Azure SQL-compatible providers.
+
+Cloud-dev can prove runtime reachability before full persistence is complete, but persistent document, transaction, validation, and dashboard evidence is not accepted until the M9 Azure SQL schema and migration path have been applied to the target database.
+
+## Cloud-Dev Evidence Examples
+
+Practical M14 cloud-dev evidence should include, when the deployed feature is available:
+
+- Stats Web `/health`, `/Login`, and `/Upload` checks against the live Container App URL.
+- Upload of approved files from the local `tests/input` fixture set through the cloud-dev Stats Web surface.
+- Redacted parse/extraction/validation summaries, including fixture filename, status, document type, extraction method, candidate counts, warnings, and processing time.
+- Azure Container App revision status and a redacted stdout/stderr log sample.
+- Azure SQL migration or connectivity evidence that records secret names and status only, not secret values.
 
 ## Fabric and Power BI Notes
 

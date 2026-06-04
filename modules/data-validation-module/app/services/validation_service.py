@@ -11,6 +11,7 @@ from app.config import settings
 from app.models.validation import (
     DataValidationRequest,
     DataValidationResult,
+    InstallmentCandidateInput,
     NormalizedFinancialField,
     NormalizedInstallmentRecord,
     NormalizedTransactionRecord,
@@ -411,7 +412,11 @@ def _normalize_line_item(candidate, min_confidence: float, findings: list[Valida
     )
 
 
-def _normalize_installment(candidate, min_confidence: float, findings: list[ValidationFinding]) -> NormalizedInstallmentRecord:
+def _normalize_installment(
+    candidate: InstallmentCandidateInput,
+    min_confidence: float,
+    findings: list[ValidationFinding],
+) -> NormalizedInstallmentRecord:
     reason_codes = list(candidate.reason_codes)
     description = _normalize_description(candidate.description)
     purchase_date = _normalize_date(candidate.purchase_date_text)

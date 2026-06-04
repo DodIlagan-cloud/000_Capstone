@@ -67,6 +67,8 @@ From M14 onward, the Azure cloud-dev deployment becomes the official evidence ta
 
 Cloud-dev tests must still use approved project fixtures from `tests/input`. Evidence should record the cloud endpoint, tested fixture names, redacted response summaries, processing status, screenshots where useful, and any Azure runtime observations that are safe to disclose. Evidence must never include real secrets, full connection strings, full OCR text, passwords, subscription identifiers that are not intentionally documented, or unredacted sensitive financial content.
 
+Practical cloud-dev targets include live `/health`, `/Login`, and `/Upload` checks, upload of approved `tests/input` fixtures through the cloud Stats Web URL, redacted API/result summaries, Container App revision status, redacted logs, and Azure SQL connectivity or migration status when the tested workflow depends on persistence.
+
 The detailed container-first policy is defined in:
 
 - `docs/M13-container-first-testing-policy.md`
