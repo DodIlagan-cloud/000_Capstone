@@ -15,6 +15,8 @@ Every feature or module change must define its test path while it is being desig
 
 No module is considered complete until the relevant unit, API, integration, E2E/browser, container, and evidence checks have passed at the correct level for that module.
 
+When a test exercises Stats functionality, it must use the configured project test-data directory, `tests/input`, as the source of input data. This applies to unit, API, regression, integration, E2E, container, and evidence tests. Synthetic inline payloads are allowed only for narrow edge cases that cannot be represented safely from the real fixture set, and those tests must complement, not replace, real-data coverage from `tests/input`.
+
 ## Tool-Matched Testing
 
 Testing must match the tool and workflow being used.
@@ -32,12 +34,12 @@ Testing must match the tool and workflow being used.
 
 | Test Type | Purpose | When Required |
 | --- | --- | --- |
-| Unit tests | Validate module rules and edge cases in isolation. | Any module logic change. |
-| API tests | Validate FastAPI or web endpoint behavior and response contracts. | Any module API or contract change. |
-| Integration tests | Validate configuration, orchestration, and module handoffs. | Any cross-module, config, or workflow change. |
-| E2E/browser tests | Validate real user flows through Stats Web. | Any frontend or upload/workflow experience change. |
-| Container tests | Validate the production-like runtime, Tesseract, DB, and service health. | Required for official acceptance from M13 onward. |
-| Evidence tests | Produce raw output, screenshots, JSON summaries, and checklists. | Required for module completion and Capstone assessment support. |
+| Unit tests | Validate module rules and edge cases in isolation using `tests/input`-derived data where the function processes real documents, OCR text, extraction candidates, validation records, or workflow artefacts. | Any module logic change. |
+| API tests | Validate FastAPI or web endpoint behavior and response contracts using `tests/input` files or payloads produced from them. | Any module API or contract change. |
+| Integration tests | Validate configuration, orchestration, and module handoffs using configured project fixtures. | Any cross-module, config, or workflow change. |
+| E2E/browser tests | Validate real user flows through Stats Web using actual files from `tests/input`. | Any frontend or upload/workflow experience change. |
+| Container tests | Validate the production-like runtime, Tesseract, DB, and service health using `tests/input` copied into the container. | Required for official acceptance from M13 onward. |
+| Evidence tests | Produce raw output, screenshots, JSON summaries, and checklists from actual configured project fixtures. | Required for module completion and Capstone assessment support. |
 
 ## Build Loop Sequence
 
@@ -59,6 +61,12 @@ From M13 onward, official acceptance evidence must run through the Stats contain
 
 Host-side test runs are allowed during editing, but they are development diagnostics only. If a result is used for module completion, regression proof, OCR validation, database validation, browser-flow validation, or Capstone assessment evidence, it must be repeated through the container stack.
 
+## Cloud-Dev Official Evidence
+
+From M14 onward, the Azure cloud-dev deployment becomes the official evidence target where practical. Local Docker remains the pre-cloud safety gate, but completion, MVP iteration, cloud-readiness, user-facing workflow, and assessment evidence should be repeated against the live cloud-dev Stats deployment.
+
+Cloud-dev tests must still use approved project fixtures from `tests/input`. Evidence should record the cloud endpoint, tested fixture names, redacted response summaries, processing status, screenshots where useful, and any Azure runtime observations that are safe to disclose. Evidence must never include real secrets, full connection strings, full OCR text, passwords, subscription identifiers that are not intentionally documented, or unredacted sensitive financial content.
+
 The detailed container-first policy is defined in:
 
 - `docs/M13-container-first-testing-policy.md`
@@ -77,6 +85,7 @@ When Claude and Codex are both involved, both agents must follow the same testin
 - Keep evidence under `tests/results`.
 - Keep reusable runners under `tests/scripts`.
 - Keep real fixture files under `tests/input`, with sensitive source files uncommitted.
+- Do not present synthetic fixture runs as module completion, regression, or assessment evidence.
 
 ## E2E Expectation
 

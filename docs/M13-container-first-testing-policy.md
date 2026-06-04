@@ -11,6 +11,10 @@ All acceptance, regression, evidence, runtime, database, OCR, browser-flow, and 
 
 Host-side commands are development diagnostics only. They must not be used as the official proof that a module is complete after M13 is active.
 
+All official tests that exercise Stats functionality must use the configured project fixture directory, `tests/input`, copied into the container as `/app/tests/input` unless the runtime root is intentionally changed through central configuration. Synthetic payloads are not an official substitute for real project fixture data.
+
+From M14 onward, the container-first gate remains required before cloud deployment, but official cloud-iteration evidence must also run against the Azure cloud-dev deployment where practical. The local container proves the portable runtime; cloud-dev proves the deployed runtime, cloud configuration, managed secrets, Azure SQL boundary, and public user-facing access.
+
 ## DevOps Principle
 
 This policy follows the DevOps/CI-CD principle that the project should build, test, and eventually deploy the same portable runtime image. The local developer machine, future GitHub Actions runner, and future cloud host should all validate the Stats app through the container rather than through machine-specific installations.
@@ -36,6 +40,8 @@ code change
 | Browser/app-flow evidence | Against the container-exposed Stats Web entry point |
 | Capstone assessment evidence | Container-generated evidence only |
 
+From M14 onward, cloud-dev evidence supersedes container-only evidence for cloud iteration acceptance when the tested behavior is available in the live Azure deployment.
+
 ## Development Diagnostics
 
 Developers may still run host-side commands while editing, but those runs are diagnostic only. Examples include static inspection, formatter checks, and quick local reproductions. Any diagnostic result that matters to module acceptance must be repeated through the container before it is recorded as official evidence.
@@ -58,6 +64,7 @@ Every future module should follow this order:
 - Official evidence belongs under `tests/results`.
 - Reusable test scripts belong under `tests/scripts`.
 - Approved fixture files belong under `tests/input`.
+- Unit, regression, and evidence tests must use approved `tests/input` fixtures for functionality coverage; controlled synthetic payloads may only cover narrow edge cases after real-data coverage exists.
 - Evidence summaries must avoid copying full sensitive financial text.
 - Host-run artefacts created before this policy are historical only unless superseded by container-run evidence.
 - Major testing/runtime policy changes must have a dedicated file inventory before commit.
