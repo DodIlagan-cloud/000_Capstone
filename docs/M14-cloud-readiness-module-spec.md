@@ -144,9 +144,9 @@ The runtime Container App and manual bootstrap job may share the same user-assig
 
 ## Storage Boundary
 
-The committed MVP remains on `STATS_STORAGE_PROVIDER=LocalFileSystem`. Cloud deployment must not assume local container storage is durable beyond the current revision lifecycle.
+The committed cloud runtime now uses `STATS_STORAGE_PROVIDER=AzureBlobStorage` for accepted document storage. `LocalFileSystem` remains a local-test/debug provider only and must not be accepted as durable cloud document storage.
 
-Before cloud acceptance can claim durable file retention, the owning module must implement and test an `AzureBlobStorage` provider behind the existing storage-provider boundary. M14 documents the required cloud variables and acceptance checks, but the adapter implementation belongs to the storage-owning module.
+Cloud acceptance for durable file retention requires `AzureBlobStorage` configuration, secret-backed storage credentials or managed identity access, and evidence that accepted uploads receive `azure-blob://` content references. M14 documents the required cloud variables and acceptance checks; the file-intake module owns the adapter behavior.
 
 ## Database Boundary
 

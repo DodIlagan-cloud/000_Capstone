@@ -18,7 +18,7 @@ The cloud data direction is Azure SQL Database for operational persistence, Micr
 | Database | Azure SQL Database |
 | Secrets | Azure Key Vault references or Container Apps secrets |
 | Identity | Managed identity for registry, Key Vault, and future storage access |
-| Durable files | `LocalFileSystem` for MVP; `AzureBlobStorage` after storage adapter implementation |
+| Durable files | `AzureBlobStorage` for accepted document storage |
 | Analytics | Microsoft Fabric workspace |
 | Reporting | Power BI workspace, reports, and embedding configuration |
 | Public ingress | Stats Web only on `STATS_WEB_PORT` |
@@ -187,13 +187,15 @@ Evidence should include a redacted cloud log sample and the active Container App
 
 ## Storage Notes
 
-The MVP can run with `STATS_STORAGE_PROVIDER=LocalFileSystem` for non-durable cloud trials only. Durable cloud document retention requires an `AzureBlobStorage` provider implemented by the storage-owning module before production acceptance.
+Cloud-dev now uses `STATS_STORAGE_PROVIDER=AzureBlobStorage` for durable accepted-document storage. `LocalFileSystem` remains valid only for isolated local tests and non-cloud debugging.
 
-When Blob Storage is enabled, document these values in cloud configuration:
+Blob Storage requires these values in cloud configuration:
 
 - `AZURE_STORAGE_ACCOUNT_NAME`
 - `AZURE_STORAGE_CONTAINER_NAME`
-- `AZURE_CLIENT_ID` when a user-assigned managed identity is required
+- `AZURE_STORAGE_BLOB_PREFIX`
+- `AZURE_STORAGE_CONNECTION_STRING` as a Container Apps secret or Key Vault reference until managed identity storage auth is implemented
+- `AZURE_CLIENT_ID` when a user-assigned managed identity is required later
 
 ## Secret Rotation
 

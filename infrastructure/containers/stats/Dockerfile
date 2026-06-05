@@ -60,6 +60,7 @@ COPY modules/transaction-extraction-module/ /app/modules/transaction-extraction-
 COPY modules/data-validation-module/ /app/modules/data-validation-module/
 COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/
 COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/
+COPY apps/stats-data/src/ /app/apps/stats-data/src/
 COPY config/ /app/config/
 COPY tests/ /app/tests/
 COPY README.md /app/README.md
@@ -82,6 +83,8 @@ COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/run-stats
 
 RUN /usr/bin/tesseract --version \
     && /opt/stats/runtime/bin/python -c "import fitz; import pytesseract; import pyodbc; from PIL import Image; print('M5 OCR and Azure SQL runtime dependencies available')" \
+    && sed -i 's/\r$//' /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh \
+    && sed -i '1s/^\xEF\xBB\xBF//' /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh \
     && chmod +x /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh
 
 ENV PATH="/opt/stats/runtime/bin:${PATH}"
@@ -91,7 +94,10 @@ ENV STATS_APP_ROOT=/app
 ENV STATS_RUNTIME_CONFIG=/app/config/stats.runtime.json
 ENV STATS_PATHS_CONFIG=/app/config/stats.paths.json
 ENV STATS_LOGGING_CONFIG=/app/config/stats.logging.json
-ENV STATS_STORAGE_PROVIDER=LocalFileSystem
+ENV STATS_STORAGE_PROVIDER=AzureBlobStorage
+ENV STATS_VALIDATION_HANDOFF_DIR=/app/apps/stats-data/data/validation-handoff
+ENV STATS_DATA_PORT=8018
+ENV AZURE_STORAGE_BLOB_PREFIX=intake
 ENV TESSERACT_CMD=/usr/bin/tesseract
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 ENV OCR_ENGINE=tesseract

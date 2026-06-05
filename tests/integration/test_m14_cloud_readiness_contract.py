@@ -103,12 +103,13 @@ def test_cloud_env_example_documents_required_variables():
         assert variable in content, f"Cloud env example must document {variable}"
 
 
-def test_cloud_env_example_explains_temporary_local_filesystem_storage():
+def test_cloud_env_example_documents_azure_blob_storage():
     content = read(CLOUD_ENV_EXAMPLE)
 
-    assert "STATS_STORAGE_PROVIDER=LocalFileSystem" in content
+    assert "STATS_STORAGE_PROVIDER=AzureBlobStorage" in content
     assert "Azure SQL for database persistence" in content
-    assert "AzureBlobStorage is deferred" in content
+    assert "Azure Blob Storage for" in content
+    assert "AZURE_STORAGE_CONNECTION_STRING=secretref:stats-storage-connection-string" in content
 
 
 def test_cloud_env_example_uses_placeholders_not_real_secrets():

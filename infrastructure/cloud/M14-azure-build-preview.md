@@ -63,7 +63,7 @@ These resources belong to later M14 phases and should not be created until the i
 | Azure SQL logical server and database | Needs M9 schema, migrations, and persistence adapter decisions. |
 | Key Vault | Needed before live secrets are configured. |
 | Managed identity | Needed before runtime access to ACR, Key Vault, SQL, and Storage. |
-| Storage account and Blob container | Needs the `AzureBlobStorage` provider before durable document storage can be accepted. |
+| Storage account and Blob container | Required now that the `AzureBlobStorage` provider backs durable accepted-document storage. |
 | Fabric workspace | Reporting model comes after operational persistence is stable. |
 | Power BI workspace/report | Dashboard/report delivery belongs after M11 reporting design and data model work. |
 

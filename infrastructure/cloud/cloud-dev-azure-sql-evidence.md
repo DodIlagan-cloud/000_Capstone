@@ -54,7 +54,7 @@ dbo.financial_evidence_links
 dbo.financial_fields
 dbo.findings
 dbo.line_items
-dbo.m8_validation_results
+dbo.validation_results
 dbo.processing_runs
 dbo.review_items
 dbo.schema_migrations
