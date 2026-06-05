@@ -3,5 +3,6 @@ uvicorn
 pydantic
 python-dotenv
 python-multipart
+azure-storage-blob
 pytest
 httpx

@@ -63,7 +63,12 @@ class Settings:
     allowed_mime_types: List[str]
     require_known_signature: bool
     compute_sha256: bool
+    stats_storage_provider: str
     storage_root: Path
+    azure_storage_account_name: str
+    azure_storage_container_name: str
+    azure_storage_connection_string: str
+    azure_storage_blob_prefix: str
     default_workflow: str
     max_stored_file_size_bytes: int
     # M3 End
@@ -97,7 +102,12 @@ class Settings:
             _config_value(config_values, "REQUIRE_KNOWN_SIGNATURE")
         )
         self.compute_sha256 = _parse_bool(_config_value(config_values, "COMPUTE_SHA256"))
+        self.stats_storage_provider = config_values.get("STATS_STORAGE_PROVIDER", "LocalFileSystem")
         self.storage_root = self._resolve_storage_root(_config_value(config_values, "STORAGE_ROOT"))
+        self.azure_storage_account_name = config_values.get("AZURE_STORAGE_ACCOUNT_NAME", "")
+        self.azure_storage_container_name = config_values.get("AZURE_STORAGE_CONTAINER_NAME", "")
+        self.azure_storage_connection_string = config_values.get("AZURE_STORAGE_CONNECTION_STRING", "")
+        self.azure_storage_blob_prefix = config_values.get("AZURE_STORAGE_BLOB_PREFIX", "intake")
         self.default_workflow = _config_value(config_values, "DEFAULT_WORKFLOW")
         self.max_stored_file_size_bytes = _parse_int(
             _config_value(config_values, "MAX_STORED_FILE_SIZE_BYTES"),

@@ -66,13 +66,18 @@
   "storage": {
     "STATS_STORAGE_PROVIDER": {
       "purpose": "Storage provider selector for durable files and future cloud storage.",
-      "default": "LocalFileSystem",
+      "default": "AzureBlobStorage in cloud/container, LocalFileSystem for isolated local tests",
       "cloudExample": "AzureBlobStorage",
       "secret": false
     },
     "STORAGE_ROOT": {
       "purpose": "Local filesystem root for accepted intake files when LocalFileSystem storage is active.",
       "default": "apps/stats-data/data/intake",
+      "secret": false
+    },
+    "STATS_VALIDATION_HANDOFF_DIR": {
+      "purpose": "Temporary M9 handoff directory for Data Validation DataValidationResult JSON files awaiting Azure SQL persistence.",
+      "default": "apps/stats-data/data/validation-handoff",
       "secret": false
     },
     "DOCUMENT_REFERENCE_ROOTS": {
@@ -196,6 +201,11 @@
       "purpose": "Data Validation API container-local port.",
       "default": "8017",
       "secret": false
+    },
+    "STATS_DATA_PORT": {
+      "purpose": "Stats Data persistence API container-local port.",
+      "default": "8018",
+      "secret": false
     }
   },
   "moduleDefaults": {
@@ -257,7 +267,8 @@
     "StatsWeb__Proxy__FileIngestionBaseUrl": "Server-side proxy target for File Ingestion.",
     "StatsWeb__Proxy__DocumentParsingBaseUrl": "Server-side proxy target for Document Parsing.",
     "StatsWeb__Proxy__TransactionExtractionBaseUrl": "Server-side proxy target for Transaction Extraction.",
-    "StatsWeb__Proxy__DataValidationBaseUrl": "Server-side proxy target for Data Validation."
+    "StatsWeb__Proxy__DataValidationBaseUrl": "Server-side proxy target for Data Validation.",
+    "StatsWeb__Proxy__StatsDataBaseUrl": "Server-side proxy target for Stats Data persistence."
   },
   "testing": {
     "STATS_TESTDATA_DIR": {
@@ -317,6 +328,11 @@
     },
     "AZURE_STORAGE_CONTAINER_NAME": {
       "purpose": "Blob container name used for durable document storage when AzureBlobStorage is enabled.",
+      "secret": false
+    },
+    "AZURE_STORAGE_BLOB_PREFIX": {
+      "purpose": "Blob path prefix for accepted intake files.",
+      "default": "intake",
       "secret": false
     },
     "AZURE_STORAGE_CONNECTION_STRING": {
