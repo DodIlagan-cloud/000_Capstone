@@ -14,6 +14,14 @@ MIGRATION = (
     / "azure-sql"
     / "001_initial_stats_data_schema.sql"
 )
+MIGRATION_2 = (
+    REPO_ROOT
+    / "apps"
+    / "stats-data"
+    / "migrations"
+    / "azure-sql"
+    / "002_validation_reporting_schema.sql"
+)
 MIGRATION_README = REPO_ROOT / "apps" / "stats-data" / "migrations" / "azure-sql" / "README.md"
 M9_SPEC = REPO_ROOT / "docs" / "M9-stats-data-persistence-module-spec.md"
 M9_ERD = REPO_ROOT / "docs" / "M9-stats-data-erd.md"
@@ -29,6 +37,9 @@ STARTUP_SCRIPT = REPO_ROOT / "infrastructure" / "containers" / "stats" / "start-
 COMPOSE_FILE = REPO_ROOT / "infrastructure" / "compose" / "stats-runtime.compose.yml"
 DOCKERFILE = REPO_ROOT / "infrastructure" / "containers" / "stats" / "Dockerfile"
 MIGRATION_RUNNER = REPO_ROOT / "apps" / "stats-data" / "scripts" / "apply_azure_sql_migrations.py"
+VALIDATION_PERSISTENCE_ADAPTER = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "validation_persistence.py"
+STATS_DATA_API = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "api.py"
+STATS_DATA_DATABASE = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "database.py"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
 M13_EVIDENCE_RUNNER = REPO_ROOT / "tests" / "scripts" / "M13-Containerization" / "run_docker_acceptance_evidence.ps1"
 
@@ -40,6 +51,7 @@ def read(path: Path) -> str:
 def test_m9_azure_sql_assets_exist():
     for path in [
         MIGRATION,
+        MIGRATION_2,
         MIGRATION_README,
         M9_SPEC,
         M9_ERD,
@@ -50,6 +62,7 @@ def test_m9_azure_sql_assets_exist():
         STARTUP_SCRIPT,
         COMPOSE_FILE,
         MIGRATION_RUNNER,
+        VALIDATION_PERSISTENCE_ADAPTER,
         DOCKERIGNORE,
         M13_EVIDENCE_RUNNER,
     ]:
@@ -74,17 +87,21 @@ def test_migration_uses_azure_sql_types_and_migration_tracking():
 
 
 def test_migration_creates_required_m9_tables():
-    content = read(MIGRATION).lower()
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}".lower()
     required_tables = [
-        "dbo.m8_validation_results",
+        "dbo.validation_results",
         "dbo.stats_documents",
         "dbo.processing_runs",
         "dbo.transaction_batches",
         "dbo.transactions",
         "dbo.financial_fields",
+        "dbo.document_sections",
         "dbo.statement_summaries",
         "dbo.document_financial_summaries",
         "dbo.line_items",
+        "dbo.validated_entities",
+        "dbo.validated_references",
+        "dbo.installments",
         "dbo.financial_evidence_links",
         "dbo.findings",
         "dbo.review_items",
@@ -94,7 +111,7 @@ def test_migration_creates_required_m9_tables():
 
 
 def test_migration_avoids_postgresql_only_syntax():
-    content = read(MIGRATION).lower()
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}".lower()
     forbidden_terms = [
         " jsonb",
         " uuid",
@@ -110,7 +127,7 @@ def test_migration_avoids_postgresql_only_syntax():
 
 
 def test_migration_supports_dashboard_indexes_and_duplicate_key():
-    content = read(MIGRATION)
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}"
     required_terms = [
         "ix_transactions_reporting",
         "ux_transactions_duplicate_key",
@@ -120,6 +137,53 @@ def test_migration_supports_dashboard_indexes_and_duplicate_key():
     ]
     for term in required_terms:
         assert term in content, f"Migration must support dashboard/duplicate contract term {term}"
+
+
+def test_validation_reporting_migration_supports_current_validation_contract():
+    content = read(MIGRATION_2)
+    required_terms = [
+        "002_validation_reporting_schema",
+        "section_candidate_count",
+        "entity_count",
+        "reference_count",
+        "line_item_count",
+        "installment_count",
+        "warning_installment_count",
+        "invalid_installment_count",
+        "CREATE TABLE dbo.document_sections",
+        "CREATE TABLE dbo.validated_entities",
+        "CREATE TABLE dbo.validated_references",
+        "CREATE TABLE dbo.installments",
+        "source_section_id",
+        "source_section_label",
+        "source_ocr_confidence",
+        "source_extraction_confidence",
+        "reason_codes_json",
+        "ck_transactions_reason_codes_json",
+        "ck_financial_fields_reason_codes_json",
+        "ck_line_items_reason_codes_json",
+        "ck_review_items_reason_codes_json",
+    ]
+    for term in required_terms:
+        assert term in content, f"M9 must support evolved validation persistence term {term}"
+
+
+def test_erd_matches_validation_promoted_tables():
+    erd = read(M9_ERD)
+    required_terms = [
+        "DOCUMENT_SECTIONS",
+        "VALIDATED_ENTITIES",
+        "VALIDATED_REFERENCES",
+        "INSTALLMENTS",
+        "normalized_description",
+        "duplicate_key",
+        "reason_codes_json",
+        "source_section_id",
+        "source_ocr_confidence",
+        "M9 persists only validation output",
+    ]
+    for term in required_terms:
+        assert term in erd, f"ERD must document validation-enriched persistence term {term}"
 
 
 def test_migration_creates_tables_before_foreign_key_dependents():
@@ -148,6 +212,8 @@ def test_cloud_env_documents_azure_sql_settings_without_secret_values():
         "AZURE_SQL_SERVER=sql-stats-dev-001.database.windows.net",
         "AZURE_SQL_DATABASE=sqldb-stats-dev",
         "AZURE_SQL_CONNECTIONSTRING=secretref:stats-azure-sql-connectionstring",
+        "STATS_VALIDATION_HANDOFF_DIR=/app/apps/stats-data/data/validation-handoff",
+        "STATS_DATA_PORT=8018",
     ]
     for term in required_terms:
         assert term in content, f"Cloud env example must document {term}"
@@ -157,12 +223,21 @@ def test_cloud_env_documents_azure_sql_settings_without_secret_values():
 def test_runtime_config_documents_m9_database_provider_settings():
     config = json.loads(read(RUNTIME_CONFIG))
     database = config["database"]
+    storage = config["storage"]
     assert database["DATABASE_PROVIDER"]["default"] == "AzureSql"
     assert database["DATABASE_SCHEMA"]["default"] == "dbo"
     assert database["AZURE_SQL_CONNECTIONSTRING"]["secret"] is True
+    assert storage["STATS_VALIDATION_HANDOFF_DIR"]["default"] == "apps/stats-data/data/validation-handoff"
+    assert storage["STATS_VALIDATION_HANDOFF_DIR"]["secret"] is False
     assert "DATABASE_URL" not in database
     assert config["cloud"]["AZURE_SQL_SERVER"]["example"] == "sql-stats-dev-001.database.windows.net"
     assert config["cloud"]["AZURE_SQL_DATABASE"]["example"] == "sqldb-stats-dev"
+    assert config["modulePorts"]["STATS_DATA_PORT"]["default"] == "8018"
+
+
+def test_path_map_documents_validation_handoff_directory():
+    paths = json.loads(read(REPO_ROOT / "config" / "stats.paths.json"))
+    assert paths["storage"]["validationHandoff"] == "apps/stats-data/data/validation-handoff"
 
 
 def test_evidence_records_secret_names_not_values():
@@ -197,6 +272,9 @@ def test_startup_runtime_requires_azure_sql_and_does_not_print_connection_string
     assert "DATABASE_PROVIDER=${DATABASE_PROVIDER:-AzureSql}" in startup
     assert "wait_for_azure_sql" in startup
     assert "STATS_DATA_MIGRATIONS_DIR" in startup
+    assert "STATS_DATA_PORT=${STATS_DATA_PORT:-8018}" in startup
+    assert "uvicorn stats_data.main:app" in startup
+    assert "http://localhost:${STATS_DATA_PORT}/health" in startup
     assert "scripts/apply_azure_sql_migrations.py" in startup
     assert "pyodbc.connect" in startup
     assert "DATABASE_PROVIDER must be AzureSql" in startup
@@ -216,6 +294,8 @@ def test_compose_uses_azure_sql_runtime_without_postgres_service():
         "AZURE_SQL_CONNECTIONSTRING: "
         "\"${AZURE_SQL_CONNECTIONSTRING:?Set AZURE_SQL_CONNECTIONSTRING in infrastructure/compose/.env.container}\""
     ) in compose
+    assert 'STATS_VALIDATION_HANDOFF_DIR: "${STATS_VALIDATION_HANDOFF_DIR:-/app/apps/stats-data/data/validation-handoff}"' in compose
+    assert 'STATS_DATA_PORT: "${STATS_DATA_PORT:-8018}"' in compose
     assert "postgres:" not in compose.lower()
     assert "stats-db:" not in compose
     assert "POSTGRES_PASSWORD" not in compose
@@ -228,6 +308,8 @@ def test_dockerfile_includes_azure_sql_driver_dependencies():
     assert "msodbcsql18" in dockerfile
     assert "unixodbc" in dockerfile
     assert "import pyodbc" in dockerfile
+    assert "ENV STATS_VALIDATION_HANDOFF_DIR=/app/apps/stats-data/data/validation-handoff" in dockerfile
+    assert "ENV STATS_DATA_PORT=8018" in dockerfile
 
 
 def test_dockerfile_packages_m9_migrations_without_runtime_intake_data():
@@ -236,8 +318,70 @@ def test_dockerfile_packages_m9_migrations_without_runtime_intake_data():
 
     assert "COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/" in dockerfile
     assert "COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/" in dockerfile
+    assert "COPY apps/stats-data/src/ /app/apps/stats-data/src/" in dockerfile
     assert "COPY apps/stats-data/ /app/apps/stats-data/" not in dockerfile
     assert "apps/stats-data/data/" in dockerignore
+
+
+def test_m9_adapter_maps_validation_staging_and_promoted_tables():
+    adapter = read(VALIDATION_PERSISTENCE_ADAPTER)
+    required_terms = [
+        "build_validation_persistence_plan",
+        "persist_validation_result",
+        "validation_results",
+        "stats_documents",
+        "transaction_batches",
+        "transactions",
+        "financial_fields",
+        "document_sections",
+        "validated_entities",
+        "validated_references",
+        "line_items",
+        "installments",
+        "review_items",
+        "payload_json",
+        "duplicate_key",
+    ]
+    for term in required_terms:
+        assert term in adapter, f"M9 adapter must include {term}"
+
+
+def test_m9_adapter_uses_temp_validation_payload_handoff_until_success():
+    adapter = read(VALIDATION_PERSISTENCE_ADAPTER)
+    required_terms = [
+        "write_validation_payload_temp_file",
+        "load_validation_payload_temp_file",
+        "build_validation_persistence_plan_from_temp_file",
+        "persist_validation_result_from_temp_file",
+        "persist_validation_result_with_temp_handoff",
+        "VALIDATION_HANDOFF_DIR_ENV",
+        "STATS_VALIDATION_HANDOFF_DIR",
+        "handoff_path.unlink()",
+        "persist_validation_result(connection, load_validation_payload_temp_file",
+    ]
+    for term in required_terms:
+        assert term in adapter, f"M9 adapter must guard temp validation payload handoff term {term}"
+
+
+def test_m9_stats_data_api_exposes_save_boundary():
+    api = read(STATS_DATA_API)
+    database = read(STATS_DATA_DATABASE)
+
+    assert '@app.post("/api/v1/transactions/batches"' in api
+    assert '@app.get("/api/v1/documents"' in api
+    assert '@app.delete("/api/v1/documents/{document_id}"' in api
+    assert "SaveTransactionsBatchRequest" in api
+    assert "UploadedDocumentsResponse" in api
+    assert "DeleteUploadedDocumentResponse" in api
+    assert "list_recent_uploaded_documents" in api
+    assert "persist_validation_result_with_temp_handoff" in api
+    assert "delete_uploaded_document_records" in api
+    assert "uploaded_by_user_id" in api
+    assert "saved_by_user_id" in api
+    assert "saved_record_count" in api
+    assert "AZURE_SQL_CONNECTIONSTRING" in database
+    assert "DATABASE_PROVIDER" in database
+    assert "pyodbc.connect" in database
 
 
 def test_official_container_evidence_checks_azure_sql_not_postgres():
