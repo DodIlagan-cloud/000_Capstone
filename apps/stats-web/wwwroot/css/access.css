@@ -349,6 +349,12 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
+.table-note {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin: 0.2rem 0 0;
+}
+
 .state-pill {
   background: rgba(89, 194, 173, 0.16);
   border: 1px solid rgba(89, 194, 173, 0.24);
@@ -401,6 +407,22 @@ tbody tr:last-child td {
   background: var(--accent);
   border-color: transparent;
   color: #071116;
+}
+
+.secondary-action {
+  background: rgba(243, 248, 245, 0.08);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.secondary-action:hover,
+.secondary-action:focus-visible {
+  background: rgba(243, 248, 245, 0.14);
+}
+
+.danger-action {
+  border-color: rgba(255, 173, 158, 0.42);
+  color: var(--danger);
 }
 
 .module-grid {

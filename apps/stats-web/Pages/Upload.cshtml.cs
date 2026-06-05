@@ -27,5 +27,10 @@ public class UploadModel(StatsApiOptions statsApiOptions, StatsWebShellOptions s
 
     public string DataValidationBaseUrl { get; } = shellOptions.DataValidationBaseUrl.TrimEnd('/');
     // M8 End
+
+    // M9 - Stats Data and Persistence Start
+    // Exposes the Stats Data save target for reviewed validation results.
+    public string StatsDataBaseUrl { get; } = shellOptions.StatsDataBaseUrl.TrimEnd('/');
+    // M9 End
 }
 // M2 End

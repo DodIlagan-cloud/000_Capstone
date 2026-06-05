@@ -12,6 +12,7 @@ const fileIngestionBaseUrl = document.body.dataset.fileIngestionBaseUrl ?? fileV
 const documentParsingBaseUrl = document.body.dataset.documentParsingBaseUrl ?? "";
 const transactionExtractionBaseUrl = document.body.dataset.transactionExtractionBaseUrl ?? "";
 const dataValidationBaseUrl = document.body.dataset.dataValidationBaseUrl ?? "";
+const statsDataBaseUrl = document.body.dataset.statsDataBaseUrl ?? "";
 
 let selectedFile = null;
 let acceptedValidation = null;
@@ -616,6 +617,38 @@ function buildValidationRequest(extractionResult) {
   };
 }
 
+function buildSaveValidationResult(validationResult, reviewState) {
+  const acceptedRecordIds = reviewState.acceptedRecordIds;
+  const acceptedInstallmentIds = reviewState.acceptedInstallmentIds;
+  const normalizedRecords = reviewState.records.map((record) => ({
+    ...record,
+    quality_status: acceptedRecordIds.has(record.record_id) && transactionFieldsComplete(record) ? "valid" : record.quality_status,
+  }));
+  const normalizedInstallments = reviewState.installments.map((installment) => ({
+    ...installment,
+    quality_status: acceptedInstallmentIds.has(installment.installment_id) && installmentFieldsComplete(installment)
+      ? "valid"
+      : installment.quality_status,
+  }));
+  const validRecordCount = normalizedRecords.filter((record) => record.quality_status === "valid").length;
+  const warningRecordCount = normalizedRecords.filter((record) => record.quality_status === "warning").length;
+  const invalidRecordCount = normalizedRecords.filter((record) => record.quality_status === "invalid").length;
+
+  return {
+    ...validationResult,
+    normalized_records: normalizedRecords,
+    normalized_installments: normalizedInstallments,
+    summary: {
+      ...(validationResult.summary || {}),
+      valid_record_count: validRecordCount,
+      warning_record_count: warningRecordCount,
+      invalid_record_count: invalidRecordCount,
+      document_review_status: warningRecordCount || invalidRecordCount ? "needs_review" : "ready",
+      recommended_action: warningRecordCount || invalidRecordCount ? "review_items" : "save_ready_transactions",
+    },
+  };
+}
+
 function reviewItemRecord(reviewItem, records) {
   return (records || []).find((record) => record.record_id === reviewItem.record_id);
 }
@@ -938,7 +971,7 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult, ex
   const rerender = () => renderTransactionCheckResult(result, parsePayload, extractionResult, reviewState);
   const reconciliation = reconciliationSnapshot(reviewState, extractionResult);
   const allRowsAccepted = reviewState.records.every((record) => localRecordStatus(record, reviewState) === "Ready");
-  const finalReady = allRowsAccepted && reconciliation.matched;
+  const finalReady = reviewState.records.length > 0 && allRowsAccepted && reconciliation.matched;
 
   parseResult.hidden = false;
   parseResult.dataset.status = result.status === "failed" ? "rejected" : "accepted";
@@ -1050,10 +1083,24 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult, ex
   saveButton.type = "button";
   saveButton.className = "primary-action";
   saveButton.textContent = "Save ready transactions";
-  saveButton.disabled = true;
+  saveButton.disabled = !finalReady;
   saveButton.title = finalReady
-    ? "Rows are ready for the future M9 database save step."
-    : "Accept all rows and resolve reconciliation before the future M9 database save step.";
+    ? "Save reviewed transactions."
+    : "Accept all rows and resolve reconciliation before saving.";
+  saveButton.addEventListener("click", async () => {
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving transactions";
+    try {
+      const saveResult = await saveReadyTransactions(result, reviewState);
+      setValidationState("Transactions saved.", "success");
+      saveButton.textContent = "Transactions saved";
+      saveButton.title = `Saved ${saveResult.saved_record_count || 0} transaction rows.`;
+    } catch (error) {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save ready transactions";
+      setValidationState(error.message || "Transaction save failed.", "error");
+    }
+  });
 
   const reviewButton = document.createElement("button");
   reviewButton.type = "button";
@@ -1205,6 +1252,30 @@ async function validateExtractedData(extractionResult) {
 
   if (!response.ok) {
     throw new Error("Data validation service did not accept the request.");
+  }
+
+  return response.json();
+}
+
+async function saveReadyTransactions(validationResult, reviewState) {
+  const user = await window.statsAccess.currentUser();
+  const response = await fetch(statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/batches"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...window.statsAccess.authHeaders(),
+    },
+    body: JSON.stringify({
+      validation_result: buildSaveValidationResult(validationResult, reviewState),
+      uploaded_by_user_id: user.id,
+      saved_by_user_id: user.id,
+      user_email: user.email,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || "Stats Data did not save the transactions.");
   }
 
   return response.json();

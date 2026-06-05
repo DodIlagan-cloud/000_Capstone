@@ -11,6 +11,8 @@ STATS_WEB_ROOT = REPO_ROOT / "apps" / "stats-web"
 APPSETTINGS_FILE = STATS_WEB_ROOT / "appsettings.json"
 PROGRAM_FILE = STATS_WEB_ROOT / "Program.cs"
 UPLOAD_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "upload.js"
+DOCUMENTS_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "documents.js"
+DOCUMENTS_PAGE_FILE = STATS_WEB_ROOT / "Pages" / "Documents.cshtml"
 RUNTIME_CONFIG_FILE = REPO_ROOT / "config" / "stats.runtime.json"
 
 
@@ -50,6 +52,7 @@ def test_stats_web_uses_same_origin_proxy_for_browser_downstream_calls():
     # M7 End
     # M8 - Data Validation Module Start
     assert downstream["DataValidationBaseUrl"] == ""
+    assert downstream["StatsDataBaseUrl"] == ""
     # M8 End
 
 
@@ -67,6 +70,7 @@ def test_stats_web_program_allows_container_environment_overrides():
     assert "StatsWeb:Downstream:DocumentParsingBaseUrl" in program_source
     assert "StatsWeb:Downstream:TransactionExtractionBaseUrl" in program_source
     assert "StatsWeb:Downstream:DataValidationBaseUrl" in program_source
+    assert "StatsWeb:Downstream:StatsDataBaseUrl" in program_source
 
 
 def test_stats_web_wires_central_logging_and_correlation():
@@ -104,6 +108,7 @@ def test_stats_web_validates_required_proxy_ports_at_startup():
     assert "DOCUMENT_PARSING_PORT" in program_source
     assert "TRANSACTION_EXTRACTION_PORT" in program_source
     assert "DATA_VALIDATION_PORT" in program_source
+    assert "STATS_DATA_PORT" in program_source
 
 
 def test_stats_web_resolves_local_paths_from_central_runtime():
@@ -155,3 +160,18 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert 'statsApiUrl(documentParsingBaseUrl, "/api/v1/parses")' in upload_source
     assert 'statsApiUrl(transactionExtractionBaseUrl, "/api/v1/extractions")' in upload_source
     assert 'statsApiUrl(dataValidationBaseUrl, "/api/v1/validations")' in upload_source
+    assert 'statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/batches")' in upload_source
+    assert "buildSaveValidationResult" in upload_source
+
+
+def test_documents_page_lists_and_removes_stats_data_records():
+    documents_page = DOCUMENTS_PAGE_FILE.read_text(encoding="utf-8")
+    documents_source = DOCUMENTS_JS_FILE.read_text(encoding="utf-8")
+
+    assert "/js/documents.js" in documents_page
+    assert 'data-stats-data-base-url="@Model.StatsDataBaseUrl"' in documents_page
+    assert 'id="documents-table-body"' in documents_page
+    assert 'fetch(documentsApiUrl("/api/v1/documents?limit=25")' in documents_source
+    assert 'method: "DELETE"' in documents_source
+    assert "/api/v1/documents/${encodeURIComponent(documentRecord.document_id)}" in documents_source
+    assert "window.confirm" in documents_source

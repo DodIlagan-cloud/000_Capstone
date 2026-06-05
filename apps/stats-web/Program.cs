@@ -51,7 +51,8 @@ builder.Services.AddSingleton(
         FileIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:FileIngestionBaseUrl"] ?? centralRuntime.ModuleUrl("FILE_VALIDATION_PORT"),
         DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? centralRuntime.ModuleUrl("DOCUMENT_PARSING_PORT"),
         TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Proxy:TransactionExtractionBaseUrl"] ?? centralRuntime.ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
-        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? centralRuntime.ModuleUrl("DATA_VALIDATION_PORT")
+        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? centralRuntime.ModuleUrl("DATA_VALIDATION_PORT"),
+        StatsDataBaseUrl: builder.Configuration["StatsWeb:Proxy:StatsDataBaseUrl"] ?? centralRuntime.ModuleUrl("STATS_DATA_PORT")
     )
 );
 // M13 End
@@ -137,7 +138,8 @@ public sealed record StatsWebProxyOptions(
     string FileIngestionBaseUrl,
     string DocumentParsingBaseUrl,
     string TransactionExtractionBaseUrl,
-    string DataValidationBaseUrl
+    string DataValidationBaseUrl,
+    string StatsDataBaseUrl
 );
 // M13 End
 // M2 - Stats Web Shell Start
@@ -471,6 +473,13 @@ public static class StatsWebApiProxy
             return proxyOptions.DataValidationBaseUrl;
         }
 
+        if (path.StartsWith("transactions/batches", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("documents", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("documents/", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.StatsDataBaseUrl;
+        }
+
         return string.Empty;
     }
 
@@ -578,6 +587,7 @@ public sealed class StatsCentralRuntime
             "DOCUMENT_PARSING_PORT",
             "TRANSACTION_EXTRACTION_PORT",
             "DATA_VALIDATION_PORT",
+            "STATS_DATA_PORT",
         })
         {
             _ = ModuleUrl(portKey);
@@ -728,11 +738,12 @@ public sealed class StatsCentralRuntime
             ["StatsWeb:Proxy:DocumentParsingBaseUrl"] = ModuleUrl("DOCUMENT_PARSING_PORT"),
             ["StatsWeb:Proxy:TransactionExtractionBaseUrl"] = ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
             ["StatsWeb:Proxy:DataValidationBaseUrl"] = ModuleUrl("DATA_VALIDATION_PORT"),
+            ["StatsWeb:Proxy:StatsDataBaseUrl"] = ModuleUrl("STATS_DATA_PORT"),
         };
 
         if (LoggingDefaults.TryGetValue("LOG_LEVEL", out var logLevel))
         {
-            defaults["Logging:LogLevel:Default"] = logLevel;
+            defaults["Logging:LogLevel:Default"] = StatsLoggingBootstrap.NormalizeLogLevelName(logLevel);
         }
 
         return defaults;
@@ -863,15 +874,30 @@ public static class StatsLoggingBootstrap
         return new StatsLoggingOptions(includeCorrelationId, redactSensitiveValues, "stdout");
     }
 
-    private static LogLevel ParseLogLevel(string value)
+    public static string NormalizeLogLevelName(string value)
     {
         return value.ToUpperInvariant() switch
         {
-            "DEBUG" => LogLevel.Debug,
-            "INFO" => LogLevel.Information,
-            "WARNING" => LogLevel.Warning,
-            "ERROR" => LogLevel.Error,
-            "CRITICAL" => LogLevel.Critical,
+            "DEBUG" => "Debug",
+            "INFO" => "Information",
+            "INFORMATION" => "Information",
+            "WARN" => "Warning",
+            "WARNING" => "Warning",
+            "ERROR" => "Error",
+            "CRITICAL" => "Critical",
+            _ => "Information",
+        };
+    }
+
+    private static LogLevel ParseLogLevel(string value)
+    {
+        return NormalizeLogLevelName(value) switch
+        {
+            "Debug" => LogLevel.Debug,
+            "Information" => LogLevel.Information,
+            "Warning" => LogLevel.Warning,
+            "Error" => LogLevel.Error,
+            "Critical" => LogLevel.Critical,
             _ => LogLevel.Information,
         };
     }
