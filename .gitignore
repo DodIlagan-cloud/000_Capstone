@@ -20,6 +20,7 @@ apps/stats-data/data/
 *.log
 
 # Test evidence is retained locally until the final evidence check-in.
+test-results/
 tests/results/
 tests/Stats_Module_Test_Case_Tracker.xlsx
 tests/~$*.xlsx
