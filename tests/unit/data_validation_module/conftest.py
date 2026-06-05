@@ -65,7 +65,7 @@ def client():
 
 
 @pytest.fixture()
-def m7_candidates() -> dict[str, object]:
+def extraction_candidates() -> dict[str, object]:
     return {
         "extraction_id": "extract_test",
         "parse_id": "parse_test",

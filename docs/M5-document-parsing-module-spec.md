@@ -62,7 +62,7 @@ The current roadmap may still show M5 as OCR Extraction and M6 as Document Class
 - Return quality metadata such as text length, page count, pages processed, empty-page count, and low-text status.
 - Return explicit findings for unsupported media, unreadable files, OCR disabled, Tesseract unavailable, renderer unavailable, OCR failure, no text, low text quality, and uncertain classification.
 - Return evaluation-ready fields for measuring extraction reliability, OCR fallback rate, classification confidence, processing time, and redaction compliance.
-- Return an M5-to-M7 handoff audit that proves whether OCR/Tesseract ran, whether parse text is present, whether transaction-like signals exist, and whether the parse output is ready for M7.
+- Return an extraction handoff audit that proves whether OCR/Tesseract ran, whether parse text is present, whether transaction-like signals exist, and whether the parse output is ready for downstream transaction extraction.
 - Redact personal information, account numbers, card numbers, and other sensitive values from evidence previews.
 - Use real approved project TestData for automated/evidence checks.
 - Keep runtime behavior configurable through defaults, ignored local overrides, environment variables, and later M13 container settings.
@@ -112,20 +112,20 @@ M5 returns a **Document Parsing Result**.
 | `quality` | Text length, page coverage, empty-page count, and low-text flag. |
 | `evaluation` | Measurement fields for later evaluation and reporting. |
 | `evidence` | Redacted text preview and redaction counts. |
-| `m7_handoff` | Safe audit object for checking M5 execution and M7 readiness without storing full sensitive text. |
+| `extraction_handoff` | Safe audit object for checking M5 execution and downstream extraction readiness without storing full sensitive text. |
 | `findings` | Explicit warning/error codes and messages. |
 
 M5 does not return final transaction records.
 
-### M7 Handoff Audit
+### Extraction Handoff Audit
 
-The `m7_handoff` object is the preferred local/debug view for confirming that M5 executed correctly before M7 runs.
+The `extraction_handoff` object is the preferred local/debug view for confirming that M5 executed correctly before downstream transaction extraction runs.
 
 It is part of the API response for developer diagnostics, regression evidence, and downstream readiness checks. It is not intended to be the main user-facing Upload page result; Stats Web should keep raw handoff/audit payloads behind a developer detail view and present plain-language parse and transaction-check summaries to ordinary users.
 
 | Field | Description |
 | --- | --- |
-| `parse_id` | Parse attempt identifier that M7 can reference. |
+| `parse_id` | Parse attempt identifier that downstream extraction can reference. |
 | `document_id` | Upstream ingestion ID when available, otherwise derived document hash. |
 | `filename` | Normalized document filename. |
 | `strategy` | Selected parse strategy, such as `pdf_text`, `tesseract_ocr`, or `ocr_disabled`. |
@@ -137,9 +137,9 @@ It is part of the API response for developer diagnostics, regression evidence, a
 | `confidence` | Classification confidence. |
 | `text_length` | Extracted text length. |
 | `page_count` / `pages_processed` | Page coverage metadata. |
-| `warnings` | Warning finding codes that may affect M7 quality. |
-| `m7_ready` | True only when parse status, text length, and transaction signals are sufficient for M7. |
-| `m7_readiness_reason_codes` | Reason codes when the parse output is not M7-ready. |
+| `warnings` | Warning finding codes that may affect downstream extraction quality. |
+| `extraction_ready` | True only when parse status, text length, and transaction signals are sufficient for downstream extraction. |
+| `extraction_readiness_reason_codes` | Reason codes when the parse output is not extraction-ready. |
 | `transaction_signal_count` | Lightweight count of transaction-related keywords, amount-like values, and date-like values. |
 | `redacted_preview` | Redacted preview of extracted text for human inspection. |
 | `redaction_summary` | Count of sensitive values masked in the preview. |

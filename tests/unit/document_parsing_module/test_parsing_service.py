@@ -32,10 +32,10 @@ def test_text_pdf_parse_classifies_invoice_and_exposes_evaluation(monkeypatch, s
     assert result.classification.document_subtype == "service_invoice"
     assert result.evaluation.document_id == "ing_123"
     assert result.evaluation.predicted_document_subtype == "service_invoice"
-    assert result.m7_handoff.parse_id == result.parse_id
-    assert result.m7_handoff.strategy == "pdf_text"
-    assert result.m7_handoff.m7_ready is True
-    assert result.m7_handoff.transaction_signal_count > 0
+    assert result.extraction_handoff.parse_id == result.parse_id
+    assert result.extraction_handoff.strategy == "pdf_text"
+    assert result.extraction_handoff.extraction_ready is True
+    assert result.extraction_handoff.transaction_signal_count > 0
 
 
 def test_pdf_with_no_text_reports_ocr_disabled(monkeypatch, sample_pdf_content):
@@ -69,10 +69,10 @@ def test_real_scanned_pdf_uses_tesseract_ocr_and_classifies_credit_card_statemen
     assert result.metadata.extraction_method == "ocr"
     assert result.classification.document_type == "statement"
     assert result.classification.document_subtype == "credit_card_statement"
-    assert result.m7_handoff.ocr_engine == "tesseract"
-    assert result.m7_handoff.ocr_attempted is True
-    assert result.m7_handoff.tesseract_available is True
-    assert result.m7_handoff.m7_ready is True
+    assert result.extraction_handoff.ocr_engine == "tesseract"
+    assert result.extraction_handoff.ocr_attempted is True
+    assert result.extraction_handoff.tesseract_available is True
+    assert result.extraction_handoff.extraction_ready is True
     assert any(page.ocr_word_blocks for page in result.pages)
 
 
@@ -91,12 +91,13 @@ def test_real_payment_terminal_image_uses_tesseract_ocr(input_file):
     assert result.metadata.ocr_quality_score is not None
     assert result.classification.document_type == "receipt"
     assert result.classification.document_subtype == "payment_terminal_receipt"
-    assert result.m7_handoff.strategy == "tesseract_ocr"
-    assert result.m7_handoff.transaction_signal_count > 0
+    assert result.extraction_handoff.strategy == "tesseract_ocr"
+    assert result.extraction_handoff.transaction_signal_count > 0
+    assert "227.00" in result.text or "227,00" in result.text
     assert any(page.ocr_word_blocks for page in result.pages)
 
 
-def test_m7_handoff_redacts_sensitive_preview(monkeypatch, sample_pdf_content):
+def test_extraction_handoff_redacts_sensitive_preview(monkeypatch, sample_pdf_content):
     text = (
         "Bank Statement account number ABC12345 card 4111 1111 1111 1111 "
         "payment 2026-05-28 amount 42.00"
@@ -110,10 +111,10 @@ def test_m7_handoff_redacts_sensitive_preview(monkeypatch, sample_pdf_content):
         classification_threshold=0.2,
     )
 
-    assert result.m7_handoff.m7_ready is True
-    assert "[REDACTED_CARD]" in result.m7_handoff.redacted_preview
-    assert "4111 1111 1111 1111" not in result.m7_handoff.redacted_preview
-    assert result.m7_handoff.redaction_applied is True
+    assert result.extraction_handoff.extraction_ready is True
+    assert "[REDACTED_CARD]" in result.extraction_handoff.redacted_preview
+    assert "4111 1111 1111 1111" not in result.extraction_handoff.redacted_preview
+    assert result.extraction_handoff.redaction_applied is True
 
 
 def test_text_pdf_parse_classifies_credit_card_statement_subtype(monkeypatch, sample_pdf_content):
@@ -135,6 +136,22 @@ def test_text_pdf_parse_classifies_credit_card_statement_subtype(monkeypatch, sa
     assert result.classification.document_type == "statement"
     assert result.classification.document_subtype == "credit_card_statement"
     assert "CREDIT_CARD_STATEMENT_SIGNALS" in result.classification.reason_codes
+
+
+def test_classifier_keeps_hsbc_statement_ahead_of_generic_receipt_signals():
+    result = classify_document(
+        text=(
+            "HSBC CLASSIC VISA Credit Limit Payment Due Date Finance Charge "
+            "GST total card purchase wording appears in the statement footer."
+        ),
+        supported_document_types=["statement", "receipt", "invoice", "unknown"],
+        confidence_threshold=0.35,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "statement"
+    assert result.document_subtype == "credit_card_statement"
+    assert "STATEMENT_AMBIGUITY_RESOLVED" in result.reason_codes
 
 
 def test_classification_loads_configured_vocabulary_and_rules(monkeypatch, tmp_path):

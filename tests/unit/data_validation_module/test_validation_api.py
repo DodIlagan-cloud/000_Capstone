@@ -3,8 +3,8 @@ Verifies the data validation JSON API.
 M8 End"""
 
 
-def test_validation_endpoint_returns_normalized_records(client, m7_candidates):
-    response = client.post("/api/v1/validations", json=m7_candidates)
+def test_validation_endpoint_returns_normalized_records(client, extraction_candidates):
+    response = client.post("/api/v1/validations", json=extraction_candidates)
     payload = response.json()
 
     assert response.status_code == 200
@@ -32,8 +32,8 @@ def test_validation_endpoint_reports_missing_candidates(client):
     assert payload["findings"][0]["code"] == "MISSING_CANDIDATES"
 
 
-def test_validation_endpoint_accepts_m7_shape_with_upstream_findings(client, m7_candidates):
-    m7_candidates["findings"] = [
+def test_validation_endpoint_accepts_extraction_shape_with_upstream_findings(client, extraction_candidates):
+    extraction_candidates["findings"] = [
         {
             "code": "LOW_CONFIDENCE_EXTRACTION",
             "severity": "warning",
@@ -41,7 +41,7 @@ def test_validation_endpoint_accepts_m7_shape_with_upstream_findings(client, m7_
         }
     ]
 
-    response = client.post("/api/v1/validations", json=m7_candidates)
+    response = client.post("/api/v1/validations", json=extraction_candidates)
     payload = response.json()
 
     assert response.status_code == 200

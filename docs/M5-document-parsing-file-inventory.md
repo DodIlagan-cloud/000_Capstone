@@ -15,7 +15,7 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 | --- | --- | --- |
 | `docs/M5-document-parsing-module-spec.md` | Created | Defines M5 goals, boundaries, runtime configuration, API contract, OCR strategy rules, classification output, redaction, testing, M13 runtime alignment, and acceptance criteria. |
 | `docs/M5-document-parsing-file-inventory.md` | Created | Documents planned and completed files for M5. |
-| `docs/M5-document-parsing-activity-flow.md` | Created | Provides the printable swimlane activity flow diagram for the merged M5 parsing, OCR, classification, redaction, and M7 handoff behavior. |
+| `docs/M5-document-parsing-activity-flow.md` | Created | Provides the printable swimlane activity flow diagram for the merged M5 parsing, OCR, classification, redaction, and extraction handoff behavior. |
 | `docs/building-block-module-plan.md` | Modified | Aligns the roadmap so M5 is the merged Document Parsing module and former M6 classification is included in M5. |
 | `docs/building-block-module-io-map.md` | Modified | Defines the M5 input/output contract from file intake to transaction processing. |
 | `contracts/extraction/README.md` | Modified | Adds the concrete M5 Document Parsing request/result contract summary. |
@@ -35,10 +35,10 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 | `modules/document-parsing-module/app/main.py` | Created | Starts the Document Parsing API. |
 | `modules/document-parsing-module/app/config.py` | Created/Modified | Loads runtime settings from defaults, optional local overrides, and environment variables, including OCR retry and quality scoring settings. |
 | `modules/document-parsing-module/app/models/common.py` | Created | Defines health, root metadata, and OCR readiness schemas. |
-| `modules/document-parsing-module/app/models/parsing.py` | Created/Modified | Defines parsing response, classification with document type/subtype, quality, evidence, findings, evaluation schemas, OCR quality metadata, OCR word-block layout evidence, and the M5-to-M7 handoff audit schema. |
+| `modules/document-parsing-module/app/models/parsing.py` | Created/Modified | Defines parsing response, classification with document type/subtype, quality, evidence, findings, evaluation schemas, OCR quality metadata, OCR word-block layout evidence, and the extraction handoff audit schema. |
 | `modules/document-parsing-module/app/routes/health.py` | Created | Provides health and root endpoints. |
 | `modules/document-parsing-module/app/routes/parsing.py` | Created | Provides the document parsing upload endpoint. |
-| `modules/document-parsing-module/app/services/parsing_service.py` | Created/Modified | Implements PDF text extraction, OCR fallback, scanned PDF rendering, EXIF orientation handling, image preprocessing, orientation/PSM retry, OCR word-block capture, OCR quality scoring, findings, evaluation metadata, transaction-signal counting, and M7-readiness audit output. Receipt-photo hardening adds generic autocontrast, sharpened contrast, and thresholded OCR attempts and scores transaction-critical receipt evidence such as date/time, EFTPOS/terminal, approval/reference, and amount/currency tokens so faint thermal-printer rows are less likely to be dropped. |
+| `modules/document-parsing-module/app/services/parsing_service.py` | Created/Modified | Implements PDF text extraction, OCR fallback, scanned PDF rendering, EXIF orientation handling, image preprocessing, orientation/PSM retry, OCR word-block capture, OCR quality scoring, findings, evaluation metadata, transaction-signal counting, and extraction-readiness audit output. Receipt-photo hardening adds generic autocontrast, sharpened contrast, and thresholded OCR attempts and scores transaction-critical receipt evidence such as date/time, EFTPOS/terminal, approval/reference, and amount/currency tokens so faint thermal-printer rows are less likely to be dropped. |
 | `modules/document-parsing-module/app/services/classification_service.py` | Created/Modified | Implements document type/subtype classification from shared vocabulary/rules for both direct PDF text and Tesseract OCR output, including safe fallback to committed defaults when configured classification JSON is missing or malformed and receipt-favored ambiguity handling for OCR retail tax invoices with terminal/payment evidence. |
 | `modules/document-parsing-module/app/services/redaction_service.py` | Created | Implements evidence redaction helpers for ethical data handling. |
 
@@ -72,8 +72,8 @@ Current status: **implementation pass complete** for the M5 module runtime, Stat
 | --- | --- | --- |
 | `tests/unit/document_parsing_module/conftest.py` | Created/Modified | Provides FastAPI test client fixtures and approved actual-data lookup. Review hardening on 2026-06-02 keeps official container runs strict when fixture env vars are configured, while allowing explicit skips for unconfigured host-only diagnostics. |
 | `tests/unit/document_parsing_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, OCR readiness, and settings defaults. |
-| `tests/unit/document_parsing_module/test_parsing_service.py` | Created/Modified | Verifies PDF text extraction, real `tests/input` OCR paths, unavailable dependency behavior, shared vocabulary/rule classification and configured JSON fallback, redaction, evaluation fields, orientation retry findings, OCR quality metadata, OCR retail receipt classification, low-contrast thermal receipt date/amount preservation, and M7 handoff audit readiness/redaction. OCR behavior tests must use approved input fixtures rather than generated files or mocked OCR text. |
-| `tests/unit/document_parsing_module/test_parsing_api.py` | Created/Modified | Verifies the multipart parsing API, trace metadata behavior, and M7 handoff audit fields. |
+| `tests/unit/document_parsing_module/test_parsing_service.py` | Created/Modified | Verifies PDF text extraction, real `tests/input` OCR paths, unavailable dependency behavior, shared vocabulary/rule classification and configured JSON fallback, redaction, evaluation fields, orientation retry findings, OCR quality metadata, OCR retail receipt classification, low-contrast thermal receipt date/amount preservation, and extraction handoff audit readiness/redaction. OCR behavior tests must use approved input fixtures rather than generated files or mocked OCR text. |
+| `tests/unit/document_parsing_module/test_parsing_api.py` | Created/Modified | Verifies the multipart parsing API, trace metadata behavior, and extraction handoff audit fields. |
 | `tests/scripts/M5-DocumentParsing/run_m5_all_inputs_manual_unit_2026_05_28.py` | Created | Repeatable manual unit-style runner for parsing every file under the approved `tests/input` directory and writing output artefacts under `tests/results`. |
 
 ## Evidence
@@ -119,7 +119,7 @@ powershell -ExecutionPolicy Bypass -File tests\scripts\regression\run_docker_ful
 
 This runs the containerized validate -> ingest -> parse -> extract -> validate flow. Historical host-side M5 diagnostics from earlier development were superseded by the M13 container-first policy and must not be recorded as acceptance evidence.
 
-The M5 `m7_handoff` payload remains part of the API/debug contract and evidence checks, but it is not the normal Upload page output for users.
+The M5 `extraction_handoff` payload remains part of the API/debug contract and evidence checks, but it is not the normal Upload page output for users.
 
 ## Current Classification Refinement Plan
 

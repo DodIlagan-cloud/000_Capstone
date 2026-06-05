@@ -18,10 +18,10 @@ from app.models.validation import DataValidationRequest
 from app.services.validation_service import validate_data
 
 
-def test_valid_m7_candidates_are_normalized(m7_candidates):
-    m7_candidates["transaction_candidates"][0]["posted_date_text"] = "Nov 03 2023"
+def test_valid_extraction_candidates_are_normalized(extraction_candidates):
+    extraction_candidates["transaction_candidates"][0]["posted_date_text"] = "Nov 03 2023"
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.status == "completed"
     assert result.summary.normalized_record_count == 2
@@ -30,6 +30,30 @@ def test_valid_m7_candidates_are_normalized(m7_candidates):
     assert result.normalized_records[0].posted_date == "2023-11-03"
     assert result.normalized_records[1].signed_amount == -2345.67
     assert result.financial_fields[0].value == "46320.12"
+
+
+def test_hyphenated_receipt_date_is_normalized():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="receipt",
+            transaction_candidates=[
+                {
+                    "candidate_id": "txn_receipt",
+                    "date_text": "24-05-2026",
+                    "description": "Receipt purchase",
+                    "amount": 56.0,
+                    "currency": "NZD",
+                    "direction": "debit",
+                    "source": {"page_number": 1, "line_number": 1, "text": "DATE: 24-05-2026 TOTAL $56.00"},
+                    "confidence": 0.82,
+                    "reason_codes": ["RECEIPT_TOTAL_TRANSACTION_DERIVED", "AMOUNT_DETECTED"],
+                }
+            ],
+        )
+    )
+
+    assert result.normalized_records[0].transaction_date == "2026-05-24"
+    assert "MISSING_TRANSACTION_DATE" not in result.normalized_records[0].reason_codes
 
 
 def test_missing_date_unknown_direction_and_low_confidence_return_warnings():
@@ -81,13 +105,13 @@ def test_invalid_amount_and_blank_description_mark_record_invalid():
     assert result.evaluation.finding_counts["MISSING_DESCRIPTION"] == 1
 
 
-def test_duplicate_transactions_are_marked(m7_candidates):
-    duplicate = dict(m7_candidates["transaction_candidates"][1])
+def test_duplicate_transactions_are_marked(extraction_candidates):
+    duplicate = dict(extraction_candidates["transaction_candidates"][1])
     duplicate["candidate_id"] = "txn_0003"
     duplicate["description"] = "purchase   general store"
-    m7_candidates["transaction_candidates"].append(duplicate)
+    extraction_candidates["transaction_candidates"].append(duplicate)
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.status == "completed_with_warnings"
     assert result.summary.duplicate_record_count == 1
@@ -95,13 +119,13 @@ def test_duplicate_transactions_are_marked(m7_candidates):
     assert result.evaluation.finding_counts["DUPLICATE_TRANSACTION"] == 1
 
 
-def test_duplicate_detection_can_be_disabled(m7_candidates):
-    duplicate = dict(m7_candidates["transaction_candidates"][1])
+def test_duplicate_detection_can_be_disabled(extraction_candidates):
+    duplicate = dict(extraction_candidates["transaction_candidates"][1])
     duplicate["candidate_id"] = "txn_0003"
-    m7_candidates["transaction_candidates"].append(duplicate)
-    m7_candidates["options"] = {"enable_duplicate_detection": False}
+    extraction_candidates["transaction_candidates"].append(duplicate)
+    extraction_candidates["options"] = {"enable_duplicate_detection": False}
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.status == "completed"
     assert result.summary.duplicate_record_count == 0
@@ -129,8 +153,8 @@ def test_financial_field_low_confidence_is_marked_warning():
     assert result.evaluation.finding_counts["LOW_CONFIDENCE_FIELD"] == 1
 
 
-def test_richer_m7_candidate_groups_are_preserved_and_summarized(m7_candidates):
-    m7_candidates["section_candidates"] = [
+def test_richer_extraction_candidate_groups_are_preserved_and_summarized(extraction_candidates):
+    extraction_candidates["section_candidates"] = [
         {
             "section_id": "section_1_statement_summary",
             "section_label": "statement_summary",
@@ -142,11 +166,11 @@ def test_richer_m7_candidate_groups_are_preserved_and_summarized(m7_candidates):
             "reason_codes": ["SECTION_KEYWORD_DETECTED"],
         }
     ]
-    m7_candidates["financial_field_candidates"][0]["field_label"] = "TOTAL AMOUNT DUE"
-    m7_candidates["financial_field_candidates"][0]["value_type"] = "amount"
-    m7_candidates["financial_field_candidates"][0]["source"]["section_label"] = "statement_summary"
-    m7_candidates["financial_field_candidates"][0]["source"]["section_id"] = "section_1_statement_summary"
-    m7_candidates["entity_candidates"] = [
+    extraction_candidates["financial_field_candidates"][0]["field_label"] = "TOTAL AMOUNT DUE"
+    extraction_candidates["financial_field_candidates"][0]["value_type"] = "amount"
+    extraction_candidates["financial_field_candidates"][0]["source"]["section_label"] = "statement_summary"
+    extraction_candidates["financial_field_candidates"][0]["source"]["section_id"] = "section_1_statement_summary"
+    extraction_candidates["entity_candidates"] = [
         {
             "entity_id": "entity_0001",
             "entity_type": "institution_name",
@@ -155,7 +179,7 @@ def test_richer_m7_candidate_groups_are_preserved_and_summarized(m7_candidates):
             "confidence": 0.8,
         }
     ]
-    m7_candidates["reference_candidates"] = [
+    extraction_candidates["reference_candidates"] = [
         {
             "reference_id": "ref_0001",
             "reference_type": "confirmation_number",
@@ -165,7 +189,7 @@ def test_richer_m7_candidate_groups_are_preserved_and_summarized(m7_candidates):
             "confidence": 0.86,
         }
     ]
-    m7_candidates["line_item_candidates"] = [
+    extraction_candidates["line_item_candidates"] = [
         {
             "line_item_id": "item_0001",
             "description": "Service fee",
@@ -175,7 +199,7 @@ def test_richer_m7_candidate_groups_are_preserved_and_summarized(m7_candidates):
         }
     ]
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.status == "completed"
     assert result.summary.section_candidate_count == 1
@@ -187,8 +211,8 @@ def test_richer_m7_candidate_groups_are_preserved_and_summarized(m7_candidates):
     assert result.validated_references[0].value == "****0001"
 
 
-def test_installment_candidate_creates_review_item_without_changing_transaction_totals(m7_candidates):
-    m7_candidates["installment_candidates"] = [
+def test_installment_candidate_creates_review_item_without_changing_transaction_totals(extraction_candidates):
+    extraction_candidates["installment_candidates"] = [
         {
             "installment_id": "installment_0001",
             "purchase_date_text": "November 21 2019",
@@ -207,7 +231,7 @@ def test_installment_candidate_creates_review_item_without_changing_transaction_
         }
     ]
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.summary.installment_count == 1
     assert result.summary.warning_installment_count == 1
@@ -257,8 +281,8 @@ def test_low_confidence_entities_and_references_use_specific_warning_codes():
     assert "LOW_CONFIDENCE_FIELD" not in result.evaluation.finding_counts
 
 
-def test_document_financial_summary_excludes_transaction_table_fields(m7_candidates):
-    m7_candidates["financial_field_candidates"].append(
+def test_document_financial_summary_excludes_transaction_table_fields(extraction_candidates):
+    extraction_candidates["financial_field_candidates"].append(
         {
             "field_name": "purchase_amount",
             "field_label": "PURCHASE",
@@ -277,14 +301,14 @@ def test_document_financial_summary_excludes_transaction_table_fields(m7_candida
         }
     )
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert "total_amount_due" in result.document_financial_summary
     assert "purchase_amount" not in result.document_financial_summary
 
 
-def test_transaction_candidate_from_non_transaction_section_needs_review(m7_candidates):
-    m7_candidates["transaction_candidates"] = [
+def test_transaction_candidate_from_non_transaction_section_needs_review(extraction_candidates):
+    extraction_candidates["transaction_candidates"] = [
         {
             "candidate_id": "txn_summary",
             "date_text": "Nov 07 2023",
@@ -302,9 +326,9 @@ def test_transaction_candidate_from_non_transaction_section_needs_review(m7_cand
             "reason_codes": ["AMOUNT_DETECTED"],
         }
     ]
-    m7_candidates["financial_field_candidates"] = []
+    extraction_candidates["financial_field_candidates"] = []
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.status == "completed_with_warnings"
     assert result.summary.warning_record_count == 1
@@ -420,8 +444,8 @@ def test_low_confidence_ocr_amount_creates_guided_review_item_without_reconcilia
     assert "DOCUMENT_RECONCILIATION_REVIEW" not in result.evaluation.finding_counts
 
 
-def test_reconciliation_mismatch_creates_document_review_item(m7_candidates):
-    m7_candidates["reconciliation"] = {
+def test_reconciliation_mismatch_creates_document_review_item(extraction_candidates):
+    extraction_candidates["reconciliation"] = {
         "status": "needs_review",
         "previous_balance": 61586.10,
         "debit_total": 102478.16,
@@ -432,7 +456,7 @@ def test_reconciliation_mismatch_creates_document_review_item(m7_candidates):
         "reason_codes": ["STATEMENT_TOTAL_MISMATCH"],
     }
 
-    result = validate_data(DataValidationRequest(**m7_candidates))
+    result = validate_data(DataValidationRequest(**extraction_candidates))
 
     assert result.status == "completed_with_warnings"
     assert result.summary.review_item_count == 1

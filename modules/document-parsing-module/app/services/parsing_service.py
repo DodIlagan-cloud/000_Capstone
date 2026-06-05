@@ -21,7 +21,7 @@ from app.models.parsing import (
     DocumentTrace,
     EvaluationMetadata,
     FindingSeverity,
-    M7HandoffAudit,
+    ExtractionHandoffAudit,
     OcrWordBlock,
     PageParseResult,
     ParseFinding,
@@ -134,7 +134,7 @@ def _transaction_signal_count(text: str) -> int:
     return keyword_hits + min(amount_like_hits, 10) + min(date_like_hits, 10)
 
 
-def _m7_readiness_reason_codes(
+def _extraction_readiness_reason_codes(
     status: ParseStatus,
     text_length: int,
     transaction_signal_count: int,
@@ -378,6 +378,9 @@ def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1) -> 
 
 
 def _ocr_attempt_is_better(attempt: OcrAttempt, best_attempt: OcrAttempt) -> bool:
+    amount_evidence_delta = _receipt_amount_evidence_score(attempt.text) - _receipt_amount_evidence_score(best_attempt.text)
+    if amount_evidence_delta >= 3 and attempt.quality_score >= best_attempt.quality_score - 0.08:
+        return True
     if attempt.quality_score > best_attempt.quality_score + 0.01:
         return True
     if abs(attempt.quality_score - best_attempt.quality_score) > 0.01:
@@ -387,7 +390,27 @@ def _ocr_attempt_is_better(attempt: OcrAttempt, best_attempt: OcrAttempt) -> boo
 
 def _ocr_attempt_tiebreak(attempt: OcrAttempt) -> tuple[int, int, int, float]:
     confidence = attempt.mean_confidence or 0.0
-    return (_financial_amount_token_score(attempt.text), len(attempt.text), attempt.keyword_hits, confidence)
+    return (
+        _receipt_amount_evidence_score(attempt.text),
+        _financial_amount_token_score(attempt.text),
+        len(attempt.text),
+        attempt.keyword_hits,
+        confidence,
+    )
+
+
+def _receipt_amount_evidence_score(text: str) -> int:
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    if not normalized:
+        return 0
+
+    lowered = normalized.lower()
+    score = 0
+    score += min(len(re.findall(r"\bnz\s?[$s]\s*\d{1,4}(?:[.,]\d{2})\b", lowered)), 3) * 3
+    score += min(len(re.findall(r"\bnzd\s*\d{1,4}(?:[.,]\d{2})\b", lowered)), 3) * 3
+    score += min(len(re.findall(r"\b(?:total|purchase|approved|paid|amount)\b.{0,32}\d{1,4}(?:[.,]\d{2})\b", lowered)), 5)
+    score += min(len(re.findall(r"\b\d{1,4}(?:[.,]\d{2})\b.{0,16}\b(?:total|purchase|approved|paid)\b", lowered)), 3)
+    return score
 
 
 def _financial_amount_token_score(text: str) -> int:
@@ -709,7 +732,7 @@ def parse_document_content(
         classification_reason_codes=classification.reason_codes,
         classification_status=classification.status,
     )
-    m7_reason_codes = _m7_readiness_reason_codes(status, quality.text_length, transaction_signal_count, findings)
+    extraction_reason_codes = _extraction_readiness_reason_codes(status, quality.text_length, transaction_signal_count, findings)
     parse_id = f"parse_{uuid.uuid4().hex[:16]}"
     selected_ocr_engine = "tesseract" if ocr_attempted and selected_strategy == "tesseract_ocr" else None
 
@@ -758,7 +781,7 @@ def parse_document_content(
             redaction_counts=redaction_counts,
             redaction_applied=redaction_applied,
         ),
-        m7_handoff=M7HandoffAudit(
+        extraction_handoff=ExtractionHandoffAudit(
             parse_id=parse_id,
             document_id=document_id,
             filename=normalized_filename,
@@ -773,8 +796,8 @@ def parse_document_content(
             page_count=quality.page_count,
             pages_processed=quality.pages_processed,
             warnings=[finding.code for finding in findings if finding.severity == FindingSeverity.warning],
-            m7_ready=not m7_reason_codes,
-            m7_readiness_reason_codes=m7_reason_codes,
+            extraction_ready=not extraction_reason_codes,
+            extraction_readiness_reason_codes=extraction_reason_codes,
             transaction_signal_count=transaction_signal_count,
             redacted_preview=redacted_preview if settings.redact_evidence_output else text,
             redaction_summary=redaction_counts,

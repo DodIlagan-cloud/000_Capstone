@@ -47,7 +47,7 @@ def test_extraction_endpoint_reports_missing_text(client):
     assert payload["findings"][0]["code"] == "MISSING_TEXT"
 
 
-def test_extraction_endpoint_accepts_m5_shaped_result(client, proof_of_payment_text):
+def test_extraction_endpoint_accepts_parser_result(client, proof_of_payment_text):
     response = client.post(
         "/api/v1/extractions",
         json={
