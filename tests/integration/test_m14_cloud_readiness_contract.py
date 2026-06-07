@@ -12,6 +12,8 @@ CLOUD_DIR = REPO_ROOT / "infrastructure" / "cloud"
 CLOUD_README = CLOUD_DIR / "README.md"
 CLOUD_ENV_EXAMPLE = CLOUD_DIR / "azure-container-apps.env.example"
 ADMIN_BOOTSTRAP_JOB = CLOUD_DIR / "bootstrap-stats-admin-containerapp-job.ps1"
+PARK_CLOUD_DEV = CLOUD_DIR / "park-cloud-dev.ps1"
+RESUME_CLOUD_DEV = CLOUD_DIR / "resume-cloud-dev.ps1"
 RUNTIME_CONFIG = REPO_ROOT / "config" / "stats.runtime.json"
 
 
@@ -38,6 +40,9 @@ def test_azure_development_continuation_plan_exists():
     assert "Microsoft Fabric" in content
     assert "Power BI" in content
     assert "Continue Development From Azure" in content
+    assert "cost-conscious development loop" in content
+    assert "Batch related runtime-affecting changes" in content
+    assert "Optimize code/config before increasing CPU or memory" in content
 
 
 def test_cloud_folder_and_notes_exist():
@@ -45,6 +50,8 @@ def test_cloud_folder_and_notes_exist():
     assert CLOUD_README.exists(), f"Cloud README not found at {CLOUD_README}"
     assert CLOUD_ENV_EXAMPLE.exists(), f"Cloud env example not found at {CLOUD_ENV_EXAMPLE}"
     assert ADMIN_BOOTSTRAP_JOB.exists(), f"Admin bootstrap job script not found at {ADMIN_BOOTSTRAP_JOB}"
+    assert PARK_CLOUD_DEV.exists(), f"Cloud-dev parking script not found at {PARK_CLOUD_DEV}"
+    assert RESUME_CLOUD_DEV.exists(), f"Cloud-dev resume script not found at {RESUME_CLOUD_DEV}"
 
 
 def test_cloud_notes_document_required_azure_services():
@@ -175,5 +182,45 @@ def test_admin_bootstrap_uses_placeholder_subscription_id():
 
     assert "replace-with-subscription-id" in bootstrap
     assert "a9393569-82cd-48d5-8603-950471fea37a" not in bootstrap
+
+
+def test_cloud_dev_rules_document_cost_optimized_deployment_controls():
+    rules = read(REPO_ROOT / "docs" / "cloud-dev-development-rules.md")
+    evidence = read(CLOUD_DIR / "cloud-dev-stage1-evidence.md")
+
+    assert "Cost-Optimized Deployment Rules" in rules
+    assert "Build and test the image locally before pushing to ACR" in rules
+    assert "Keep `acrstatsdev001` on Basic SKU" in rules
+    assert "single active revision" in rules
+    assert "scale-to-zero/min-replica" in rules
+    assert "Do not increase CPU or memory as a first response" in rules
+    assert "prune old non-active tags" in rules
+    assert "No new standing Azure resource cost" in rules
+    assert "Cost Guardrails" in evidence
+    assert "ACR SKU: `Basic`" in evidence
+    assert "about 637 MB" in evidence
+
+
+def test_cloud_dev_parking_scripts_keep_resources_and_control_scale():
+    park = read(PARK_CLOUD_DEV)
+    resume = read(RESUME_CLOUD_DEV)
+    cloud_readme = read(CLOUD_README)
+
+    assert "No resources will be deleted" in park
+    assert "[int]$MinReplicas = 0" in park
+    assert "[int]$MaxReplicas = 1" in park
+    assert "--min-replicas $MinReplicas" in park
+    assert "--max-replicas $MaxReplicas" in park
+
+    assert "[int]$MinReplicas = 1" in resume
+    assert "[int]$MaxReplicas = 1" in resume
+    assert "/health" in resume
+    assert "cloud-dev /health is healthy" in resume
+
+    assert "Cloud-Dev Parking" in cloud_readme
+    assert "Parking does not delete resources" in cloud_readme
+    assert "min replicas: 0" in cloud_readme
+    assert "max replicas: 1" in cloud_readme
+    assert "Do not use parking scripts to delete" in cloud_readme
 
 # M14 - Cloud Readiness End

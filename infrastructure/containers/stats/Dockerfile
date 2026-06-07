@@ -69,7 +69,9 @@ COPY apps/README.md /app/apps/README.md
 COPY modules/README.md /app/modules/README.md
 COPY contracts/README.md /app/contracts/README.md
 COPY infrastructure/README.md /app/infrastructure/README.md
+COPY infrastructure/cloud/ /app/infrastructure/cloud/
 COPY samples/README.md /app/samples/README.md
+COPY .dockerignore /app/.dockerignore
 COPY infrastructure/containers/stats/Dockerfile /app/infrastructure/containers/stats/Dockerfile
 COPY infrastructure/containers/stats/.env.container.example /app/infrastructure/containers/stats/.env.container.example
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/start-stats-runtime.sh
@@ -77,6 +79,8 @@ COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/infrastru
 COPY infrastructure/compose/stats-runtime.compose.yml /app/infrastructure/compose/stats-runtime.compose.yml
 COPY apps/stats-web/Program.cs /app/apps/stats-web/Program.cs
 COPY apps/stats-web/appsettings.json /app/apps/stats-web/appsettings.json
+COPY apps/stats-web/Pages/ /app/apps/stats-web/Pages/
+COPY apps/stats-web/wwwroot/ /app/apps/stats-web/wwwroot/
 COPY --from=dotnet-build /app/stats-web /app/stats-web
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/start-stats-runtime.sh
 COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/run-stats-admin-bootstrap.sh

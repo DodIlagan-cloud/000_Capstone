@@ -17,10 +17,13 @@ Each Codex chat working on a module should treat itself as an agent contributing
 | Region | `australiaeast` |
 | Azure Container Registry | `acrstatsdev001` |
 | Image repository | `stats-runtime` |
-| Current dev tag | `dev` |
-| Current image reference | `acrstatsdev001.azurecr.io/stats-runtime:dev` |
+| Current live Container App | `ca-stats-dev-001` |
+| Current live URL | `https://ca-stats-dev-001.nicesmoke-3c1ba719.australiaeast.azurecontainerapps.io` |
+| Current active image pattern | `acrstatsdev001.azurecr.io/stats-runtime:dev-*` |
+| Runtime database | Azure SQL Database `sqldb-stats-dev` |
+| Current document storage | `LocalFileSystem` for first cloud-dev only; Azure Blob Storage is future work |
 
-No Azure Container App, Azure SQL, Key Vault, Storage, Fabric, or Power BI resources have been created yet.
+Cloud-dev currently has Azure Container Apps, Azure SQL, Key Vault, ACR, Log Analytics, a manual admin bootstrap job, and a user-assigned pull identity. Azure Blob Storage, Fabric, and Power BI have not been created yet.
 
 ## Agent Rules
 
@@ -95,7 +98,24 @@ Before asking to deploy to cloud-dev, the agent should report:
 - proposed image tag,
 - smoke tests to run after deployment.
 
-### 8. External Review Coordination
+### 8. Cost-Optimized Deployment Rules
+
+Cloud-dev is intentionally low-cost. A new image deployment usually has near-zero incremental Azure cost when the image is built locally, pushed to the existing Basic ACR, and deployed to the existing Consumption-plan Container App. The real costs come from retained image storage, runtime seconds while testing, always-on replicas, and extra Azure resources.
+
+Agents must apply these rules before proposing or performing a cloud-dev deployment:
+
+- Batch related code changes into one cloud image when practical.
+- Build and test the image locally before pushing to ACR.
+- Keep `acrstatsdev001` on Basic SKU unless the user explicitly approves a change.
+- Keep the Container App in single active revision mode for the fast cloud-dev lane unless rollback testing requires a temporary multi-revision setup.
+- Keep cloud-dev scale-to-zero/min-replica behavior; do not add always-on replicas without explicit user approval.
+- Do not increase CPU or memory as a first response to slow OCR or parsing; profile and optimize code/config first.
+- Prefer focused cloud smoke tests over repeated full cloud regression runs.
+- Use descriptive temporary tags for candidate deployments, then prune old non-active tags when the user approves cleanup.
+- Record whether a deployment is expected to create new standing monthly cost. Existing-image redeploys should normally say `No new standing Azure resource cost`.
+- Do not create Blob Storage, Fabric, Power BI, additional Container Apps, Dedicated workload profiles, or premium SKUs unless the user explicitly asks and accepts the cost/risk.
+
+### 9. External Review Coordination
 
 Claude, Copilot, or other review tools can be used as reviewer agents.
 
@@ -133,7 +153,7 @@ Review findings may be deferred when they are:
 
 Review notes can live near the module evidence, architecture-hardening review folders, or a module-specific review file. The important rule is that the final agent handoff must say what review feedback remains unresolved.
 
-### 9. Cloud Smoke Tests
+### 10. Cloud Smoke Tests
 
 After cloud-dev deployment exists, agents should use smoke tests appropriate to their changes:
 
@@ -143,7 +163,7 @@ After cloud-dev deployment exists, agents should use smoke tests appropriate to 
 - simple feature path,
 - log check for errors and secret leakage.
 
-### 10. Evidence
+### 11. Evidence
 
 Agents should record cloud-impacting work in the appropriate evidence or module notes.
 
