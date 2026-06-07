@@ -24,6 +24,7 @@ from app.services.ingestion_service import reset_ingestion_store
 def client(tmp_path, monkeypatch):
     reset_ingestion_store()
     monkeypatch.setattr("app.routes.ingestions.settings.storage_root", tmp_path / "intake")
+    monkeypatch.setattr("app.routes.ingestions.settings.stats_storage_provider", "LocalFileSystem")
     return TestClient(app)
 
 

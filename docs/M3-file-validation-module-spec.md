@@ -128,6 +128,9 @@ Ingestion findings:
 | `EMPTY_FILE` | Error | Ingestion content has zero bytes. |
 | `FILE_TOO_LARGE` | Error | File exceeds the configured ingestion storage limit. |
 | `DUPLICATE_SUBMISSION` | Warning | A record already exists for the idempotency key or file hash. |
+| `INGESTION_STORAGE_FAILED` | Error | Accepted content could not be handed off to the configured storage provider. |
+
+Storage handoff failures must return a rejected ingestion record with an explicit finding, but they must not reserve or poison the idempotency key. Retrying the same accepted file after Blob/local storage configuration is fixed should attempt storage again instead of returning the previous rejected record.
 
 ## Testing
 
@@ -145,6 +148,7 @@ Module-local tests must cover:
 - Status lookup for a created ingestion record.
 - Rejection when validation status is not accepted.
 - Duplicate/idempotent submission behavior.
+- Storage handoff failures are retryable and do not mark the idempotency key as successfully consumed.
 <!-- M13 - Containerization Start -->
 - Config-driven real PDF automated/evidence tests using `STATS_TESTDATA_DIR` inside `stats-runtime`, verifying validation, ingestion, status lookup, and saved handoff under configured `STORAGE_ROOT`.
 <!-- M13 End -->

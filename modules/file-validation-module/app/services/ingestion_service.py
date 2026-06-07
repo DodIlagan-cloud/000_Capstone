@@ -123,20 +123,40 @@ def create_ingestion_record(
         return record
 
     normalized_filename = _normalize_filename(filename)
-    stored_content = store_intake_content(
-        content=content,
-        ingestion_id=ingestion_id,
-        normalized_filename=normalized_filename,
-        content_type=detected_mime_type or provided_content_type,
-        settings=StorageSettings(
-            provider=storage_provider,
-            storage_root=storage_root,
-            azure_account_name=azure_storage_account_name,
-            azure_container_name=azure_storage_container_name,
-            azure_connection_string=azure_storage_connection_string,
-            azure_blob_prefix=azure_storage_blob_prefix,
-        ),
-    )
+    try:
+        stored_content = store_intake_content(
+            content=content,
+            ingestion_id=ingestion_id,
+            normalized_filename=normalized_filename,
+            content_type=detected_mime_type or provided_content_type,
+            settings=StorageSettings(
+                provider=storage_provider,
+                storage_root=storage_root,
+                azure_account_name=azure_storage_account_name,
+                azure_container_name=azure_storage_container_name,
+                azure_connection_string=azure_storage_connection_string,
+                azure_blob_prefix=azure_storage_blob_prefix,
+            ),
+        )
+    except RuntimeError as exc:
+        record = IngestionRecord(
+            ingestion_id=ingestion_id,
+            status=IngestionStatus.rejected,
+            created_at_utc=now,
+            updated_at_utc=now,
+            source=source,
+            options=options,
+            validation=validation,
+            findings=[
+                IngestionFinding(
+                    code="INGESTION_STORAGE_FAILED",
+                    severity=FindingSeverity.error,
+                    message=str(exc),
+                )
+            ],
+        )
+        _records[ingestion_id] = record
+        return record
 
     handoff = DocumentHandoff(
         ingestion_id=ingestion_id,

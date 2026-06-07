@@ -62,6 +62,41 @@ def test_create_ingestion_rejects_failed_validation_result_for_real_pdf(client, 
     assert "VALIDATION_NOT_ACCEPTED" in codes
 
 
+def test_create_ingestion_returns_rejected_record_when_storage_fails(client, real_pdf_file, monkeypatch):
+    calls = {"count": 0}
+
+    def fail_storage(*_args, **_kwargs):
+        calls["count"] += 1
+        raise RuntimeError("Configured storage is unavailable.")
+
+    monkeypatch.setattr("app.services.ingestion_service.store_intake_content", fail_storage)
+    pdf_content = real_pdf_file.read_bytes()
+
+    response = client.post(
+        "/api/v1/ingestions",
+        data={"validation_status": "accepted", "idempotency_key": "storage-failure"},
+        files={"file": (real_pdf_file.name, pdf_content, "application/pdf")},
+    )
+
+    payload = response.json()
+    codes = {finding["code"] for finding in payload["findings"]}
+
+    assert response.status_code == 200
+    assert payload["status"] == "rejected"
+    assert payload["handoff"] is None
+    assert "INGESTION_STORAGE_FAILED" in codes
+
+    retry_response = client.post(
+        "/api/v1/ingestions",
+        data={"validation_status": "accepted", "idempotency_key": "storage-failure"},
+        files={"file": (real_pdf_file.name, pdf_content, "application/pdf")},
+    )
+
+    assert retry_response.status_code == 200
+    assert retry_response.json()["status"] == "rejected"
+    assert calls["count"] == 2
+
+
 def test_create_ingestion_returns_duplicate_for_idempotent_real_pdf_submission(client, real_pdf_file):
     pdf_content = real_pdf_file.read_bytes()
     request_data = {"validation_status": "accepted", "idempotency_key": "same-upload"}
