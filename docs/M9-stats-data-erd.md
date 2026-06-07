@@ -24,8 +24,8 @@ erDiagram
         datetime last_login_at
     }
 
-    M8_VALIDATION_RESULTS {
-        string m8_validation_result_id PK
+    VALIDATION_RESULTS {
+        string validation_result_id PK
         string validation_id UK
         string extraction_id
         string parse_id
@@ -41,6 +41,13 @@ erDiagram
         int invalid_record_count
         int duplicate_record_count
         int review_item_count
+        int section_candidate_count
+        int entity_count
+        int reference_count
+        int line_item_count
+        int installment_count
+        int warning_installment_count
+        int invalid_installment_count
         decimal debit_total
         decimal credit_total
         decimal net_total
@@ -56,12 +63,13 @@ erDiagram
         string document_id PK
         string ingestion_id
         string uploaded_by_user_id FK
-        string m8_validation_result_id FK
+        string validation_result_id FK
         string original_filename
         string normalized_filename
         string source_type
         string source_id
         string sha256
+        string document_fingerprint
         string detected_mime_type
         int size_bytes
         string storage_reference
@@ -89,6 +97,44 @@ erDiagram
         json finding_counts_json
     }
 
+    DOCUMENT_PROCESSING_JOBS {
+        string job_id PK
+        string ingestion_id
+        string uploaded_by_user_id FK
+        string original_filename
+        string source_type
+        string source_id
+        string sha256
+        string status
+        string stage
+        string message
+        string parse_id
+        string extraction_id
+        string validation_id
+        json result_payload_json
+        string error_detail
+        datetime created_at_utc
+        datetime updated_at_utc
+        datetime completed_at_utc
+    }
+
+    DOCUMENT_PROCESSING_STEPS {
+        string step_id PK
+        string job_id FK
+        string document_id
+        string correlation_id
+        string module_name
+        string step_name
+        string status
+        datetime started_at_utc
+        datetime completed_at_utc
+        int duration_ms
+        json metadata_json
+        string error_code
+        string error_message
+        datetime created_at_utc
+    }
+
     TRANSACTION_BATCHES {
         string transaction_batch_id PK
         string document_id FK
@@ -106,6 +152,40 @@ erDiagram
         datetime created_at_utc
     }
 
+    DUPLICATE_CHECK_BATCHES {
+        string duplicate_check_id PK
+        string validation_id FK
+        string document_id FK
+        string uploaded_by_user_id FK
+        string saved_by_user_id FK
+        string status
+        int total_record_count
+        int exact_file_duplicate_count
+        int possible_document_duplicate_count
+        int within_batch_duplicate_count
+        int exact_transaction_duplicate_count
+        int possible_transaction_duplicate_count
+        int ready_to_save_count
+        json summary_json
+        datetime created_at_utc
+    }
+
+    DUPLICATE_CHECK_RESULTS {
+        string duplicate_check_result_id PK
+        string duplicate_check_id FK
+        string document_id FK
+        string record_id
+        string result_scope
+        string match_type
+        string match_status
+        string matched_document_id FK
+        string matched_transaction_id FK
+        decimal confidence
+        json reason_codes_json
+        string message
+        datetime created_at_utc
+    }
+
     TRANSACTIONS {
         string transaction_id PK
         string transaction_batch_id FK
@@ -114,6 +194,7 @@ erDiagram
         date transaction_date
         date posted_date
         string description
+        string normalized_description
         decimal amount
         string currency
         string direction
@@ -128,9 +209,15 @@ erDiagram
         string quality_status
         boolean review_required
         string duplicate_of_transaction_id FK
+        string duplicate_key
         int source_page_number
         int source_line_number
+        string source_section_id
+        string source_section_label
         string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
         datetime created_at_utc
         datetime updated_at_utc
     }
@@ -148,7 +235,26 @@ erDiagram
         string quality_status
         int source_page_number
         int source_line_number
+        string source_section_id
+        string source_section_label
         string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
+    }
+
+    DOCUMENT_SECTIONS {
+        string document_section_id PK
+        string document_id FK
+        string source_section_id
+        string section_label
+        int page_number
+        int first_line_number
+        int last_line_number
+        string source_text_redacted
+        decimal confidence
+        json reason_codes_json
+        datetime created_at_utc
     }
 
     STATEMENT_SUMMARIES {
@@ -193,7 +299,10 @@ erDiagram
     LINE_ITEMS {
         string line_item_id PK
         string document_id FK
+        string source_line_item_id
         string description
+        decimal amount
+        string currency
         decimal quantity
         decimal unit_amount
         decimal line_amount
@@ -203,7 +312,12 @@ erDiagram
         string quality_status
         int source_page_number
         int source_line_number
+        string source_section_id
+        string source_section_label
         string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
     }
 
     VALIDATED_ENTITIES {
@@ -216,7 +330,12 @@ erDiagram
         string quality_status
         int source_page_number
         int source_line_number
+        string source_section_id
+        string source_section_label
         string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
     }
 
     VALIDATED_REFERENCES {
@@ -230,7 +349,38 @@ erDiagram
         string quality_status
         int source_page_number
         int source_line_number
+        string source_section_id
+        string source_section_label
         string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
+    }
+
+    INSTALLMENTS {
+        string installment_id PK
+        string document_id FK
+        string source_installment_id
+        date purchase_date
+        date posted_date
+        string description
+        decimal principal_amount
+        decimal current_billing_amount
+        decimal remaining_balance
+        string currency
+        string term_text
+        decimal confidence
+        string quality_status
+        int source_page_number
+        int source_line_number
+        string source_section_id
+        string source_section_label
+        string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
+        datetime created_at_utc
+        datetime updated_at_utc
     }
 
     FINANCIAL_EVIDENCE_LINKS {
@@ -272,36 +422,53 @@ erDiagram
         string severity
         string title
         string message
+        string record_id
         string field_name
         string recommended_action
         string status
         int source_page_number
         int source_line_number
+        string source_section_id
+        string source_section_label
         string source_text_redacted
+        decimal source_ocr_confidence
+        decimal source_extraction_confidence
+        json reason_codes_json
         datetime created_at_utc
         datetime resolved_at_utc
         string resolved_by_user_id FK
     }
 
-    USERS ||--o{ M8_VALIDATION_RESULTS : uploads
+    USERS ||--o{ VALIDATION_RESULTS : uploads
     USERS ||--o{ STATS_DOCUMENTS : owns
     USERS ||--o{ TRANSACTION_BATCHES : saves
     USERS ||--o{ FINDINGS : resolves
     USERS ||--o{ REVIEW_ITEMS : resolves
+    USERS ||--o{ DOCUMENT_PROCESSING_JOBS : starts
 
-    M8_VALIDATION_RESULTS ||--o{ STATS_DOCUMENTS : promotes_to
+    VALIDATION_RESULTS ||--o{ STATS_DOCUMENTS : promotes_to
     STATS_DOCUMENTS ||--o{ PROCESSING_RUNS : has
+    DOCUMENT_PROCESSING_JOBS ||--o{ DOCUMENT_PROCESSING_STEPS : records
+    STATS_DOCUMENTS ||--o{ DOCUMENT_PROCESSING_STEPS : may_reference
     STATS_DOCUMENTS ||--o{ TRANSACTION_BATCHES : has
     STATS_DOCUMENTS ||--o{ TRANSACTIONS : sources
     TRANSACTION_BATCHES ||--o{ TRANSACTIONS : contains
+    STATS_DOCUMENTS ||--o{ DUPLICATE_CHECK_BATCHES : checked
+    VALIDATION_RESULTS ||--o{ DUPLICATE_CHECK_BATCHES : checks
+    DUPLICATE_CHECK_BATCHES ||--o{ DUPLICATE_CHECK_RESULTS : contains
+    STATS_DOCUMENTS ||--o{ DUPLICATE_CHECK_RESULTS : current_document
+    STATS_DOCUMENTS ||--o{ DUPLICATE_CHECK_RESULTS : matched_document
+    TRANSACTIONS ||--o{ DUPLICATE_CHECK_RESULTS : matched_transaction
 
     STATS_DOCUMENTS ||--o{ FINANCIAL_FIELDS : has
     TRANSACTION_BATCHES ||--o{ FINANCIAL_FIELDS : captures
+    STATS_DOCUMENTS ||--o{ DOCUMENT_SECTIONS : has
     STATS_DOCUMENTS ||--o{ STATEMENT_SUMMARIES : has
     STATS_DOCUMENTS ||--o{ DOCUMENT_FINANCIAL_SUMMARIES : has
     STATS_DOCUMENTS ||--o{ LINE_ITEMS : has
     STATS_DOCUMENTS ||--o{ VALIDATED_ENTITIES : has
     STATS_DOCUMENTS ||--o{ VALIDATED_REFERENCES : has
+    STATS_DOCUMENTS ||--o{ INSTALLMENTS : has
 
     STATS_DOCUMENTS ||--o{ FINDINGS : has
     TRANSACTIONS ||--o{ FINDINGS : has
@@ -320,9 +487,13 @@ erDiagram
 
 - `users` is the current M1 table from `modules/identity-access-module/app/models/user.py`.
 - `hashed_password` is shown only because it exists in the M1 database component. M9 query APIs must not expose it.
-- `m8_validation_results.payload_json` is the staging/audit copy of the exact M8 result.
+- `validation_results.payload_json` is the staging/audit copy of the exact validation result.
 - Dashboard queries should use promoted relational tables, not the staging JSON payload.
-- `findings` are module/system findings. `review_items` are user-facing review tasks derived from M8 review items or M9 duplicate/reconciliation checks.
+- M9 persists only validation output. M5 parse IDs and M7 extraction IDs are lineage fields; raw M5/M7 metadata is not promoted into first-class reporting tables.
+- `document_sections`, `validated_entities`, `validated_references`, `line_items`, and `installments` reflect the enriched validation handoff used for robust dashboard and review experiences.
+- `findings` are module/system findings. `review_items` are user-facing review tasks derived from Data Validation review items or M9 duplicate/reconciliation checks.
+- `duplicate_check_batches` and `duplicate_check_results` persist the pre-save duplicate review outcome so exact file matches, possible same-document matches, within-upload duplicates, exact transaction duplicates, and same-date/amount/currency/direction matches are auditable before write.
+- `document_processing_jobs` and `document_processing_steps` persist cloud-safe upload progress and per-step timing summaries for operational troubleshooting. They store safe counts, identifiers, durations, and sanitized errors, not raw OCR text.
 - `financial_evidence_links` is intentionally flexible so M9 can relate invoice-to-proof, receipt-to-EFTPOS, statement-to-transaction, and duplicate-like evidence without forcing everything into `transactions`.
 
 <!-- M9 End -->

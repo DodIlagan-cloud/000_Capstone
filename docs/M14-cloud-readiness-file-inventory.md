@@ -27,7 +27,7 @@ Current status: **contract and documentation added**. Live Azure deployment rema
 | File | Change Type | Description |
 | --- | --- | --- |
 | `infrastructure/cloud/README.md` | Created / Updated | Documents the Azure Container Apps deployment notes, Azure SQL direction, Fabric/Power BI direction, resource responsibilities, configuration mapping, secret handling, health checks, monitoring, deployment steps, and live-evidence expectations. |
-| `infrastructure/cloud/azure-container-apps.env.example` | Created / Updated | Safe example of cloud environment variable names, including Azure SQL, Fabric, and Power BI settings. Uses placeholders only and contains no real secrets. Review follow-up documents the temporary mixed mode where Azure SQL handles database persistence while document storage remains `LocalFileSystem` until the Azure Blob Storage adapter is implemented. |
+| `infrastructure/cloud/azure-container-apps.env.example` | Created / Updated | Safe example of cloud environment variable names, including Azure SQL, Azure Blob Storage, Fabric, and Power BI settings. Uses placeholders only and contains no real secrets. |
 | `infrastructure/cloud/build-stats-acr-image.ps1` | Created | Builds the M13 Stats runtime image inside Azure Container Registry with `az acr build` and optional resource group / registry creation. |
 | `infrastructure/cloud/bootstrap-stats-admin-containerapp-job.ps1` | Created / Updated | Creates or updates the manual first-admin bootstrap Container Apps Job. Review follow-up replaced the subscription-specific managed identity resource ID default with a placeholder so environment-specific Azure IDs are supplied per deployment instead of committed as defaults. |
 
@@ -42,7 +42,7 @@ Current status: **contract and documentation added**. Live Azure deployment rema
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `tests/integration/test_m14_cloud_readiness_contract.py` | Created / Updated | Verifies the M14 files exist, the cloud example avoids real secrets, required variables are documented, the temporary local-filesystem storage mode is explained, and cloud deployment notes cover Azure Container Apps, Container Registry, Key Vault, managed identity, Azure SQL, Blob Storage, health probes, stdout/stderr logging, and secret rotation. |
+| `tests/integration/test_m14_cloud_readiness_contract.py` | Created / Updated | Verifies the M14 files exist, the cloud example avoids real secrets, required variables are documented, Azure Blob Storage is configured as the durable cloud document-storage target, and cloud deployment notes cover Azure Container Apps, Container Registry, Key Vault, managed identity, Azure SQL, Blob Storage, health probes, stdout/stderr logging, and secret rotation. |
 
 ## Verification
 

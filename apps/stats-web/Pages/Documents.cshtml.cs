@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Stats.Web.Pages;
 
-public class DocumentsModel(StatsApiOptions statsApiOptions) : PageModel
+public class DocumentsModel(StatsApiOptions statsApiOptions, StatsWebShellOptions shellOptions) : PageModel
 {
     public string ApiBaseUrl { get; } = statsApiOptions.BaseUrl.TrimEnd('/');
+
+    public string StatsDataBaseUrl { get; } = shellOptions.StatsDataBaseUrl.TrimEnd('/');
 }
 // M2 End

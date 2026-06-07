@@ -113,6 +113,14 @@ def test_dockerfile_copies_tests_for_container_execution():
         "Dockerfile must copy Stats Web appsettings for container-executed M2 config checks"
 
 
+def test_dockerignore_excludes_real_test_input_from_image_context():
+    content = (REPO_ROOT / ".dockerignore").read_text()
+    assert "tests/input/*" in content, \
+        "Real tests/input fixtures must stay local-only and out of runtime image builds"
+    assert "!tests/input/README.md" in content, \
+        "The tests/input directory contract README should remain available in the build context"
+
+
 def test_dockerfile_copies_central_config_for_fail_fast_startup():
     content = DOCKERFILE.read_text()
     assert "COPY config/ /app/config/" in content, \
@@ -198,6 +206,12 @@ def test_startup_script_starts_data_validation_api():
     assert "8017" in STARTUP_SCRIPT.read_text()
 
 
+def test_startup_script_starts_stats_data_api():
+    content = STARTUP_SCRIPT.read_text()
+    assert "8018" in content
+    assert "uvicorn stats_data.main:app" in content
+
+
 def test_startup_script_performs_health_checks():
     content = STARTUP_SCRIPT.read_text()
     assert "wait_for_health" in content
@@ -250,6 +264,7 @@ def test_compose_configures_data_validation_port():
     content = COMPOSE_FILE.read_text()
     assert 'TRANSACTION_EXTRACTION_PORT: "${TRANSACTION_EXTRACTION_PORT:-8016}"' in content
     assert 'DATA_VALIDATION_PORT: "${DATA_VALIDATION_PORT:-8017}"' in content
+    assert 'STATS_DATA_PORT: "${STATS_DATA_PORT:-8018}"' in content
 
 
 def test_compose_references_dockerfile():
@@ -277,6 +292,7 @@ def test_stats_web_proxies_browser_api_calls():
     assert "StatsWeb:Proxy:DocumentParsingBaseUrl" in content
     assert "StatsWeb:Proxy:TransactionExtractionBaseUrl" in content
     assert "StatsWeb:Proxy:DataValidationBaseUrl" in content
+    assert "StatsWeb:Proxy:StatsDataBaseUrl" in content
 
 
 def test_startup_script_keeps_browser_api_base_urls_same_origin():
@@ -287,19 +303,28 @@ def test_startup_script_keeps_browser_api_base_urls_same_origin():
     assert '--StatsWeb:Downstream:DocumentParsingBaseUrl ""' in content
     assert '--StatsWeb:Downstream:TransactionExtractionBaseUrl ""' in content
     assert '--StatsWeb:Downstream:DataValidationBaseUrl ""' in content
+    assert '--StatsWeb:Downstream:StatsDataBaseUrl ""' in content
     assert "--StatsWeb:Proxy:IdentityBaseUrl" in content
     assert "--StatsWeb:Proxy:FileValidationBaseUrl" in content
     assert "--StatsWeb:Proxy:DocumentParsingBaseUrl" in content
     assert "--StatsWeb:Proxy:TransactionExtractionBaseUrl" in content
     assert "--StatsWeb:Proxy:DataValidationBaseUrl" in content
+    assert "--StatsWeb:Proxy:StatsDataBaseUrl" in content
 
 
-def test_stats_web_proxies_m7_and_m8_api_calls():
+def test_stats_web_proxies_extraction_and_validation_api_calls():
     content = STATS_WEB_PROGRAM.read_text()
     assert "path.StartsWith(\"extractions\"" in content
     assert "path.StartsWith(\"validations\"" in content
     assert "TransactionExtractionBaseUrl" in content
     assert "DataValidationBaseUrl" in content
+
+
+def test_stats_web_proxies_stats_data_save_api_calls():
+    content = STATS_WEB_PROGRAM.read_text()
+    assert "path.StartsWith(\"transactions/batches\"" in content
+    assert "path.StartsWith(\"documents/\"" in content
+    assert "StatsDataBaseUrl" in content
 
 
 # -- Env example content ------------------------------------------------------

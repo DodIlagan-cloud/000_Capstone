@@ -19,8 +19,8 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.schema_migrations WHERE migration_id = '001_initial_stats_data_schema')
 BEGIN
-    CREATE TABLE dbo.m8_validation_results (
-        m8_validation_result_id nvarchar(36) NOT NULL CONSTRAINT pk_m8_validation_results PRIMARY KEY,
+    CREATE TABLE dbo.validation_results (
+        validation_result_id nvarchar(36) NOT NULL CONSTRAINT pk_validation_results PRIMARY KEY,
         validation_id nvarchar(100) NULL,
         extraction_id nvarchar(100) NULL,
         parse_id nvarchar(100) NULL,
@@ -30,38 +30,39 @@ BEGIN
         status nvarchar(50) NOT NULL,
         document_review_status nvarchar(50) NULL,
         recommended_action nvarchar(100) NULL,
-        normalized_record_count int NOT NULL CONSTRAINT df_m8_validation_results_normalized_count DEFAULT 0,
-        valid_record_count int NOT NULL CONSTRAINT df_m8_validation_results_valid_count DEFAULT 0,
-        warning_record_count int NOT NULL CONSTRAINT df_m8_validation_results_warning_count DEFAULT 0,
-        invalid_record_count int NOT NULL CONSTRAINT df_m8_validation_results_invalid_count DEFAULT 0,
-        duplicate_record_count int NOT NULL CONSTRAINT df_m8_validation_results_duplicate_count DEFAULT 0,
-        review_item_count int NOT NULL CONSTRAINT df_m8_validation_results_review_count DEFAULT 0,
+        normalized_record_count int NOT NULL CONSTRAINT df_validation_results_normalized_count DEFAULT 0,
+        valid_record_count int NOT NULL CONSTRAINT df_validation_results_valid_count DEFAULT 0,
+        warning_record_count int NOT NULL CONSTRAINT df_validation_results_warning_count DEFAULT 0,
+        invalid_record_count int NOT NULL CONSTRAINT df_validation_results_invalid_count DEFAULT 0,
+        duplicate_record_count int NOT NULL CONSTRAINT df_validation_results_duplicate_count DEFAULT 0,
+        review_item_count int NOT NULL CONSTRAINT df_validation_results_review_count DEFAULT 0,
         debit_total decimal(19,4) NULL,
         credit_total decimal(19,4) NULL,
         net_total decimal(19,4) NULL,
         reconciliation_delta decimal(19,4) NULL,
         payload_json nvarchar(max) NOT NULL,
-        promotion_status nvarchar(50) NOT NULL CONSTRAINT df_m8_validation_results_promotion_status DEFAULT 'pending',
+        promotion_status nvarchar(50) NOT NULL CONSTRAINT df_validation_results_promotion_status DEFAULT 'pending',
         promotion_error nvarchar(2000) NULL,
-        created_at_utc datetime2(3) NOT NULL CONSTRAINT df_m8_validation_results_created_at DEFAULT SYSUTCDATETIME(),
+        created_at_utc datetime2(3) NOT NULL CONSTRAINT df_validation_results_created_at DEFAULT SYSUTCDATETIME(),
         promoted_at_utc datetime2(3) NULL,
-        CONSTRAINT ck_m8_validation_results_payload_json CHECK (ISJSON(payload_json) = 1)
+        CONSTRAINT ck_validation_results_payload_json CHECK (ISJSON(payload_json) = 1)
     );
 
-    CREATE UNIQUE INDEX ux_m8_validation_results_validation_id
-        ON dbo.m8_validation_results(validation_id)
+    CREATE UNIQUE INDEX ux_validation_results_validation_id
+        ON dbo.validation_results(validation_id)
         WHERE validation_id IS NOT NULL;
 
     CREATE TABLE dbo.stats_documents (
         document_id nvarchar(36) NOT NULL CONSTRAINT pk_stats_documents PRIMARY KEY,
         ingestion_id nvarchar(100) NULL,
         uploaded_by_user_id nvarchar(36) NULL,
-        m8_validation_result_id nvarchar(36) NULL,
+        validation_result_id nvarchar(36) NULL,
         original_filename nvarchar(255) NOT NULL,
         normalized_filename nvarchar(255) NOT NULL,
         source_type nvarchar(50) NOT NULL,
         source_id nvarchar(100) NULL,
         sha256 nvarchar(64) NULL,
+        document_fingerprint nvarchar(64) NULL,
         detected_mime_type nvarchar(150) NULL,
         size_bytes bigint NULL,
         storage_reference nvarchar(1024) NOT NULL,
@@ -72,8 +73,8 @@ BEGIN
         redaction_applied bit NOT NULL CONSTRAINT df_stats_documents_redaction_applied DEFAULT 0,
         created_at_utc datetime2(3) NOT NULL CONSTRAINT df_stats_documents_created_at DEFAULT SYSUTCDATETIME(),
         updated_at_utc datetime2(3) NOT NULL CONSTRAINT df_stats_documents_updated_at DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT fk_stats_documents_m8_validation_results
-            FOREIGN KEY (m8_validation_result_id) REFERENCES dbo.m8_validation_results(m8_validation_result_id)
+        CONSTRAINT fk_stats_documents_validation_results
+            FOREIGN KEY (validation_result_id) REFERENCES dbo.validation_results(validation_result_id)
     );
 
     CREATE INDEX ix_stats_documents_user_status

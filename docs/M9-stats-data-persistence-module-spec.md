@@ -9,7 +9,7 @@ Module 9 establishes the Stats-owned database and persistence layer.
 
 M9 stores product data produced by the reusable processing modules: document intake metadata, processing run summaries, normalized transaction records, validation results, duplicate-check outcomes, and user ownership links. It is also the durable source of data for the future Stats dashboard and reporting modules. It does not perform OCR, extraction, validation, dashboard rendering, or identity authentication.
 
-Earlier modules may still be incomplete while this spec is refined. The purpose of this draft is to define what the database must eventually remember so M3 through M8 can keep their contracts stable and M10/M11 can build on reliable stored records.
+Earlier modules may still be incomplete while this spec is refined. The purpose of this draft is to define what the database must eventually remember so upstream modules can keep their contracts stable and M10/M11 can build on reliable stored records.
 
 ## Architecture Alignment
 
@@ -20,15 +20,17 @@ Earlier modules may still be incomplete while this spec is refined. The purpose 
 | Type | Encompassing product module |
 | Main responsibility | Database schema, migrations, persistence adapters, duplicate checks against stored records, retrieval APIs |
 | Owner folder | `apps/stats-data/` |
-| Primary input | M8 `DataValidationResult` plus authenticated user context |
+| Primary input | Data Validation `DataValidationResult` plus authenticated user context |
 | Primary output | Saved document/workflow/transaction records and queryable data for review, dashboarding, and reporting |
 
 ## Goals
 
 - Define the Stats product database schema separately from reusable processing modules.
-- Store M8 normalized records only after the user chooses to save ready transactions.
+- Store Data Validation normalized records only after the user chooses to save ready transactions.
 - Preserve traceability from saved transactions back to validation, extraction, parse, and ingestion identifiers.
 - Support database-backed duplicate checks before insert.
+- Track long-running upload processing jobs so cloud uploads do not depend on one browser request staying open while OCR/parsing/extraction/validation completes.
+- Persist per-step upload timing records so Docker/cloud logs and Azure SQL agree on how long validation, ingestion, parsing, extraction, validation, duplicate-check, and save stages took for a document.
 - Associate stored documents and transactions with the authenticated user who uploaded or saved them.
 - Keep sensitive financial document data controlled and avoid persisting full OCR text unless explicitly justified later.
 - Provide migrations and persistence adapters under `apps/stats-data/`.
@@ -40,7 +42,7 @@ Earlier modules may still be incomplete while this spec is refined. The purpose 
 
 - Reimplementing M1 identity, password, token, or role logic.
 - Reimplementing M3/M4 file validation or file storage behavior.
-- Reimplementing M5 parsing, M7 extraction, or M8 validation rules.
+- Reimplementing M5 parsing, M7 extraction, or validation rules.
 - Rendering dashboards or report visualizations.
 - Owning final dashboard UX, chart layout, or visual analytics decisions.
 - Email mailbox polling or attachment retrieval.
@@ -60,43 +62,54 @@ Current identity table data remains behind the identity module contract:
 | Email/full name/role | M1 | Display through identity API when needed |
 | Password hash/token fields | M1 | Not used by M9 |
 
-### M8 Result Staging
+### Validation Result Staging
 
-M9 should keep a staging/audit table for each M8 `DataValidationResult` received from Stats Web before records are promoted into dashboard-ready relational tables.
+M9 should keep a staging/audit table for each Data Validation `DataValidationResult` received from Stats Web before records are promoted into dashboard-ready relational tables.
 
-This staging table is recommended because M8 output includes nested arrays, evolving contract fields, review metadata, source references, and summary/evaluation data. Staging preserves the exact module result for troubleshooting, reprocessing, and contract-change safety while the normalized tables serve dashboard and reporting queries.
+This staging table is recommended because validation output includes nested arrays, evolving contract fields, review metadata, source references, and summary/evaluation data. Staging preserves the exact module result for troubleshooting, reprocessing, and contract-change safety while the normalized tables serve dashboard and reporting queries.
+
+Before the database write, M9 should write the received validation payload to a temporary handoff JSON file under the centrally managed `STATS_VALIDATION_HANDOFF_DIR` path, which defaults to `apps/stats-data/data/validation-handoff` through `config/stats.runtime.json` and `config/stats.paths.json`. M9 must persist from that exact file, then remove the temporary file only after the Azure SQL transaction commits and `validation_results.promotion_status` is marked `promoted`. If the save fails, the temporary file should remain available for retry and troubleshooting. After a successful commit, handoff cleanup is best-effort: cleanup errors are logged but must not turn a committed save into an API failure. Data Validation still does not own durable file storage; this temporary file is part of the M9 save boundary.
+
+Validation persistence is retry-safe. Re-submitting the same validation payload must not reset a previously promoted `validation_results` row back to pending, must not clear `promotion_error` or `promoted_at_utc`, and must not replace an existing non-empty `stats_documents.storage_reference` with an empty value.
 
 Recommended table:
 
 | Table | Purpose |
 | --- | --- |
-| `m8_validation_results` | Exact M8 result envelope plus high-value indexed columns |
+| `validation_results` | Exact validation result envelope plus high-value indexed columns |
 
 Important fields:
 
 | Field | Purpose |
 | --- | --- |
-| `m8_validation_result_id` | Stats-owned staging row identifier |
-| `validation_id` | M8 validation identifier, unique when present |
+| `validation_result_id` | Stats-owned staging row identifier |
+| `validation_id` | validation identifier, unique when present |
 | `extraction_id` | M7 extraction identifier |
 | `parse_id` | M5 parse identifier |
 | `ingestion_id` | M3/M4 ingestion identifier from `document` |
 | `uploaded_by_user_id` | User scope for the result |
-| `document_type` | M8 document type |
-| `status` | M8 validation status |
-| `document_review_status` | M8 summary review status |
-| `recommended_action` | M8 summary recommended action |
-| `normalized_record_count` | M8 summary count |
-| `valid_record_count` | M8 summary count |
-| `warning_record_count` | M8 summary count |
-| `invalid_record_count` | M8 summary count |
-| `duplicate_record_count` | M8 summary count |
-| `review_item_count` | M8 summary count |
-| `debit_total` | M8 summary debit total |
-| `credit_total` | M8 summary credit total |
-| `net_total` | M8 summary net total |
-| `reconciliation_delta` | M8 summary reconciliation difference |
-| `payload_json` | Full M8 `DataValidationResult` JSON |
+| `document_type` | Data Validation document type |
+| `status` | validation status |
+| `document_review_status` | validation summary review status |
+| `recommended_action` | validation summary recommended action |
+| `normalized_record_count` | validation summary count |
+| `valid_record_count` | validation summary count |
+| `warning_record_count` | validation summary count |
+| `invalid_record_count` | validation summary count |
+| `duplicate_record_count` | validation summary count |
+| `review_item_count` | validation summary count |
+| `section_candidate_count` | validation summary count for source/document sections |
+| `entity_count` | validation summary count for validated entities |
+| `reference_count` | validation summary count for validated references |
+| `line_item_count` | validation summary count for validated line items |
+| `installment_count` | validation summary count for normalized installment obligations |
+| `warning_installment_count` | validation summary count for installments needing review |
+| `invalid_installment_count` | validation summary count for blocked installment records |
+| `debit_total` | validation summary debit total |
+| `credit_total` | validation summary credit total |
+| `net_total` | validation summary net total |
+| `reconciliation_delta` | validation summary reconciliation difference |
+| `payload_json` | Full Data Validation `DataValidationResult` JSON |
 | `promotion_status` | Pending, promoted, partially promoted, rejected, failed |
 | `promotion_error` | Controlled error details when promotion fails |
 | `created_at_utc` | Staging insert time |
@@ -118,10 +131,11 @@ M9 should store a product-level document/workflow record for each file that reac
 | `source_type` | Manual upload, email attachment, batch import, API |
 | `source_id` | Optional upstream source identifier |
 | `sha256` | File hash for duplicate/source matching |
+| `document_fingerprint` | Hashed normalized document-level evidence for same-document matching across renamed files or different photos |
 | `detected_mime_type` | Accepted content type |
 | `size_bytes` | File size |
 | `storage_reference` | Local/cloud path or object key, not raw file bytes |
-| `document_type` | M5/M7/M8 document classification label |
+| `document_type` | upstream document classification label |
 | `source_institution` | Bank, merchant, provider, biller, or counterparty when known |
 | `status` | Current workflow status |
 | `ocr_quality_status` | Good, partial, low, failed, or not applicable |
@@ -150,7 +164,7 @@ M9 should store lightweight run metadata for traceability and evidence without s
 | `document_id` | Parent document |
 | `parse_id` | M5 parse identifier |
 | `extraction_id` | M7 extraction identifier |
-| `validation_id` | M8 validation identifier |
+| `validation_id` | validation identifier |
 | `module_name` | Parsing, extraction, validation, persistence |
 | `module_version` | Version when available |
 | `status` | Completed, completed with warnings, failed |
@@ -163,13 +177,13 @@ M9 should avoid storing full unredacted OCR text in this table. If later review 
 
 ### Validation Batch Data
 
-M9 should store the M8 save attempt as a batch so the UI can show what was accepted, skipped, or needs review.
+M9 should store the validation save attempt as a batch so the UI can show what was accepted, skipped, or needs review.
 
 | Field | Purpose |
 | --- | --- |
 | `transaction_batch_id` | Save attempt identifier |
 | `document_id` | Parent document |
-| `validation_id` | M8 validation identifier |
+| `validation_id` | validation identifier |
 | `saved_by_user_id` | User who confirmed saving |
 | `status` | Saved, partially saved, rejected, needs review |
 | `input_record_count` | Normalized records received |
@@ -182,16 +196,120 @@ M9 should store the M8 save attempt as a batch so the UI can show what was accep
 | `net_total` | Batch net total |
 | `created_at_utc` | Save attempt time |
 
+### Pre-Save Duplicate Checks
+
+M9 must perform database-backed duplicate checks before Stats Web saves reviewed transactions. This is separate from M8 request-local duplicate detection. M8 can flag duplicate rows inside one validation payload, but only M9 can compare against persisted documents and transactions.
+
+Stats Web should call a M9 duplicate-check endpoint after M8 validation and local review edits, but before `POST /api/v1/transactions/batches`.
+
+Recommended endpoint:
+
+```text
+POST /api/v1/transactions/duplicate-checks
+```
+
+The request should include the current Data Validation result, user scope, and optional storage reference. The response should include a persisted `duplicate_check_id`, document-level matches, per-record transaction matches, and summary counts.
+
+When this endpoint returns `blocked` or `needs_review`, Stats Web must not present the result as a generic database save failure. The upload page should show a plain-language duplicate review panel with the duplicate-check status, summary counts, and the document/transaction messages returned by M9, such as whether the same file was already uploaded, the document fingerprint looks similar, a transaction already exists, or a row has the same date/amount/currency/direction as a saved transaction.
+
+Duplicate match types:
+
+| Match Type | Meaning |
+| --- | --- |
+| `exact_file_duplicate` | `stats_documents.sha256` already exists for the user |
+| `possible_same_document` | Document fingerprint evidence matches a previously saved document |
+| `within_batch_duplicate` | Two rows in the current validation payload share the same duplicate key |
+| `exact_transaction_duplicate` | A saved transaction has the same duplicate key |
+| `possible_transaction_duplicate` | Date, amount, currency, and direction match, but description differs |
+
+M9 should persist duplicate-check batches and results so the review decision is auditable and tied back to database records. Exact transaction duplicates should be treated as blocking or skipped by the save workflow unless a future explicit override is added. Possible matches should require review but not be silently discarded.
+
+Duplicate checks must treat empty duplicate keys and empty document fingerprints as unavailable evidence, not as real match keys. A row without a deterministic duplicate key may still be compared through possible-match signals such as date, amount, currency, and direction, but it must not collapse with other no-key rows as an exact duplicate. Persisted duplicate-check result identifiers must be stable from row content, match type, and matched database records rather than list position so a re-check cannot silently attach an old result row to a different transaction after ordering changes.
+
+Exact transaction duplicate lookup should be batched by deterministic duplicate key when possible. Possible transaction matches are allowed to remain row-scoped until the matching model is mature enough to batch without broadening false-positive behavior across nullable dates, currencies, directions, or edited descriptions.
+
+Document fingerprints are normalized evidence hashes used when filenames or image bytes differ. The first generic fingerprint should use available evidence from the validation payload: document type, source institution or merchant entity, document SHA-256, statement/invoice/receipt totals and dates, references, confirmation/approval/RRN values, masked account/card evidence, and a small set of normalized transaction keys when document-level evidence is sparse. The fingerprint must be stored as a hash, not as full unredacted source text.
+
+## Long-Running Upload Processing Jobs
+
+Cloud-dev proved that synchronous browser calls to M5 can exceed the Azure Container Apps ingress request timeout for OCR-heavy files. M9 therefore owns a durable processing-job checkpoint that Stats Web can create before starting module work and poll while work continues in the runtime container.
+
+This job tracking does not move OCR, extraction, or validation logic into M9. M9 only records job state, progress, user ownership, safe document metadata, final validation payload, and sanitized error details.
+
+Recommended table: `document_processing_jobs`
+
+| Column | Purpose |
+| --- | --- |
+| `job_id` | Stable processing job identifier returned to Stats Web. |
+| `ingestion_id` | M3/M4 ingestion identifier when available. |
+| `uploaded_by_user_id` | User that started the upload workflow. |
+| `original_filename` | Source filename for user-facing progress and troubleshooting. |
+| `source_type` | Manual upload, email attachment, batch import, or API. |
+| `source_id` | Source channel identifier. |
+| `sha256` | File hash from validation metadata when available. |
+| `status` | `queued`, `running`, `completed`, or `failed`. |
+| `stage` | `uploaded`, `parsing`, `extracting`, `validating`, `completed`, or `failed`. |
+| `message` | Short user-facing progress or failure message. |
+| `parse_id` | M5 parse identifier after parsing completes. |
+| `extraction_id` | M7 extraction identifier after extraction completes. |
+| `validation_id` | M8 validation identifier after validation completes. |
+| `result_payload_json` | Final validation/checkpoint payload for Stats Web review. |
+| `error_detail` | Sanitized failure detail. |
+| `created_at_utc`, `updated_at_utc`, `completed_at_utc` | Job lifecycle timestamps. |
+
+API contract:
+
+```text
+POST /api/v1/processing-jobs
+PATCH /api/v1/processing-jobs/{job_id}
+GET /api/v1/processing-jobs/{job_id}
+```
+
+Recommended timing table: `document_processing_steps`
+
+| Column | Purpose |
+| --- | --- |
+| `step_id` | Stable processing-step identifier. |
+| `job_id` | Parent `document_processing_jobs.job_id`. |
+| `document_id` | M9 document ID when known, otherwise null until persistence/save creates it. |
+| `correlation_id` | Web/request correlation ID when available. |
+| `module_name` | Module or boundary name, such as `StatsWeb`, `M3M4`, `M5`, `M7`, `M8`, or `M9`. |
+| `step_name` | Stable step name, such as `file_validation`, `document_upload`, `document_parsing`, `transaction_extraction`, `data_validation`, `duplicate_check`, or `database_save`. |
+| `status` | `started`, `completed`, `completed_with_warnings`, `failed`, or `skipped`. |
+| `started_at_utc` | Step start time. |
+| `completed_at_utc` | Step completion time when known. |
+| `duration_ms` | Measured elapsed time in milliseconds. |
+| `metadata_json` | Safe counts and identifiers, not raw OCR text or secret values. |
+| `error_code` | Controlled failure code when the step fails. |
+| `error_message` | Sanitized failure message when the step fails. |
+| `created_at_utc` | Row insert time. |
+
+Processing-step records are summaries, not a raw log sink. Detailed runtime diagnostics remain in structured application logs. M9 exposes `POST /api/v1/processing-jobs/{job_id}/steps` for appending step records and `GET /api/v1/processing-jobs/{job_id}/steps` for troubleshooting and future review UI. Stats Web must write a step record even when a step fails so cloud-dev operators can diagnose where an upload stalled. Timing writes attached to successful duplicate-check and transaction-save operations are best-effort after the primary work succeeds; a timing insert failure must be logged and must not change the successful primary API response into a 500.
+
+Processing-job writes must clean up cursors on database errors. Once a job reaches a terminal status such as `completed` or `failed`, later updates must not move it back to a non-terminal status or overwrite its final stage/message accidentally. If Stats Web cannot write the initial upload timing step before launching the background processing task, it must delete the temporary upload file and fail the start request instead of orphaning local temp content.
+
+Stats Web should:
+
+- create the job immediately after M3/M4 accepts/queues the upload,
+- run M5 -> M7 -> M8 outside the original browser request,
+- avoid forcing `page_limit=1` on the background M5 request because the async job is intended to preserve complete statement coverage while avoiding ingress timeouts,
+- update the job at each stage,
+- poll the job from the Upload page,
+- render the normal M8 transaction-check result once the job is `completed`,
+- show a fresh upload picker and a concise failure message when the job is `failed`.
+
+This is the first cloud-safe async workflow. It is compatible with current single-container cloud-dev. Future Blob Storage work should replace local temporary file handling so jobs can resume across container restarts.
+
 ### Transaction Records
 
-This is the core durable financial data M9 should store from M8 normalized records. These records should be dashboard-ready enough to support totals, trends, category summaries, debit/credit splits, source-document drilldowns, and review counts without requiring dashboard code to parse raw module JSON.
+This is the core durable financial data M9 should store from Data Validation normalized records. These records should be dashboard-ready enough to support totals, trends, category summaries, debit/credit splits, source-document drilldowns, and review counts without requiring dashboard code to parse raw module JSON.
 
 | Field | Purpose |
 | --- | --- |
 | `transaction_id` | Stats-owned stable transaction identifier |
 | `transaction_batch_id` | Save batch |
 | `document_id` | Source document |
-| `source_candidate_id` | M7/M8 candidate link |
+| `source_candidate_id` | upstream candidate link |
 | `transaction_date` | Normalized transaction date |
 | `posted_date` | Optional posted/settled date when statements provide both dates |
 | `description` | Cleaned transaction description |
@@ -205,7 +323,7 @@ This is the core durable financial data M9 should store from M8 normalized recor
 | `reference` | Optional transaction/reference code |
 | `payment_method` | Card, bank transfer, EFTPOS, cash, unknown |
 | `masked_account_or_card` | Masked account/card reference only |
-| `confidence` | M8 record confidence |
+| `confidence` | validation record confidence |
 | `quality_status` | Valid, warning, invalid, duplicate |
 | `review_required` | Boolean flag for dashboard/review queues |
 | `duplicate_of_transaction_id` | Link when database duplicate is detected |
@@ -235,11 +353,11 @@ Recommended first duplicate key:
 user_id + transaction_date + normalized_description + signed_amount + currency + direction
 ```
 
-The hash should tolerate formatting differences by lowercasing descriptions, trimming whitespace, normalizing repeated spaces, and rounding amount comparison to the M8 tolerance.
+The hash should tolerate formatting differences by lowercasing descriptions, trimming whitespace, normalizing repeated spaces, and rounding amount comparison to the validation tolerance.
 
 ### Financial Fields
 
-M8 may produce document-level financial fields that are useful for review and reporting.
+Data Validation may produce document-level financial fields that are useful for review and reporting.
 
 | Field | Purpose |
 | --- | --- |
@@ -365,7 +483,7 @@ M9 should preserve actionable findings without forcing every module-specific cod
 | `document_id` | Parent document |
 | `transaction_id` | Optional affected transaction |
 | `processing_run_id` | Optional affected run |
-| `source_module` | M3, M5, M7, M8, M9 |
+| `source_module` | File Intake, Document Parsing, Transaction Extraction, Data Validation, Stats Data |
 | `code` | Finding code |
 | `severity` | Info, warning, error |
 | `message` | Controlled human-readable summary |
@@ -412,9 +530,13 @@ Recommended table names:
 | `transaction_batches` | User-confirmed save attempts |
 | `transactions` | Durable normalized financial transactions |
 | `financial_fields` | Document-level fields and extracted totals |
+| `document_sections` | Data Validation source-section context for robust review and dashboard drilldown |
 | `statement_summaries` | Credit-card/bill statement obligations and exposure |
 | `document_financial_summaries` | Invoice, receipt, and payment-proof totals |
 | `line_items` | Receipt/invoice/service line items |
+| `validated_entities` | Data Validation-normalized parties, institutions, billers, merchants, or account-like entities |
+| `validated_references` | Data Validation-normalized references, masked accounts/cards, confirmation numbers, invoice IDs, or approval codes |
+| `installments` | Data Validation-normalized installment obligations and balances |
 | `financial_evidence_links` | Suggested or confirmed matches between proofs, invoices, receipts, statements, and transactions |
 | `findings` | Actionable findings and review items |
 
@@ -432,7 +554,7 @@ Those should wait until review/reporting requirements are clearer.
 
 ## Dashboard Data Source Requirements
 
-M9 is the source of truth for the future dashboard. Dashboard and reporting modules should read from M9 tables or M9 query APIs rather than calling M3 through M8 directly.
+M9 is the source of truth for the future dashboard. Dashboard and reporting modules should read from M9 tables or M9 query APIs rather than calling upstream modules directly.
 
 The first database design should support these dashboard needs:
 
@@ -476,17 +598,27 @@ The M9 schema should therefore keep:
 
 ## Persistence Flow
 
-1. Stats Web receives M8 `DataValidationResult`.
+1. Stats Web receives Data Validation `DataValidationResult`.
 2. User reviews the transaction checkpoint.
-3. User clicks save ready transactions.
-4. Stats Web sends the validation result plus authenticated user context to M9.
-5. M9 validates ownership and required identifiers.
-6. M9 creates or updates the `stats_documents` row.
-7. M9 stores processing run summaries and findings.
-8. M9 checks normalized records against existing stored transactions.
-9. M9 inserts non-duplicate valid records into `transactions`.
-10. M9 marks duplicate or invalid records as skipped/review items.
-11. M9 returns a save summary to Stats Web.
+3. Stats Web sends the reviewed validation result plus authenticated user context to the M9 duplicate-check endpoint.
+4. M9 checks document hash, document fingerprint, within-batch transaction keys, exact stored transaction keys, and possible transaction matches.
+5. M9 persists the duplicate-check batch/results and returns document and transaction duplicate findings to Stats Web.
+6. User reviews exact/possible duplicate warnings.
+7. User clicks save ready transactions.
+8. Stats Web sends the accepted validation result plus authenticated user context to M9.
+9. M9 validates ownership and required identifiers.
+10. `apps/stats-data/src/stats_data/validation_persistence.py` writes the validation payload to a temporary handoff JSON file.
+11. The adapter loads that same handoff file and stages the full validation payload in `validation_results`.
+12. The adapter creates or updates the `stats_documents` row.
+13. The adapter stores processing run summaries, transaction batches, normalized transactions, financial fields, document sections, entities, references, line items, installments, findings, and review items.
+14. M9 inserts non-duplicate valid records into `transactions`; the unique duplicate-key index remains the final safety net.
+15. M9 marks duplicate or invalid records as skipped/review items.
+16. After the Azure SQL commit succeeds, M9 deletes the temporary handoff file on a best-effort basis and logs cleanup failures without failing the committed save.
+17. M9 returns a save summary to Stats Web.
+
+## Stats Web Save Requirements
+
+M9 now has a callable save boundary in addition to the adapter. Stats Data exposes `POST /api/v1/transactions/batches`, Stats Web routes same-origin proxy traffic to that endpoint, and the Upload page enables `Save ready transactions` when the reviewed validation result is save-ready. The browser sends the current edited/accepted validation payload plus authenticated user context and receives a save summary with persisted, duplicate, warning, invalid, and review counts. Browser evidence should run through the real Upload page with approved `tests/input` fixtures and verify Azure SQL rows were created for the returned validation/batch identifiers.
 
 ## Azure SQL Implementation Changes
 
@@ -507,6 +639,7 @@ Required implementation changes:
 | Area | Change |
 | --- | --- |
 | Runtime configuration | Prefer `AZURE_SQL_CONNECTIONSTRING` and `DATABASE_PROVIDER=AzureSql`; keep `DATABASE_URL` only as a temporary compatibility setting. |
+| validation handoff temp directory | Configure `STATS_VALIDATION_HANDOFF_DIR`; default to `apps/stats-data/data/validation-handoff` from the central runtime/path registry. |
 | Python database driver | Replace PostgreSQL-only `psycopg` paths with an Azure SQL-compatible driver path such as `mssql-python` or SQLAlchemy over `mssql+pyodbc`. |
 | Container image | Install any required SQL Server driver dependencies when using ODBC, or choose `mssql-python` if it fits the ORM/access pattern without system ODBC setup. |
 | M1 identity persistence | Move current `users` table creation/migration under the Stats Data migration boundary or make M1 database initialization provider-aware for Azure SQL. |
@@ -542,7 +675,11 @@ Cloud-first deployment order:
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/health` | `GET` | Service/database readiness |
-| `/api/v1/transactions/batches` | `POST` | Save M8 normalized records |
+| `/api/v1/transactions/batches` | `POST` | Save Data Validation normalized records |
+| `/api/v1/transactions/duplicate-checks` | `POST` | Check reviewed validation records against persisted documents and transactions before saving |
+| `/api/v1/processing-jobs` | `POST` | Create a durable upload processing job |
+| `/api/v1/processing-jobs/{job_id}` | `GET/PATCH` | Read or update upload processing job status |
+| `/api/v1/processing-jobs/{job_id}/steps` | `POST/GET` | Append or read durable per-step timing summaries for an upload processing job |
 | `/api/v1/documents` | `GET` | List stored documents for current user/admin scope |
 | `/api/v1/documents/{document_id}` | `GET` | Retrieve document workflow summary |
 | `/api/v1/transactions` | `GET` | Query saved transactions |
@@ -562,7 +699,7 @@ Cloud-first deployment order:
 | `DATABASE_PROVIDER` | `AzureSql` | Selects Azure SQL provider behavior instead of legacy PostgreSQL behavior |
 | `DATABASE_SCHEMA` | `dbo` | Default Azure SQL schema unless later separated |
 | `DATABASE_URL` | Legacy/local compatibility only | Temporary setting for modules not yet migrated from PostgreSQL-style configuration |
-| `ENABLE_DATABASE_DUPLICATE_CHECKS` | `true` | Compare M8 records to stored transactions |
+| `ENABLE_DATABASE_DUPLICATE_CHECKS` | `true` | Compare Data Validation records to stored transactions |
 | `DUPLICATE_MATCH_AMOUNT_TOLERANCE` | `0.01` | Amount comparison tolerance |
 | `STORE_SOURCE_TEXT_SNIPPETS` | `false` | Avoid storing sensitive OCR snippets by default |
 | `MAX_TRANSACTION_BATCH_SIZE` | `1000` | Save request guardrail |
@@ -587,17 +724,17 @@ From M13 onward, official M9 verification should run through the Stats container
 | Unit tests | Duplicate-key generation, persistence mapping, validation-result mapping |
 | API tests | Save batch, query documents, query transactions, duplicate save behavior |
 | Integration tests | Azure SQL schema creation/migration and cloud database connectivity |
-| Regression tests | M1 identity still works; M8 checkpoint can call M9 save path |
+| Regression tests | M1 identity still works; Data Validation checkpoint can call M9 save path |
 | Evidence tests | Browser save flow and database verification screenshots/output |
 
 ## Acceptance Criteria
 
 - M9 spec exists before persistence implementation grows.
 - `apps/stats-data/` owns schema, migrations, persistence adapters, and query layer.
-- M9 can save M8 normalized records with traceability to ingestion, parse, extraction, and validation IDs.
+- M9 can save Data Validation normalized records with traceability to ingestion, parse, extraction, and validation IDs.
 - M9 performs database-backed duplicate checks before inserting transactions.
 - M9 associates stored records with authenticated users.
-- M9 stores dashboard-ready statement, invoice, receipt, payment-proof, and reconciliation facts when M7/M8 provide them.
+- M9 stores dashboard-ready statement, invoice, receipt, payment-proof, and reconciliation facts when upstream validation provides them.
 - M9 exposes or can derive query results for M11 dashboard summaries, trends, obligations, reconciliation status, review backlog, and processing health.
 - M9 returns a save summary with saved, skipped duplicate, warning, and invalid counts.
 - M9 avoids storing raw document bytes or full unredacted OCR text in relational tables.

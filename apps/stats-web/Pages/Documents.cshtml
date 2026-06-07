@@ -11,8 +11,9 @@
     <link rel="stylesheet" href="/css/access.css" />
     <script src="/js/access.js" defer></script>
     <script src="/js/app.js" defer></script>
+    <script src="/js/documents.js" defer asp-append-version="true"></script>
   </head>
-  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="documents">
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-stats-data-base-url="@Model.StatsDataBaseUrl" data-shell-area="documents">
     <main class="app-shell">
       <header class="app-header">
         <div>
@@ -38,9 +39,25 @@
 
         <section class="shell-panel" aria-labelledby="documents-title">
           <p class="session-label">Document status</p>
-          <h2 id="documents-title">No workflow records yet</h2>
-          <p class="panel-copy">Document tracking will connect after workflow integration and Stats Data define the persisted status contract.</p>
-          <div class="empty-state">Waiting for workflow integration and M9 Stats Data.</div>
+          <h2 id="documents-title">Recent documents</h2>
+          <p class="panel-copy">Review recent persisted uploads and remove records that were saved from a file.</p>
+          <p id="documents-state" class="deferred-state" role="status" aria-live="polite">Loading documents.</p>
+          <div id="documents-empty" class="empty-state" hidden>No saved documents yet.</div>
+          <div id="documents-table-wrap" class="table-wrap" hidden>
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Status</th>
+                  <th>Rows</th>
+                  <th>Review</th>
+                  <th>Saved</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="documents-table-body"></tbody>
+            </table>
+          </div>
         </section>
       </section>
     </main>

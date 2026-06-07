@@ -2,7 +2,9 @@
 // Starts the Module 1 ASP.NET Core web frontend and exposes the Python API base URL to Razor pages.
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 var builder = WebApplication.CreateBuilder(args);
 var centralRuntime = StatsCentralRuntime.Load(builder.Environment.ContentRootPath);
@@ -51,7 +53,8 @@ builder.Services.AddSingleton(
         FileIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:FileIngestionBaseUrl"] ?? centralRuntime.ModuleUrl("FILE_VALIDATION_PORT"),
         DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? centralRuntime.ModuleUrl("DOCUMENT_PARSING_PORT"),
         TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Proxy:TransactionExtractionBaseUrl"] ?? centralRuntime.ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
-        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? centralRuntime.ModuleUrl("DATA_VALIDATION_PORT")
+        DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? centralRuntime.ModuleUrl("DATA_VALIDATION_PORT"),
+        StatsDataBaseUrl: builder.Configuration["StatsWeb:Proxy:StatsDataBaseUrl"] ?? centralRuntime.ModuleUrl("STATS_DATA_PORT")
     )
 );
 // M13 End
@@ -107,6 +110,17 @@ if (centralRuntime.CorsAllowedOrigins.Count > 0)
     app.UseCors("StatsCorsPolicy");
 }
 app.UseMiddleware<StatsCorrelationMiddleware>();
+// M9 - Stats Data and Persistence Start
+// Starts cloud-safe upload processing jobs and lets the browser poll instead of holding a long OCR request open.
+app.MapPost(
+    "/api/v1/upload-processing-jobs",
+    StatsUploadProcessingJobs.StartUploadProcessingJobAsync
+);
+app.MapGet(
+    "/api/v1/upload-processing-jobs/{jobId}",
+    StatsUploadProcessingJobs.GetUploadProcessingJobAsync
+);
+// M9 End
 // M13 - Containerization Start
 // Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
 app.MapMethods(
@@ -137,7 +151,8 @@ public sealed record StatsWebProxyOptions(
     string FileIngestionBaseUrl,
     string DocumentParsingBaseUrl,
     string TransactionExtractionBaseUrl,
-    string DataValidationBaseUrl
+    string DataValidationBaseUrl,
+    string StatsDataBaseUrl
 );
 // M13 End
 // M2 - Stats Web Shell Start
@@ -471,6 +486,14 @@ public static class StatsWebApiProxy
             return proxyOptions.DataValidationBaseUrl;
         }
 
+        if (path.StartsWith("transactions/batches", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("transactions/duplicate-checks", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("documents", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("documents/", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.StatsDataBaseUrl;
+        }
+
         return string.Empty;
     }
 
@@ -486,6 +509,641 @@ public static class StatsWebApiProxy
             || string.Equals(headerName, "Upgrade", StringComparison.OrdinalIgnoreCase);
     }
 }
+
+// M9 - Stats Data and Persistence Start
+public static class StatsUploadProcessingJobs
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public static async Task<IResult> StartUploadProcessingJobAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebProxyOptions proxyOptions,
+        ILoggerFactory loggerFactory
+    )
+    {
+        var uploadStartedAt = DateTimeOffset.UtcNow;
+        var uploadStopwatch = Stopwatch.StartNew();
+        var logger = loggerFactory.CreateLogger("StatsUploadProcessingJobs");
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var file = form.Files.GetFile("file");
+        if (file is null || file.Length == 0)
+        {
+            return Results.BadRequest(new { detail = "A document file is required." });
+        }
+
+        var metadata = new UploadProcessingMetadata(
+            IngestionId: FormValue(form, "ingestion_id"),
+            UploadedByUserId: FormValue(form, "uploaded_by_user_id"),
+            OriginalFilename: file.FileName,
+            SourceType: FormValue(form, "source_type") ?? "manual_upload",
+            SourceId: FormValue(form, "source_id") ?? "stats-web-upload",
+            Sha256: FormValue(form, "sha256"),
+            DetectedMimeType: FormValue(form, "detected_mime_type") ?? file.ContentType,
+            ContentType: file.ContentType,
+            AllowOcrFallback: FormValue(form, "allow_ocr_fallback") ?? "true",
+            PageLimit: FormValue(form, "page_limit"),
+            ClassificationThreshold: FormValue(form, "classification_threshold") ?? "0.1"
+        );
+
+        var tempPath = Path.Combine(Path.GetTempPath(), $"stats-upload-{Guid.NewGuid():N}-{Path.GetFileName(file.FileName)}");
+        await using (var target = File.Create(tempPath))
+        {
+            await file.CopyToAsync(target, context.RequestAborted);
+        }
+
+        var client = LongRunningClient(httpClientFactory);
+        var jobResponse = await client.PostAsJsonAsync(
+            $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/processing-jobs",
+            new
+            {
+                ingestion_id = metadata.IngestionId,
+                uploaded_by_user_id = metadata.UploadedByUserId,
+                original_filename = metadata.OriginalFilename,
+                source_type = metadata.SourceType,
+                source_id = metadata.SourceId,
+                sha256 = metadata.Sha256,
+                message = "Document uploaded. Stats is preparing to read it."
+            },
+            JsonOptions,
+            context.RequestAborted
+        );
+
+        if (!jobResponse.IsSuccessStatusCode)
+        {
+            TryDeleteTempFile(tempPath);
+            return Results.StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        var job = await jobResponse.Content.ReadFromJsonAsync<JsonObject>(JsonOptions, context.RequestAborted);
+        var jobId = job?["job_id"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(jobId))
+        {
+            TryDeleteTempFile(tempPath);
+            return Results.StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        uploadStopwatch.Stop();
+        try
+        {
+            await AppendProcessingStepAsync(
+                client,
+                proxyOptions,
+                jobId,
+                "StatsWeb",
+                "document_upload",
+                "completed",
+                uploadStartedAt,
+                DateTimeOffset.UtcNow,
+                uploadStopwatch.ElapsedMilliseconds,
+                new JsonObject
+                {
+                    ["filename"] = metadata.OriginalFilename,
+                    ["content_type"] = metadata.ContentType,
+                    ["detected_mime_type"] = metadata.DetectedMimeType,
+                    ["size_bytes"] = file.Length,
+                    ["ingestion_id"] = metadata.IngestionId,
+                    ["source_type"] = metadata.SourceType
+                }
+            );
+        }
+        catch (Exception ex)
+        {
+            TryDeleteTempFile(tempPath);
+            logger.LogError(ex, "Failed to record initial upload processing step. job_id={JobId}", jobId);
+            try
+            {
+                await UpdateJobAsync(
+                    client,
+                    proxyOptions,
+                    jobId,
+                    "failed",
+                    "document_upload",
+                    "Document upload could not be tracked.",
+                    errorDetail: "Failed to record initial upload processing step."
+                );
+            }
+            catch (Exception updateEx)
+            {
+                logger.LogWarning(updateEx, "Failed to mark upload processing job failed after upload-step write failure. job_id={JobId}", jobId);
+            }
+            return Results.StatusCode(StatusCodes.Status502BadGateway);
+        }
+        logger.LogInformation(
+            "Document processing step completed. job_id={JobId} module={ModuleName} step={StepName} status={Status} duration_ms={DurationMs}",
+            jobId,
+            "StatsWeb",
+            "document_upload",
+            "completed",
+            uploadStopwatch.ElapsedMilliseconds
+        );
+
+        _ = Task.Run(
+            () => RunProcessingJobAsync(jobId, tempPath, metadata, proxyOptions, httpClientFactory, loggerFactory),
+            CancellationToken.None
+        );
+
+        return Results.Accepted($"/api/v1/upload-processing-jobs/{jobId}", job);
+    }
+
+    public static async Task<IResult> GetUploadProcessingJobAsync(
+        string jobId,
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebProxyOptions proxyOptions
+    )
+    {
+        var client = LongRunningClient(httpClientFactory);
+        using var response = await client.GetAsync(
+            $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/processing-jobs/{WebUtility.UrlEncode(jobId)}",
+            context.RequestAborted
+        );
+        var payload = await response.Content.ReadAsStringAsync(context.RequestAborted);
+        return Results.Content(payload, "application/json", statusCode: (int)response.StatusCode);
+    }
+
+    private static async Task RunProcessingJobAsync(
+        string jobId,
+        string tempPath,
+        UploadProcessingMetadata metadata,
+        StatsWebProxyOptions proxyOptions,
+        IHttpClientFactory httpClientFactory,
+        ILoggerFactory loggerFactory
+    )
+    {
+        var logger = loggerFactory.CreateLogger("StatsUploadProcessingJobs");
+        var client = LongRunningClient(httpClientFactory);
+        try
+        {
+            await UpdateJobAsync(client, proxyOptions, jobId, "running", "parsing", "Stats is reading the document text.");
+            var parseResult = await RunTimedStepAsync(
+                client,
+                proxyOptions,
+                logger,
+                jobId,
+                "M5",
+                "document_parsing",
+                () => ParseDocumentAsync(client, proxyOptions, tempPath, metadata),
+                result => ParseStepMetadata(result, metadata)
+            );
+            var parseId = TextAt(parseResult, "parse_id");
+
+            if (TextAt(parseResult, "status") == "failed")
+            {
+                await UpdateJobAsync(
+                    client,
+                    proxyOptions,
+                    jobId,
+                    "failed",
+                    "failed",
+                    "Document parsing needs review before Stats can continue.",
+                    parseId: parseId,
+                    errorDetail: "Document parsing returned failed status."
+                );
+                return;
+            }
+
+            await UpdateJobAsync(client, proxyOptions, jobId, "running", "extracting", "Text was read. Stats is finding transaction details.", parseId: parseId);
+            var extractionResult = await RunTimedStepAsync(
+                client,
+                proxyOptions,
+                logger,
+                jobId,
+                "M7",
+                "transaction_extraction",
+                () => PostJsonAsync(
+                    client,
+                    $"{proxyOptions.TransactionExtractionBaseUrl.TrimEnd('/')}/api/v1/extractions",
+                    BuildExtractionRequest(parseResult)
+                ),
+                ExtractionStepMetadata
+            );
+            var extractionId = TextAt(extractionResult, "extraction_id");
+
+            await UpdateJobAsync(
+                client,
+                proxyOptions,
+                jobId,
+                "running",
+                "validating",
+                "Transactions were found. Stats is checking the details.",
+                parseId: parseId,
+                extractionId: extractionId
+            );
+            var validationResult = await RunTimedStepAsync(
+                client,
+                proxyOptions,
+                logger,
+                jobId,
+                "M8",
+                "data_validation",
+                () => PostJsonAsync(
+                    client,
+                    $"{proxyOptions.DataValidationBaseUrl.TrimEnd('/')}/api/v1/validations",
+                    BuildValidationRequest(extractionResult)
+                ),
+                ValidationStepMetadata
+            );
+
+            await UpdateJobAsync(
+                client,
+                proxyOptions,
+                jobId,
+                "completed",
+                "completed",
+                "Transactions checked. Review the results before saving.",
+                parseId: parseId,
+                extractionId: extractionId,
+                validationId: TextAt(validationResult, "validation_id"),
+                resultPayload: new JsonObject
+                {
+                    ["parse_result"] = parseResult.DeepClone(),
+                    ["extraction_result"] = extractionResult.DeepClone(),
+                    ["validation_result"] = validationResult.DeepClone()
+                }
+            );
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Upload processing job {JobId} failed.", jobId);
+            try
+            {
+                await UpdateJobAsync(
+                    client,
+                    proxyOptions,
+                    jobId,
+                    "failed",
+                    "failed",
+                    "Document processing failed. Choose another file or try again.",
+                    errorDetail: SafeErrorMessage(exception.Message)
+                );
+            }
+            catch (Exception updateException)
+            {
+                logger.LogError(updateException, "Upload processing job {JobId} failed and the failure status could not be persisted.", jobId);
+            }
+        }
+        finally
+        {
+            TryDeleteTempFile(tempPath);
+        }
+    }
+
+    private static async Task<JsonObject> ParseDocumentAsync(
+        HttpClient client,
+        StatsWebProxyOptions proxyOptions,
+        string tempPath,
+        UploadProcessingMetadata metadata
+    )
+    {
+        await using var stream = File.OpenRead(tempPath);
+        using var form = new MultipartFormDataContent();
+        var fileContent = new StreamContent(stream);
+        if (!string.IsNullOrWhiteSpace(metadata.ContentType))
+        {
+            fileContent.Headers.TryAddWithoutValidation("Content-Type", metadata.ContentType);
+        }
+        form.Add(fileContent, "file", metadata.OriginalFilename);
+        AddForm(form, "ingestion_id", metadata.IngestionId);
+        AddForm(form, "source_type", metadata.SourceType);
+        AddForm(form, "source_id", metadata.SourceId);
+        AddForm(form, "sha256", metadata.Sha256);
+        AddForm(form, "allow_ocr_fallback", metadata.AllowOcrFallback);
+        if (!string.IsNullOrWhiteSpace(metadata.PageLimit))
+        {
+            AddForm(form, "page_limit", metadata.PageLimit);
+        }
+        AddForm(form, "classification_threshold", metadata.ClassificationThreshold);
+
+        return await PostMultipartAsync(
+            client,
+            $"{proxyOptions.DocumentParsingBaseUrl.TrimEnd('/')}/api/v1/parses",
+            form
+        );
+    }
+
+    private static JsonObject BuildExtractionRequest(JsonObject parseResult)
+    {
+        var documentInfo = parseResult["document"] as JsonObject ?? new JsonObject();
+        var classification = parseResult["classification"] as JsonObject ?? new JsonObject();
+        return new JsonObject
+        {
+            ["parse_id"] = parseResult["parse_id"]?.DeepClone(),
+            ["document"] = new JsonObject
+            {
+                ["original_filename"] = documentInfo["original_filename"]?.DeepClone(),
+                ["normalized_filename"] = documentInfo["normalized_filename"]?.DeepClone(),
+                ["ingestion_id"] = documentInfo["ingestion_id"]?.DeepClone(),
+                ["source_type"] = documentInfo["source_type"]?.DeepClone(),
+                ["source_id"] = documentInfo["source_id"]?.DeepClone(),
+                ["sha256"] = documentInfo["sha256"]?.DeepClone()
+            },
+            ["document_type"] = classification["document_type"]?.DeepClone() ?? documentInfo["document_type"]?.DeepClone() ?? "unknown",
+            ["classification_confidence"] = classification["confidence"]?.DeepClone(),
+            ["classification"] = classification.DeepClone(),
+            ["text"] = parseResult["text"]?.DeepClone() ?? "",
+            ["pages"] = parseResult["pages"]?.DeepClone() ?? new JsonArray(),
+            ["metadata"] = parseResult["metadata"]?.DeepClone() ?? new JsonObject(),
+            ["quality"] = parseResult["quality"]?.DeepClone(),
+            ["findings"] = parseResult["findings"]?.DeepClone() ?? new JsonArray()
+        };
+    }
+
+    private static JsonObject BuildValidationRequest(JsonObject extractionResult)
+    {
+        return new JsonObject
+        {
+            ["extraction_id"] = extractionResult["extraction_id"]?.DeepClone(),
+            ["parse_id"] = extractionResult["parse_id"]?.DeepClone(),
+            ["document"] = extractionResult["document"]?.DeepClone(),
+            ["document_type"] = extractionResult["document_type"]?.DeepClone(),
+            ["transaction_candidates"] = extractionResult["transaction_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["financial_field_candidates"] = extractionResult["financial_field_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["section_candidates"] = extractionResult["section_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["entity_candidates"] = extractionResult["entity_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["reference_candidates"] = extractionResult["reference_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["line_item_candidates"] = extractionResult["line_item_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["installment_candidates"] = extractionResult["installment_candidates"]?.DeepClone() ?? new JsonArray(),
+            ["reconciliation"] = extractionResult["reconciliation"]?.DeepClone(),
+            ["findings"] = extractionResult["findings"]?.DeepClone() ?? new JsonArray()
+        };
+    }
+
+    private static async Task UpdateJobAsync(
+        HttpClient client,
+        StatsWebProxyOptions proxyOptions,
+        string jobId,
+        string status,
+        string stage,
+        string message,
+        string? parseId = null,
+        string? extractionId = null,
+        string? validationId = null,
+        JsonObject? resultPayload = null,
+        string? errorDetail = null
+    )
+    {
+        using var response = await client.PatchAsJsonAsync(
+            $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/processing-jobs/{WebUtility.UrlEncode(jobId)}",
+            new
+            {
+                status,
+                stage,
+                message,
+                parse_id = parseId,
+                extraction_id = extractionId,
+                validation_id = validationId,
+                result_payload = resultPayload,
+                error_detail = errorDetail
+            },
+            JsonOptions
+        );
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task<JsonObject> RunTimedStepAsync(
+        HttpClient client,
+        StatsWebProxyOptions proxyOptions,
+        ILogger logger,
+        string jobId,
+        string moduleName,
+        string stepName,
+        Func<Task<JsonObject>> action,
+        Func<JsonObject, JsonObject> metadataFactory
+    )
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var result = await action();
+            stopwatch.Stop();
+            var status = TextAt(result, "status") ?? "completed";
+            var normalizedStatus = status == "completed" ? "completed" : status;
+            var metadata = metadataFactory(result);
+            await AppendProcessingStepAsync(
+                client,
+                proxyOptions,
+                jobId,
+                moduleName,
+                stepName,
+                normalizedStatus,
+                startedAt,
+                DateTimeOffset.UtcNow,
+                stopwatch.ElapsedMilliseconds,
+                metadata
+            );
+            logger.LogInformation(
+                "Document processing step completed. job_id={JobId} module={ModuleName} step={StepName} status={Status} duration_ms={DurationMs}",
+                jobId,
+                moduleName,
+                stepName,
+                normalizedStatus,
+                stopwatch.ElapsedMilliseconds
+            );
+            return result;
+        }
+        catch (Exception exception)
+        {
+            stopwatch.Stop();
+            await AppendProcessingStepAsync(
+                client,
+                proxyOptions,
+                jobId,
+                moduleName,
+                stepName,
+                "failed",
+                startedAt,
+                DateTimeOffset.UtcNow,
+                stopwatch.ElapsedMilliseconds,
+                new JsonObject(),
+                errorCode: exception.GetType().Name,
+                errorMessage: SafeErrorMessage(exception.Message)
+            );
+            logger.LogWarning(
+                exception,
+                "Document processing step failed. job_id={JobId} module={ModuleName} step={StepName} duration_ms={DurationMs}",
+                jobId,
+                moduleName,
+                stepName,
+                stopwatch.ElapsedMilliseconds
+            );
+            throw;
+        }
+    }
+
+    private static async Task AppendProcessingStepAsync(
+        HttpClient client,
+        StatsWebProxyOptions proxyOptions,
+        string jobId,
+        string moduleName,
+        string stepName,
+        string status,
+        DateTimeOffset startedAt,
+        DateTimeOffset completedAt,
+        long durationMs,
+        JsonObject metadata,
+        string? errorCode = null,
+        string? errorMessage = null
+    )
+    {
+        using var response = await client.PostAsJsonAsync(
+            $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/processing-jobs/{WebUtility.UrlEncode(jobId)}/steps",
+            new
+            {
+                module_name = moduleName,
+                step_name = stepName,
+                status,
+                started_at_utc = startedAt.UtcDateTime.ToString("O"),
+                completed_at_utc = completedAt.UtcDateTime.ToString("O"),
+                duration_ms = durationMs,
+                metadata,
+                error_code = errorCode,
+                error_message = errorMessage
+            },
+            JsonOptions
+        );
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static JsonObject ParseStepMetadata(JsonObject result, UploadProcessingMetadata uploadMetadata)
+    {
+        var metadata = result["metadata"] as JsonObject ?? new JsonObject();
+        var strategy = result["strategy"] as JsonObject ?? new JsonObject();
+        var classification = result["classification"] as JsonObject ?? new JsonObject();
+        var pages = result["pages"] as JsonArray ?? new JsonArray();
+        var findings = result["findings"] as JsonArray ?? new JsonArray();
+        return new JsonObject
+        {
+            ["parse_id"] = result["parse_id"]?.DeepClone(),
+            ["filename"] = uploadMetadata.OriginalFilename,
+            ["status"] = result["status"]?.DeepClone(),
+            ["document_type"] = classification["document_type"]?.DeepClone(),
+            ["document_subtype"] = classification["document_subtype"]?.DeepClone(),
+            ["strategy"] = strategy["strategy"]?.DeepClone() ?? result["strategy"]?.DeepClone(),
+            ["extraction_method"] = metadata["extraction_method"]?.DeepClone(),
+            ["ocr_engine"] = metadata["ocr_engine"]?.DeepClone(),
+            ["ocr_attempted"] = metadata["ocr_attempted"]?.DeepClone(),
+            ["page_count"] = metadata["page_count"]?.DeepClone(),
+            ["pages_processed"] = metadata["pages_processed"]?.DeepClone(),
+            ["page_result_count"] = pages.Count,
+            ["finding_count"] = findings.Count
+        };
+    }
+
+    private static JsonObject ExtractionStepMetadata(JsonObject result)
+    {
+        var summary = result["summary"] as JsonObject ?? new JsonObject();
+        var reconciliation = result["reconciliation"] as JsonObject ?? new JsonObject();
+        var findings = result["findings"] as JsonArray ?? new JsonArray();
+        return new JsonObject
+        {
+            ["extraction_id"] = result["extraction_id"]?.DeepClone(),
+            ["parse_id"] = result["parse_id"]?.DeepClone(),
+            ["status"] = result["status"]?.DeepClone(),
+            ["transaction_candidate_count"] = summary["transaction_candidate_count"]?.DeepClone(),
+            ["financial_field_candidate_count"] = summary["financial_field_candidate_count"]?.DeepClone(),
+            ["section_candidate_count"] = summary["section_candidate_count"]?.DeepClone(),
+            ["line_item_count"] = summary["line_item_count"]?.DeepClone(),
+            ["installment_count"] = summary["installment_count"]?.DeepClone(),
+            ["reconciliation_status"] = reconciliation["status"]?.DeepClone(),
+            ["finding_count"] = findings.Count
+        };
+    }
+
+    private static JsonObject ValidationStepMetadata(JsonObject result)
+    {
+        var summary = result["summary"] as JsonObject ?? new JsonObject();
+        var findings = result["findings"] as JsonArray ?? new JsonArray();
+        return new JsonObject
+        {
+            ["validation_id"] = result["validation_id"]?.DeepClone(),
+            ["extraction_id"] = result["extraction_id"]?.DeepClone(),
+            ["parse_id"] = result["parse_id"]?.DeepClone(),
+            ["status"] = result["status"]?.DeepClone(),
+            ["normalized_record_count"] = summary["normalized_record_count"]?.DeepClone(),
+            ["review_item_count"] = summary["review_item_count"]?.DeepClone(),
+            ["document_review_status"] = summary["document_review_status"]?.DeepClone(),
+            ["recommended_action"] = summary["recommended_action"]?.DeepClone(),
+            ["finding_count"] = findings.Count
+        };
+    }
+
+    private static string SafeErrorMessage(string message)
+    {
+        return string.IsNullOrWhiteSpace(message)
+            ? "Step failed."
+            : message.Length <= 1000 ? message : message[..1000];
+    }
+
+    private static async Task<JsonObject> PostJsonAsync(HttpClient client, string url, JsonObject payload)
+    {
+        using var response = await client.PostAsJsonAsync(url, payload, JsonOptions);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions);
+        return result ?? throw new InvalidOperationException("Stats module returned an empty response.");
+    }
+
+    private static async Task<JsonObject> PostMultipartAsync(HttpClient client, string url, MultipartFormDataContent form)
+    {
+        using var response = await client.PostAsync(url, form);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions);
+        return result ?? throw new InvalidOperationException("Stats module returned an empty response.");
+    }
+
+    private static HttpClient LongRunningClient(IHttpClientFactory httpClientFactory)
+    {
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromMinutes(30);
+        return client;
+    }
+
+    private static void AddForm(MultipartFormDataContent form, string name, string? value)
+    {
+        form.Add(new StringContent(value ?? string.Empty), name);
+    }
+
+    private static string? FormValue(IFormCollection form, string key)
+    {
+        return form.TryGetValue(key, out var value) ? Convert.ToString(value) : null;
+    }
+
+    private static string? TextAt(JsonObject json, string key)
+    {
+        return json.TryGetPropertyValue(key, out var value) ? value?.GetValue<string>() : null;
+    }
+
+    private static void TryDeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+}
+
+public sealed record UploadProcessingMetadata(
+    string? IngestionId,
+    string? UploadedByUserId,
+    string OriginalFilename,
+    string SourceType,
+    string SourceId,
+    string? Sha256,
+    string? DetectedMimeType,
+    string? ContentType,
+    string AllowOcrFallback,
+    string? PageLimit,
+    string ClassificationThreshold
+);
+// M9 End
 // M13 End
 
 // M0 Architecture Hardening Start
@@ -578,6 +1236,7 @@ public sealed class StatsCentralRuntime
             "DOCUMENT_PARSING_PORT",
             "TRANSACTION_EXTRACTION_PORT",
             "DATA_VALIDATION_PORT",
+            "STATS_DATA_PORT",
         })
         {
             _ = ModuleUrl(portKey);
@@ -728,11 +1387,12 @@ public sealed class StatsCentralRuntime
             ["StatsWeb:Proxy:DocumentParsingBaseUrl"] = ModuleUrl("DOCUMENT_PARSING_PORT"),
             ["StatsWeb:Proxy:TransactionExtractionBaseUrl"] = ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
             ["StatsWeb:Proxy:DataValidationBaseUrl"] = ModuleUrl("DATA_VALIDATION_PORT"),
+            ["StatsWeb:Proxy:StatsDataBaseUrl"] = ModuleUrl("STATS_DATA_PORT"),
         };
 
         if (LoggingDefaults.TryGetValue("LOG_LEVEL", out var logLevel))
         {
-            defaults["Logging:LogLevel:Default"] = logLevel;
+            defaults["Logging:LogLevel:Default"] = StatsLoggingBootstrap.NormalizeLogLevelName(logLevel);
         }
 
         return defaults;
@@ -863,15 +1523,30 @@ public static class StatsLoggingBootstrap
         return new StatsLoggingOptions(includeCorrelationId, redactSensitiveValues, "stdout");
     }
 
-    private static LogLevel ParseLogLevel(string value)
+    public static string NormalizeLogLevelName(string value)
     {
         return value.ToUpperInvariant() switch
         {
-            "DEBUG" => LogLevel.Debug,
-            "INFO" => LogLevel.Information,
-            "WARNING" => LogLevel.Warning,
-            "ERROR" => LogLevel.Error,
-            "CRITICAL" => LogLevel.Critical,
+            "DEBUG" => "Debug",
+            "INFO" => "Information",
+            "INFORMATION" => "Information",
+            "WARN" => "Warning",
+            "WARNING" => "Warning",
+            "ERROR" => "Error",
+            "CRITICAL" => "Critical",
+            _ => "Information",
+        };
+    }
+
+    private static LogLevel ParseLogLevel(string value)
+    {
+        return NormalizeLogLevelName(value) switch
+        {
+            "Debug" => LogLevel.Debug,
+            "Information" => LogLevel.Information,
+            "Warning" => LogLevel.Warning,
+            "Error" => LogLevel.Error,
+            "Critical" => LogLevel.Critical,
             _ => LogLevel.Information,
         };
     }

@@ -84,7 +84,7 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
             ValidationFinding(
                 code="MISSING_CANDIDATES",
                 severity="error",
-                message="At least one M7 candidate is required for validation.",
+                message="At least one extraction candidate is required for validation.",
             )
         )
         return _result(
@@ -558,8 +558,8 @@ def _looks_like_suspicious_ocr_description(description: str) -> bool:
     words = description.split()
     if not words:
         return True
-    first_word = re.sub(r"[^A-Za-z]", "", words[0])
-    if len(first_word) <= 1:
+    first_token = re.sub(r"[^A-Za-z0-9]", "", words[0])
+    if len(first_token) <= 1:
         return True
     if any(pattern.match(description) for pattern in OCR_SUSPICIOUS_PREFIX_PATTERNS):
         return True
@@ -569,14 +569,22 @@ def _looks_like_suspicious_ocr_description(description: str) -> bool:
 def _normalize_date(value: str | None) -> str | None:
     if not value:
         return None
-    cleaned = value.strip().replace("-", " ")
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", value.strip()):
-        return value.strip()
-    for date_format in MONTH_FORMATS:
-        try:
-            return datetime.strptime(cleaned, date_format).date().isoformat()
-        except ValueError:
-            continue
+    raw = value.strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", raw):
+        return raw
+
+    candidates = [raw]
+    if "-" in raw:
+        candidates.append(raw.replace("-", "/"))
+        candidates.append(raw.replace("-", " "))
+
+    for candidate in dict.fromkeys(candidates):
+        cleaned = " ".join(candidate.split())
+        for date_format in MONTH_FORMATS:
+            try:
+                return datetime.strptime(cleaned, date_format).date().isoformat()
+            except ValueError:
+                continue
     return None
 
 

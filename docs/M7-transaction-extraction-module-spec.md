@@ -49,6 +49,7 @@ M7 is aligned with:
 - Return explicit findings for missing text, low-confidence extraction, unsupported document type, ambiguous amount/date, no transaction candidates, and page limit application.
 - Surface M5 OCR-quality findings as input-quality warnings so poor upstream OCR is measurable without M7 rerunning Tesseract.
 - Return evaluation-ready metadata for downstream testing and evidence.
+- Support upload workflow observability by returning safe extraction identifiers, status, counts, reconciliation status, and finding metadata that Stats Web can log and M9 can persist as the M7 processing-step summary.
 - Keep runtime behavior configurable through safe defaults, ignored local overrides, and environment variables.
 
 ## Non-Goals
@@ -156,6 +157,10 @@ Credit-card statement payment rows and installment balances must preserve financ
 | `/health` | `GET` | Returns service readiness metadata. |
 | `/` | `GET` | Returns root service metadata. |
 | `/api/v1/extractions` | `POST` | Extracts transaction and financial field candidates from parsed text. |
+
+## Processing Step Timing
+
+M7 remains a synchronous reusable extraction API. It does not persist timing rows itself. Stats Web owns the orchestration timer around `POST /api/v1/extractions`, logs the structured step event, and asks M9 to persist it as `module = M7`, `step_name = transaction_extraction`, with safe metadata such as extraction ID, candidate counts, field counts, status, reconciliation status, and finding count.
 
 ## Extraction Strategy
 

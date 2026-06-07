@@ -49,6 +49,11 @@ async def create_ingestion(
         ),
         storage_root=settings.storage_root,
         max_stored_file_size_bytes=settings.max_stored_file_size_bytes,
+        storage_provider=settings.stats_storage_provider,
+        azure_storage_account_name=settings.azure_storage_account_name,
+        azure_storage_container_name=settings.azure_storage_container_name,
+        azure_storage_connection_string=settings.azure_storage_connection_string,
+        azure_storage_blob_prefix=settings.azure_storage_blob_prefix,
     )
 
 

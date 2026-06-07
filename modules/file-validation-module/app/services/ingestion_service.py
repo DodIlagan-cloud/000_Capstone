@@ -20,6 +20,7 @@ from app.models.ingestion import (
     ValidationSummary,
 )
 from app.models.validation import ValidationStatus
+from app.services.storage_service import StorageSettings, store_intake_content
 
 
 _records: dict[str, IngestionRecord] = {}
@@ -48,6 +49,11 @@ def create_ingestion_record(
     options: IngestionOptions,
     storage_root: Path,
     max_stored_file_size_bytes: int,
+    storage_provider: str = "LocalFileSystem",
+    azure_storage_account_name: str = "",
+    azure_storage_container_name: str = "",
+    azure_storage_connection_string: str = "",
+    azure_storage_blob_prefix: str = "intake",
 ) -> IngestionRecord:
     now = datetime.now(timezone.utc)
     content_sha256 = hashlib.sha256(content).hexdigest()
@@ -117,16 +123,46 @@ def create_ingestion_record(
         return record
 
     normalized_filename = _normalize_filename(filename)
-    target_directory = storage_root / ingestion_id
-    target_directory.mkdir(parents=True, exist_ok=True)
-    target_file = target_directory / normalized_filename
-    target_file.write_bytes(content)
+    try:
+        stored_content = store_intake_content(
+            content=content,
+            ingestion_id=ingestion_id,
+            normalized_filename=normalized_filename,
+            content_type=detected_mime_type or provided_content_type,
+            settings=StorageSettings(
+                provider=storage_provider,
+                storage_root=storage_root,
+                azure_account_name=azure_storage_account_name,
+                azure_container_name=azure_storage_container_name,
+                azure_connection_string=azure_storage_connection_string,
+                azure_blob_prefix=azure_storage_blob_prefix,
+            ),
+        )
+    except RuntimeError as exc:
+        record = IngestionRecord(
+            ingestion_id=ingestion_id,
+            status=IngestionStatus.rejected,
+            created_at_utc=now,
+            updated_at_utc=now,
+            source=source,
+            options=options,
+            validation=validation,
+            findings=[
+                IngestionFinding(
+                    code="INGESTION_STORAGE_FAILED",
+                    severity=FindingSeverity.error,
+                    message=str(exc),
+                )
+            ],
+        )
+        _records[ingestion_id] = record
+        return record
 
     handoff = DocumentHandoff(
         ingestion_id=ingestion_id,
         original_filename=filename,
         normalized_filename=normalized_filename,
-        content_reference=str(target_file),
+        content_reference=stored_content.content_reference,
         size_bytes=len(content),
         detected_mime_type=detected_mime_type or provided_content_type,
         sha256=validation.sha256,

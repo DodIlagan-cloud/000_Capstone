@@ -18,7 +18,7 @@ The cloud data direction is Azure SQL Database for operational persistence, Micr
 | Database | Azure SQL Database |
 | Secrets | Azure Key Vault references or Container Apps secrets |
 | Identity | Managed identity for registry, Key Vault, and future storage access |
-| Durable files | `LocalFileSystem` for MVP; `AzureBlobStorage` after storage adapter implementation |
+| Durable files | `AzureBlobStorage` for accepted document storage |
 | Analytics | Microsoft Fabric workspace |
 | Reporting | Power BI workspace, reports, and embedding configuration |
 | Public ingress | Stats Web only on `STATS_WEB_PORT` |
@@ -54,6 +54,56 @@ Non-secret values can be supplied as Container Apps environment variables.
 9. Configure secret variables from Key Vault or Container Apps secrets.
 10. Configure an HTTP health probe against `/health` on `STATS_WEB_PORT`.
 11. Verify the public Stats Web URL, startup logs, OCR health, Azure SQL connectivity, Fabric/Power BI configuration readiness, and redacted logging.
+
+## Cloud-Dev Parking
+
+Cloud-dev should stay intact while avoiding standing compute cost when the team is not actively testing through the Azure URL.
+
+Parking does not delete resources. It scales the Stats Container App down so the runtime is not kept warm:
+
+```powershell
+.\infrastructure\cloud\park-cloud-dev.ps1
+```
+
+Default parked scale:
+
+```text
+min replicas: 0
+max replicas: 1
+```
+
+When cloud testing resumes, warm one replica and verify `/health`:
+
+```powershell
+.\infrastructure\cloud\resume-cloud-dev.ps1
+```
+
+Default active-test scale:
+
+```text
+min replicas: 1
+max replicas: 1
+```
+
+Keep these resources when parked:
+
+- resource group,
+- Azure Container Registry,
+- Key Vault,
+- Azure SQL server and database,
+- Container Apps environment,
+- Container App definition,
+- manual admin bootstrap job,
+- managed identities,
+- Log Analytics workspace.
+
+Cost-saving behavior while parked:
+
+- Container App compute can scale to zero.
+- Azure SQL serverless can auto-pause when idle.
+- ACR, Key Vault, identities, and app definitions remain available for the next testing session.
+
+Do not use parking scripts to delete databases, registries, secrets, identities, or deployment history.
 
 ## First Admin Bootstrap
 
@@ -187,13 +237,15 @@ Evidence should include a redacted cloud log sample and the active Container App
 
 ## Storage Notes
 
-The MVP can run with `STATS_STORAGE_PROVIDER=LocalFileSystem` for non-durable cloud trials only. Durable cloud document retention requires an `AzureBlobStorage` provider implemented by the storage-owning module before production acceptance.
+Cloud-dev now uses `STATS_STORAGE_PROVIDER=AzureBlobStorage` for durable accepted-document storage. `LocalFileSystem` remains valid only for isolated local tests and non-cloud debugging.
 
-When Blob Storage is enabled, document these values in cloud configuration:
+Blob Storage requires these values in cloud configuration:
 
 - `AZURE_STORAGE_ACCOUNT_NAME`
 - `AZURE_STORAGE_CONTAINER_NAME`
-- `AZURE_CLIENT_ID` when a user-assigned managed identity is required
+- `AZURE_STORAGE_BLOB_PREFIX`
+- `AZURE_STORAGE_CONNECTION_STRING` as a Container Apps secret or Key Vault reference until managed identity storage auth is implemented
+- `AZURE_CLIENT_ID` when a user-assigned managed identity is required later
 
 ## Secret Rotation
 

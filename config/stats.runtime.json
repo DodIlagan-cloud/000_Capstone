@@ -66,13 +66,18 @@
   "storage": {
     "STATS_STORAGE_PROVIDER": {
       "purpose": "Storage provider selector for durable files and future cloud storage.",
-      "default": "LocalFileSystem",
+      "default": "AzureBlobStorage in cloud/container, LocalFileSystem for isolated local tests",
       "cloudExample": "AzureBlobStorage",
       "secret": false
     },
     "STORAGE_ROOT": {
       "purpose": "Local filesystem root for accepted intake files when LocalFileSystem storage is active.",
       "default": "apps/stats-data/data/intake",
+      "secret": false
+    },
+    "STATS_VALIDATION_HANDOFF_DIR": {
+      "purpose": "Temporary M9 handoff directory for Data Validation DataValidationResult JSON files awaiting Azure SQL persistence.",
+      "default": "apps/stats-data/data/validation-handoff",
       "secret": false
     },
     "DOCUMENT_REFERENCE_ROOTS": {
@@ -137,6 +142,26 @@
       "purpose": "OCR language hints.",
       "default": "eng",
       "secret": false
+    },
+    "OCR_PDF_FAST_PSM_VALUES": {
+      "purpose": "Small first-pass Tesseract page-segmentation mode set for scanned PDF pages before heavier repair attempts.",
+      "default": "6,4",
+      "secret": false
+    },
+    "OCR_FAST_MIN_QUALITY_SCORE": {
+      "purpose": "Minimum OCR quality score that allows a scanned PDF page to skip heavier OCR repair.",
+      "default": "0.55",
+      "secret": false
+    },
+    "OCR_FAST_MIN_TEXT_LENGTH": {
+      "purpose": "Minimum first-pass OCR text length that allows a scanned PDF page to skip heavier OCR repair.",
+      "default": "120",
+      "secret": false
+    },
+    "OCR_PDF_RENDER_SCALE": {
+      "purpose": "PDF page render scale used before Tesseract OCR.",
+      "default": "2.0",
+      "secret": false
     }
   },
   "network": {
@@ -196,6 +221,11 @@
       "purpose": "Data Validation API container-local port.",
       "default": "8017",
       "secret": false
+    },
+    "STATS_DATA_PORT": {
+      "purpose": "Stats Data persistence API container-local port.",
+      "default": "8018",
+      "secret": false
     }
   },
   "moduleDefaults": {
@@ -221,6 +251,10 @@
     "ALLOW_DIRECT_TEXT": {"purpose": "Whether direct PDF text extraction is allowed.", "secret": false},
     "OCR_PSM_VALUES": {"purpose": "Tesseract page-segmentation modes to try.", "secret": false},
     "OCR_RETRY_ORIENTATIONS": {"purpose": "Whether OCR retries alternate orientations.", "secret": false},
+    "OCR_PDF_FAST_PSM_VALUES": {"purpose": "Smaller first-pass Tesseract PSM set for scanned PDF pages.", "secret": false},
+    "OCR_FAST_MIN_QUALITY_SCORE": {"purpose": "Minimum scanned-PDF fast-pass OCR quality before repair is skipped.", "secret": false},
+    "OCR_FAST_MIN_TEXT_LENGTH": {"purpose": "Minimum scanned-PDF fast-pass OCR text length before repair is skipped.", "secret": false},
+    "OCR_PDF_RENDER_SCALE": {"purpose": "PDF page render scale for OCR.", "secret": false},
     "OCR_MIN_CONFIDENCE": {"purpose": "Minimum OCR confidence threshold.", "secret": false},
     "OCR_MIN_QUALITY_SCORE": {"purpose": "Minimum OCR quality score.", "secret": false},
     "OCR_MIN_ALNUM_RATIO": {"purpose": "Minimum OCR alphanumeric ratio.", "secret": false},
@@ -257,7 +291,8 @@
     "StatsWeb__Proxy__FileIngestionBaseUrl": "Server-side proxy target for File Ingestion.",
     "StatsWeb__Proxy__DocumentParsingBaseUrl": "Server-side proxy target for Document Parsing.",
     "StatsWeb__Proxy__TransactionExtractionBaseUrl": "Server-side proxy target for Transaction Extraction.",
-    "StatsWeb__Proxy__DataValidationBaseUrl": "Server-side proxy target for Data Validation."
+    "StatsWeb__Proxy__DataValidationBaseUrl": "Server-side proxy target for Data Validation.",
+    "StatsWeb__Proxy__StatsDataBaseUrl": "Server-side proxy target for Stats Data persistence."
   },
   "testing": {
     "STATS_TESTDATA_DIR": {
@@ -317,6 +352,11 @@
     },
     "AZURE_STORAGE_CONTAINER_NAME": {
       "purpose": "Blob container name used for durable document storage when AzureBlobStorage is enabled.",
+      "secret": false
+    },
+    "AZURE_STORAGE_BLOB_PREFIX": {
+      "purpose": "Blob path prefix for accepted intake files.",
+      "default": "intake",
       "secret": false
     },
     "AZURE_STORAGE_CONNECTION_STRING": {

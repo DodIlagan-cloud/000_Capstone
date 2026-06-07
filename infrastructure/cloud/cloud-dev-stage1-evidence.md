@@ -43,6 +43,29 @@ After M9 Azure SQL readiness was completed, the first Azure Container Apps runti
 | Active cloud-dev image reference | `acrstatsdev001.azurecr.io/stats-runtime:dev-m9` |
 | Active cloud-dev digest | `sha256:b65f90b255eafce7af8f1dfdac138c203769c21c9b58c9744b9560ef87c9d046` |
 
+## Cost Guardrails
+
+Cloud-dev uses the existing Basic ACR and existing Azure Container App. Routine code-change deployments should therefore avoid creating new standing Azure resource cost.
+
+Current cost posture:
+
+- ACR SKU: `Basic`.
+- ACR included storage: 10 GiB.
+- Latest checked ACR usage: about 637 MB, well below the included Basic storage allowance.
+- Container App resources: 0.5 CPU / 1 GiB memory.
+- Revision mode: single active revision.
+- Deployment path: local Docker build, `docker push` to ACR, then Container App image update.
+- ACR Tasks are not used because the subscription rejected ACR Tasks with `TasksOperationsNotAllowed`.
+
+Operational rules:
+
+- Batch related code changes before pushing a new cloud image.
+- Build and test the candidate image locally first.
+- Keep ACR Basic and Container App scale-to-zero/min-replica behavior unless the user explicitly approves a cost change.
+- Optimize code/config before increasing CPU or memory.
+- Run focused cloud smoke tests instead of repeated full cloud regressions.
+- Prune old non-active image tags during explicit cleanup passes to avoid long-term registry storage drift.
+
 ## Build Notes
 
 The intended `az acr build` path uploaded the clean source context, but the Azure subscription rejected ACR Tasks with:
@@ -91,6 +114,102 @@ Public endpoint checks:
 /Login   200  text/html; charset=utf-8
 /Upload  200  text/html; charset=utf-8
 ```
+
+## Historical Parser Timeout Workaround
+
+The first cloud-dev upload test showed the browser reaching the `Reading document` step, then failing with:
+
+```text
+Document parsing service did not accept the request.
+```
+
+Cloud logs showed the request reached `POST /api/v1/parses`, then timed out after roughly 240 seconds.
+
+The browser upload flow was updated to send the same bounded parsing options used by container evidence runs:
+
+```text
+allow_ocr_fallback=true
+page_limit=1
+classification_threshold=0.1
+```
+
+The fixed image is:
+
+```text
+acrstatsdev001.azurecr.io/stats-runtime:dev-m9-persistence-parser-hardening-r2
+```
+
+Active revision after deployment:
+
+```text
+ca-stats-dev-001--0000007
+```
+
+Public parse verification against `tests/input/3211_2026Q1_ProofOfPayment2.jpg` completed:
+
+```text
+status: completed
+document_type: payment_proof
+text_length: 333
+```
+
+The deployed `/js/upload.js` was also verified to contain the bounded parse options.
+
+This was later superseded by the async upload-processing job approach below. The bounded `page_limit=1` workaround was useful for proving a small image parse path, but it clipped multi-page statement documents and is not the production-ready cloud workflow.
+
+## Async Upload Processing Job Deployment
+
+Cloud-dev upload testing with multi-page statement PDFs showed that the browser-facing parse call still failed around the Azure Container Apps ingress timeout boundary. The cloud-ready fix is to start an M9-tracked processing job, run M5 -> M7 -> M8 in the container background, and let the Upload page poll job status instead of keeping one long request open.
+
+The deployed image is:
+
+```text
+acrstatsdev001.azurecr.io/stats-runtime:dev-async-upload-jobs-r2
+```
+
+Active revision after deployment:
+
+```text
+ca-stats-dev-001--0000009
+```
+
+Revision status:
+
+```text
+Running, active, 100% traffic
+```
+
+Public endpoint checks:
+
+```text
+/health  200  application/json; charset=utf-8
+/Login   200  text/html; charset=utf-8
+/Upload  200  text/html; charset=utf-8
+```
+
+The deployed `/js/upload.js` was verified to contain:
+
+```text
+async upload-processing job start: true
+pollProcessingJob: true
+resetUploadPage: true
+forced page_limit=1: false
+```
+
+Startup logs confirmed:
+
+```text
+Azure SQL is reachable.
+Applying Azure SQL migration: 005_duplicate_check_results.sql
+Applying Azure SQL migration: 006_document_processing_jobs.sql
+All module APIs healthy. Starting Stats Web on port 8080.
+```
+
+Cloud-dev limitation:
+
+- The processing job state is durable in Azure SQL.
+- The uploaded file is still temporarily held by the running container while the background job runs because Blob Storage is not deployed in `rg-stats-dev` and the live Container App still uses `STATS_STORAGE_PROVIDER=LocalFileSystem`.
+- Full restart-safe document durability remains future Azure Blob Storage work.
 
 Startup logs confirmed:
 

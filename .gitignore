@@ -20,9 +20,11 @@ apps/stats-data/data/
 *.log
 
 # Test evidence is retained locally until the final evidence check-in.
+test-results/
 tests/results/
 tests/Stats_Module_Test_Case_Tracker.xlsx
 tests/~$*.xlsx
+tests/scripts/regression/capture_m3_m9_runtime_smoke_screenshot_evidence_*.py
 
 # Local test fixtures and machine-specific test helper settings stay local.
 tests/input/*

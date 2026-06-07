@@ -64,6 +64,7 @@
     "localDataRoot": "apps/stats-data/data",
     "intake": "apps/stats-data/data/intake",
     "processing": "apps/stats-data/data/processing",
+    "validationHandoff": "apps/stats-data/data/validation-handoff",
     "exports": "apps/stats-data/data/exports"
   }
 }

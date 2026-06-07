@@ -23,15 +23,20 @@ This is a student capstone deployment, so M14 should mimic production concepts w
 
 The local machine remains the fastest coding and unit-test loop, but `cloud-dev` becomes the shared cloud runtime for checking how the integrated app behaves in Azure.
 
-The intended development loop is:
+The intended cost-conscious development loop is:
 
 1. Implement or update a component locally.
 2. Run focused local tests.
-3. Build and push a new `stats-runtime` image to Azure Container Registry.
-4. Deploy the image to the `cloud-dev` Container App.
-5. Run `/health` and component-specific cloud smoke tests.
-6. Inspect cloud logs and capture evidence when needed.
-7. Keep `prod-sim` for later production-style deployment practice.
+3. Rebuild the `stats-runtime` image locally and run focused container tests.
+4. Batch related runtime-affecting changes into one cloud candidate image when practical.
+5. Push the approved candidate image to the existing Basic Azure Container Registry.
+6. Deploy the image to the existing `cloud-dev` Container App only when cloud behavior needs verification.
+7. Keep the Container App on Consumption-plan, single active revision, and scale-to-zero/min-replica behavior unless the user explicitly approves a cost increase.
+8. Optimize code/config before increasing CPU or memory for OCR-heavy workflows.
+9. Prune old non-active ACR image tags during explicit cleanup passes so registry storage stays within the included Basic tier allowance.
+10. Run `/health` and component-specific cloud smoke tests.
+11. Inspect cloud logs and capture evidence when needed.
+12. Keep `prod-sim` for later production-style deployment practice.
 
 ## Current Gap
 

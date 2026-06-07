@@ -162,6 +162,16 @@ def classify_document(
             scores=scores,
         )
 
+    if best_type == "statement" and confidence >= confidence_threshold:
+        return ClassificationResult(
+            document_type=best_type,
+            document_subtype=best_subtype,
+            confidence=confidence,
+            status="classified",
+            reason_codes=sorted(set([*reason_codes, "STATEMENT_AMBIGUITY_RESOLVED"])),
+            scores=scores,
+        )
+
     receipt_override = _receipt_favored_result(scored_rules)
     if receipt_override:
         best_type, best_subtype, confidence = receipt_override

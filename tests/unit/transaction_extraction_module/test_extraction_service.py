@@ -596,10 +596,10 @@ def test_unknown_document_type_lowers_confidence_but_returns_candidates():
     assert result.evaluation.finding_counts["LOW_CONFIDENCE_EXTRACTION"] == 1
 
 
-def test_m5_shaped_payload_uses_classification_and_quality_context(proof_of_payment_text):
+def test_parser_payload_uses_classification_and_quality_context(proof_of_payment_text):
     result = extract_transactions(
         TransactionExtractionRequest(
-            parse_id="parse_from_m5",
+            parse_id="parse_from_parser",
             classification={
                 "document_type": "receipt",
                 "confidence": 0.82,
@@ -620,12 +620,93 @@ def test_m5_shaped_payload_uses_classification_and_quality_context(proof_of_paym
 
     assert result.status == "completed"
     assert result.document_type == "receipt"
-    assert result.evaluation.parse_id == "parse_from_m5"
+    assert result.evaluation.parse_id == "parse_from_parser"
     assert result.summary.pages_processed == 1
     assert result.summary.transaction_candidate_count == 1
 
 
-def test_m5_low_text_and_ocr_findings_are_carried_as_input_quality_warnings():
+def test_receipt_compact_ocr_date_is_used_for_derived_transaction():
+    text = (
+        "Awanui Mt Wellington TIME 18APR2026 09:35 TRAN 01016 CREDIT "
+        "PURCHASE NZD227.00 TOTAL NZD227.00 APPROVED"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].date_text == "18/04/2026"
+    assert result.transaction_candidates[0].amount == 227.00
+    assert result.transaction_candidates[0].currency == "NZD"
+
+
+def test_receipt_date_extraction_skips_impossible_ocr_numeric_date():
+    text = (
+        "KMART TAX INVOICE 5/68/25 15:17 TOTAL ITEMS = 6 "
+        "05/08/25 15:11 TOTAL 111.00 EFTPOS NZD$111.00 APPROVED"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].date_text == "05/08/25"
+    assert result.transaction_candidates[0].amount == 111.00
+
+
+def test_receipt_description_prefers_san_michelle_product_over_refund_policy():
+    text = (
+        "Tax Invoice San Nichelle Bags Sylvia Park DATE: 24-05-2026 16:19 "
+        "21000008001 /HandBag L3-1/BLACK QTY 1 @ $56.00 $56.00 "
+        "1 Items TOTAL: $56.00 EFTPOS; $56.00 Refund Policy note within 14 days"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].description == "San Michelle Bags - Handbag L3-1/Black"
+
+
+def test_receipt_description_prefers_bunnings_merchant_over_footer_text():
+    text = (
+        "GUNN IHS LTWITED Sun 31/08/2025 03:01:41 SELF CHECKOUT "
+        "Total $25.54 EFT CARD Thank you for shopping with Bunnings "
+        "Please retain receipt for proof of purchase"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].description == "Bunnings - Self Checkout"
+
+
+def test_receipt_description_prefers_awanui_terminal_merchant_over_card_noise():
+    text = (
+        "Awanui Mt Wellington 37 - 41 Carbine Rd Auckland New Zealand "
+        "MID 59099900 TSP 350998000001 INV# 660176047 "
+        "Visa Credit PURCHASE 9m N21 227,00 /N219$227.00 APPROVED"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].description == "Awanui - Card purchase - Mt Wellington"
+    assert result.transaction_candidates[0].amount == 227.00
+    assert result.transaction_candidates[0].currency == "NZD"
+
+
+def test_invoice_description_prefers_awunui_service_over_owing_footer():
+    text = (
+        "Invoice wanui Labs Auckland Issued: 18/04/2026 09:36:20 "
+        "CC CRE - Creatinine $25.00 DRW - Service Fee $29.00 "
+        "Total $29.61 Bell Payment History Paid 18/04/2026 09:36:20 - EFTPOS Owing"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="invoice", text=text))
+
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].description == "Awanui Labs - Creatinine"
+
+
+def test_parser_low_text_and_ocr_findings_are_carried_as_input_quality_warnings():
     result = extract_transactions(
         TransactionExtractionRequest(
             parse_id="parse_low_quality",
@@ -654,7 +735,7 @@ def test_m5_low_text_and_ocr_findings_are_carried_as_input_quality_warnings():
     assert result.evaluation.finding_counts["NO_TRANSACTION_CANDIDATES"] == 1
 
 
-def test_m5_weak_ocr_quality_is_carried_as_input_quality_warning():
+def test_parser_weak_ocr_quality_is_carried_as_input_quality_warning():
     result = extract_transactions(
         TransactionExtractionRequest(
             parse_id="parse_noisy_ocr",

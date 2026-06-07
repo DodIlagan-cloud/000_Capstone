@@ -123,7 +123,7 @@ class RedactedEvidencePreview(BaseModel):
     redaction_applied: bool
 
 
-class M7HandoffAudit(BaseModel):
+class ExtractionHandoffAudit(BaseModel):
     parse_id: str
     document_id: str
     filename: str
@@ -138,8 +138,8 @@ class M7HandoffAudit(BaseModel):
     page_count: int
     pages_processed: int
     warnings: list[str] = Field(default_factory=list)
-    m7_ready: bool
-    m7_readiness_reason_codes: list[str] = Field(default_factory=list)
+    extraction_ready: bool
+    extraction_readiness_reason_codes: list[str] = Field(default_factory=list)
     transaction_signal_count: int
     redacted_preview: str
     redaction_summary: dict[str, int]
@@ -158,5 +158,5 @@ class DocumentParseResult(BaseModel):
     quality: QualityMetadata
     evaluation: EvaluationMetadata
     evidence: RedactedEvidencePreview
-    m7_handoff: M7HandoffAudit
+    extraction_handoff: ExtractionHandoffAudit
     findings: list[ParseFinding] = Field(default_factory=list)

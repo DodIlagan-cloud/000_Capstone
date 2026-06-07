@@ -33,7 +33,7 @@ This document lists the files created and modified for the merged **M3 File Vali
 | `modules/file-validation-module/app/routes/validation.py` | Created | Provides the file validation upload endpoint. |
 | `modules/file-validation-module/app/routes/ingestions.py` | Created | Provides ingestion creation and status lookup endpoints. |
 | `modules/file-validation-module/app/services/validation_service.py` | Created | Implements reusable policy-driven validation checks and signature detection. |
-| `modules/file-validation-module/app/services/ingestion_service.py` | Created | Implements ingestion record creation, idempotency handling, configured storage, and status lookup. |
+| `modules/file-validation-module/app/services/ingestion_service.py` | Created / Updated | Implements ingestion record creation, idempotency handling, configured storage, and status lookup. Review hardening returns explicit storage-failure findings without reserving the idempotency key so a fixed Blob/local storage handoff can be retried. |
 
 ## Tests
 
@@ -43,7 +43,7 @@ This document lists the files created and modified for the merged **M3 File Vali
 | `tests/unit/file_validation_module/test_foundation.py` | Created/Modified | Verifies app import, health/root endpoints, and settings defaults. |
 | `tests/unit/file_validation_module/test_validation_service.py` | Created | Verifies core validation behavior for accepted and rejected files. |
 | `tests/unit/file_validation_module/test_validation_api.py` | Created | Verifies the multipart validation API and request policy override behavior. |
-| `tests/unit/file_validation_module/test_ingestion_api.py` | Created | Verifies ingestion creation, status lookup, rejected validation handling, and idempotent duplicate behavior. |
+| `tests/unit/file_validation_module/test_ingestion_api.py` | Created / Updated | Verifies ingestion creation, status lookup, rejected validation handling, retryable storage failure, and idempotent duplicate behavior. |
 
 ## Stats Web Integration Surface
 

@@ -35,7 +35,7 @@ Directory paths use a two-layer convention:
 - `config/stats.paths.json` defines the logical project path map.
 - `STATS_APP_ROOT` defines the physical runtime root for the current environment.
 
-Local development may resolve from `C:\000_Capstone`; the Stats container resolves from `/app`; cloud deployment may resolve from an Azure App Service, Container Apps, mounted volume, or storage-backed location. Module code must not assume the physical root. It should resolve logical paths from the configured root or use a configured storage provider such as `STATS_STORAGE_PROVIDER=LocalFileSystem` now and `AzureBlobStorage` later.
+Local development may resolve from `C:\000_Capstone`; the Stats container resolves from `/app`; cloud deployment may resolve from an Azure App Service, Container Apps, mounted volume, or storage-backed location. Module code must not assume the physical root. It should resolve logical paths from the configured root or use a configured storage provider such as `STATS_STORAGE_PROVIDER=LocalFileSystem` for isolated local tests and `AzureBlobStorage` for durable cloud storage.
 
 The broader runtime configuration registry is `config/stats.runtime.json`. It names the expected environment variables, safe defaults, secret-bearing settings, service ports, downstream URLs, storage settings, OCR settings, database settings, and test fixture settings for the overall Stats application. Module specs should refer to that registry before adding new runtime values.
 
