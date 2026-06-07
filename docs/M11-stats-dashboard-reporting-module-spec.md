@@ -23,6 +23,70 @@ M11 does not parse documents, extract transactions, validate records, persist da
 | Primary output | Dashboard, report, review, and evidence-backed financial views |
 | Cloud analytics target | Microsoft Fabric and Power BI over curated M9 data |
 
+## Current Stats App State
+
+This spec is aligned to the current Stats app state as of the M9/M14 work now present in the repository.
+
+### Current Runtime Shape
+
+- M13 provides the single `stats-runtime` container.
+- Stats Web is the public browser entry point on port `8080`.
+- Module APIs remain internal to the container: M1 identity, M3/M4 file intake, M5 parsing, M7 extraction, and M8 validation.
+- M9 Stats Data owns Azure SQL schema, migrations, persistence adapters, and query APIs.
+- M14 owns Azure Container Apps, Azure SQL runtime configuration, Key Vault/secret handling, Fabric/Power BI deployment direction, and cloud-readiness evidence.
+- M11 must not change persistence logic, cloud deployment wiring, or secret handling.
+
+### Current Stats Web Surface
+
+| Route | Current State | M11 Direction |
+| --- | --- | --- |
+| `/` | Authenticated dashboard-first shell with static counts for documents, transactions, and warnings | Replace static readiness cards with financial insight cards: last month expenses, current month running expenses, top expense contributor, and upcoming due/payable |
+| `/Upload` | Authenticated upload workflow calls M3/M4, M5, M7, M8, and now M9 save endpoint through `StatsDataBaseUrl` | Remains the intake/save source for dashboard data; M11 should link users back to upload when no data exists |
+| `/Documents` | Authenticated page lists recent saved M9 document records and supports removal through Stats Data API | Owns data provenance: source summary, document status, document type, source institution, quality, review counts, and drilldown |
+| `/Reports` | Authenticated reports shell with deferred reporting state | Becomes native report workspace first, then optional Power BI embed host |
+| `/EmailSetup` | Shell placeholder for future email ingestion setup | Can later feed document source filters but is not an M11 dependency |
+| `/Users` | Admin user management from M1 | M11 only consumes authenticated user context and role-aware visibility |
+
+### Current M9 API Surface
+
+The current M9 API surface is enough for saved-document visibility but not yet enough for the full M11 dashboard.
+
+| Endpoint | Current Status | M11 Use |
+| --- | --- | --- |
+| `POST /api/v1/transactions/batches` | Implemented for saving validated upload results into Stats Data | Source of persisted dashboard data after upload review |
+| `GET /api/v1/documents?limit=25` | Implemented for recent saved documents | Current foundation for document status and saved-data evidence |
+| `DELETE /api/v1/documents/{document_id}` | Implemented for removing saved document records | Current document management action, not a dashboard metric endpoint |
+| `GET /api/v1/dashboard/summary` | Not implemented yet | Needed for M11 financial insight cards and trends |
+| `GET /api/v1/documents/summary` | Not implemented yet | Needed for Documents provenance summary |
+| `GET /api/v1/transactions` | Not implemented yet | Needed for transaction table and trends |
+| `GET /api/v1/statements` | Not implemented yet | Needed for obligations and credit exposure |
+| `GET /api/v1/document-financial-summaries` | Not implemented yet | Needed for invoice/receipt/payment-proof totals |
+| `GET /api/v1/reconciliation-links` | Not implemented yet | Needed for matched/unmatched evidence |
+| `GET /api/v1/findings` / `GET /api/v1/review-items` | Not implemented yet as first-class M11 APIs | Needed for review backlog and trust indicators |
+
+### Current Data Foundation
+
+M9 now has Azure SQL migration planning and implementation assets for dashboard-ready tables, including:
+
+- `validation_results`
+- `stats_documents`
+- `processing_runs`
+- `transaction_batches`
+- `transactions`
+- `financial_fields`
+- `document_sections`
+- `validated_entities`
+- `validated_references`
+- `installments`
+- `statement_summaries`
+- `document_financial_summaries`
+- `line_items`
+- `financial_evidence_links`
+- `findings`
+- `review_items`
+
+M11 should read promoted M9 records through APIs or controlled read models. It should not parse `validation_results.payload_json` directly in the browser.
+
 ## Goals
 
 - Show an operational dashboard for saved financial data from M9.
@@ -54,12 +118,16 @@ Every important number should answer:
 - Is the data trusted or does it need review?
 - What should the user do next?
 
+The Home dashboard should prioritize financial outcomes over processing counters. Document counts, saved-row counts, and review counts belong primarily on the Documents provenance tab, not as primary Home cards. Home may show small trust warnings only when data quality materially affects a financial insight.
+
 ## User Questions M11 Must Answer
 
 | Question | Dashboard Area |
 | --- | --- |
 | What do I owe soon? | Upcoming obligations |
 | What did I spend this month? | Financial snapshot and spending trends |
+| How does this month compare with last month? | Current and prior month expense cards |
+| Who or what is driving most of my expenses? | Top contributor and category/merchant breakdown |
 | What payments have proof? | Reconciliation and evidence links |
 | Which invoices, receipts, statements, or transfers are unmatched? | Reconciliation queue |
 | Which documents or transactions need review? | Data quality and review backlog |
@@ -75,14 +143,21 @@ The Overview is the first screen after authentication once M11 is active.
 
 Expected content:
 
-- Financial snapshot cards.
+- Financial insight cards.
 - Upcoming obligations.
 - Recent saved transactions.
-- Documents needing review.
-- Reconciliation summary.
-- Data-quality alerts.
+- Top expense contributor.
+- Monthly or category trend.
+- Optional trust warning when financial numbers are affected by review/quality issues.
 
 The Overview should prioritize actions and trust status over dense analytics.
+
+Current alignment:
+
+- `/` already exists as the authenticated dashboard-first shell.
+- The current counts are static placeholders.
+- First M11 implementation should keep the existing route and progressively replace placeholders with M9-backed financial values.
+- Document count, transaction count, and review item count should move to `/Documents` provenance summaries instead of remaining the primary Home cards.
 
 ### Transactions
 
@@ -119,6 +194,8 @@ Expected columns:
 
 The Documents view shows persisted document workflow status and dashboard readiness.
 
+The Documents view owns the "where did this data come from?" story. It is the source/provenance tab for saved financial data.
+
 Expected filters:
 
 - Document type.
@@ -133,11 +210,33 @@ Expected fields:
 - Original filename.
 - Document type.
 - Source institution or merchant.
+- Source type, such as upload, email, or future import.
 - Status.
 - OCR quality status.
 - Redaction applied.
+- Transaction row count.
+- Financial field count.
+- Review item count.
 - Created/saved timestamps.
 - Linked validation, extraction, parse, and ingestion identifiers when appropriate.
+
+Expected provenance summaries:
+
+- Saved documents count.
+- Documents by type.
+- Documents by source type.
+- Documents by source institution or merchant.
+- Documents by workflow status.
+- Documents by OCR/data quality status.
+- Total transaction rows represented by saved documents.
+- Total review items represented by saved documents.
+- Latest saved document date.
+
+Current alignment:
+
+- `/Documents` already lists recent M9 saved document records.
+- It currently shows file, status, row counts, review counts, saved timestamp, and remove action.
+- M11 should extend this into the provenance dashboard rather than create a separate duplicate document-status route.
 
 ### Obligations
 
@@ -197,34 +296,41 @@ Initial native report sections:
 
 When Power BI is not configured, the Reports page must show a clear not-configured state and keep native dashboard views usable.
 
+Current alignment:
+
+- `/Reports` already exists as an authenticated deferred reports shell.
+- First M11 work should replace the generic deferred panel with native report sections and a Power BI not-configured state.
+
 ## First Dashboard Cards
 
 | Card | Purpose | M9 Source |
 | --- | --- | --- |
-| Spending this period | Total debits for the selected period | `transactions` |
-| Credits this period | Total credits for the selected period | `transactions` |
-| Net movement | Credits minus debits | `transactions` |
-| Upcoming due | Nearest due obligation and amount | `statement_summaries`, `document_financial_summaries` |
-| Outstanding obligations | Total due or owing amount | `statement_summaries`, `document_financial_summaries` |
-| Review backlog | Open review items/findings | `review_items`, `findings` |
-| Document quality | Saved, warning, failed, review counts | `stats_documents`, `processing_runs` |
-| Reconciliation | Matched, suggested, unmatched evidence | `financial_evidence_links` |
+| Last month expenses | Total debit/spending for the previous calendar month | `transactions` |
+| This month running expenses | Total debit/spending from the first day of the current month to today | `transactions` |
+| Top expense contributor | Highest merchant, counterparty, category, or description contributing to current-month spending | `transactions` |
+| Upcoming due / payable | Nearest due obligation and amount | `statement_summaries`, `document_financial_summaries` |
+| Monthly expense trend | Current and prior period spending movement | `transactions` |
+| Recent notable expenses | Recent high-value or unusual expenses | `transactions`, `findings` |
+
+Document counts, transaction row counts, and review item counts should be displayed on `/Documents` as provenance and data-quality context. They should not be primary Home dashboard cards.
 
 ## Required M9 Query APIs
 
 M11 should read from M9 APIs, not direct database connections.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/v1/dashboard/summary` | Summary cards, trends, obligations, reconciliation, and review counts |
-| `GET /api/v1/transactions` | Transaction table and transaction trends |
-| `GET /api/v1/documents` | Document status and dashboard readiness |
-| `GET /api/v1/documents/{document_id}` | Document drilldown and source traceability |
-| `GET /api/v1/statements` | Statement obligations and credit exposure |
-| `GET /api/v1/document-financial-summaries` | Invoice, receipt, and payment-proof totals |
-| `GET /api/v1/reconciliation-links` | Matched and unmatched evidence links |
-| `GET /api/v1/findings` | Open system/module findings |
-| `GET /api/v1/review-items` | User-facing review queue |
+| Endpoint | Current Status | Purpose |
+| --- | --- | --- |
+| `GET /api/v1/dashboard/summary` | Planned | Financial insight cards, trends, top contributor, recent notable expenses, and upcoming due/payable |
+| `GET /api/v1/transactions` | Planned | Transaction table and transaction trends |
+| `GET /api/v1/documents` | Implemented for recent saved documents | Document status and dashboard readiness |
+| `GET /api/v1/documents/summary` | Planned | Documents provenance summary: source, type, status, quality, row counts, and review counts |
+| `GET /api/v1/documents/{document_id}` | Planned | Document drilldown and source traceability |
+| `DELETE /api/v1/documents/{document_id}` | Implemented | Remove saved document record and dependent persisted records |
+| `GET /api/v1/statements` | Planned | Statement obligations and credit exposure |
+| `GET /api/v1/document-financial-summaries` | Planned | Invoice, receipt, and payment-proof totals |
+| `GET /api/v1/reconciliation-links` | Planned | Matched and unmatched evidence links |
+| `GET /api/v1/findings` | Planned | Open system/module findings |
+| `GET /api/v1/review-items` | Planned | User-facing review queue |
 
 If an endpoint is unavailable, M11 should show a controlled deferred state rather than calling upstream processing modules.
 
@@ -239,9 +345,12 @@ category_spending
 upcoming_obligations
 credit_exposure
 recent_transactions
+recent_notable_expenses
+top_expense_contributors
 document_processing_status
 review_backlog
 reconciliation_status
+documents_provenance_summary
 merchant_counterparty_summary
 ```
 
@@ -299,6 +408,13 @@ Use Fabric later for curated analytical modelling:
 - Power BI report hosting and modelling.
 
 M11 should not require Fabric/Power BI to be configured before the native dashboard is useful.
+
+Current cloud-dev alignment:
+
+- Azure SQL is the operational persistence direction.
+- PostgreSQL `stats-db` is legacy/local-only and should not drive M11 cloud plans.
+- Fabric and Power BI are future reporting/analytics layers over curated M9 data.
+- Real tenant IDs, subscription IDs, connection strings, passwords, and secret values must not be committed.
 
 ## Power BI Embed Direction
 
@@ -380,14 +496,18 @@ M11 should display masked account/card/reference values only. Full sensitive val
 ### Phase 1: Native Dashboard Contract
 
 - Define M11 dashboard views and API expectations.
-- Implement Overview with deferred/empty M9 states.
-- Show static shell sections only when M9 APIs are not wired.
+- Keep `/` as the dashboard-first route.
+- Replace static Home cards with financial insight cards when M9 dashboard summary data is available.
+- Treat `/Documents` as the first current M9-backed view and the owner of provenance/source summaries.
+- Keep `/Reports` as native report shell plus Power BI not-configured state.
 - Keep Power BI as a not-configured report area.
 
 ### Phase 2: M9 API Integration
 
-- Call M9 dashboard and list endpoints.
-- Render real summary cards, obligations, recent transactions, review backlog, and reconciliation status.
+- Continue using implemented `GET /api/v1/documents` on `/Documents`.
+- Add or consume M9 dashboard, transaction, document summary, statement, financial summary, reconciliation, finding, and review endpoints as they become available.
+- Render real Home financial cards, obligations, recent notable expenses, top contributors, and trends only from M9 APIs.
+- Render document counts, source summaries, row counts, review counts, and quality summaries on `/Documents`.
 - Add filters and drilldowns.
 - Add user-facing error and partial-data states.
 
@@ -421,7 +541,8 @@ M11 should display masked account/card/reference values only. Full sensitive val
 - M11 spec exists and defines dashboard/reporting goals, boundaries, views, data sources, and test plan.
 - M11 reads operational dashboard data from M9 APIs or controlled deferred states only.
 - M11 does not call processing modules directly for report totals.
-- Dashboard views show financial snapshot, obligations, transactions, documents, reconciliation, and review/data-quality status.
+- Home dashboard views show financial insights first: last month expenses, current month running expenses, top expense contributor, upcoming due/payable, trends, and recent notable expenses.
+- Documents views show provenance first: document counts, source/type summaries, saved records, quality, row counts, review counts, and source drilldowns.
 - Each displayed financial number can trace to M9 source document/transaction/evidence metadata when available.
 - Power BI/Fabric are treated as optional analytics/reporting layers over curated M9 data.
 - Missing Power BI/Fabric configuration does not block the native dashboard.
