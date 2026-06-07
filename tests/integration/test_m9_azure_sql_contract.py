@@ -22,6 +22,30 @@ MIGRATION_2 = (
     / "azure-sql"
     / "002_validation_reporting_schema.sql"
 )
+MIGRATION_5 = (
+    REPO_ROOT
+    / "apps"
+    / "stats-data"
+    / "migrations"
+    / "azure-sql"
+    / "005_duplicate_check_results.sql"
+)
+MIGRATION_6 = (
+    REPO_ROOT
+    / "apps"
+    / "stats-data"
+    / "migrations"
+    / "azure-sql"
+    / "006_document_processing_jobs.sql"
+)
+MIGRATION_7 = (
+    REPO_ROOT
+    / "apps"
+    / "stats-data"
+    / "migrations"
+    / "azure-sql"
+    / "007_document_processing_steps.sql"
+)
 MIGRATION_README = REPO_ROOT / "apps" / "stats-data" / "migrations" / "azure-sql" / "README.md"
 M9_SPEC = REPO_ROOT / "docs" / "M9-stats-data-persistence-module-spec.md"
 M9_ERD = REPO_ROOT / "docs" / "M9-stats-data-erd.md"
@@ -52,6 +76,9 @@ def test_m9_azure_sql_assets_exist():
     for path in [
         MIGRATION,
         MIGRATION_2,
+        MIGRATION_5,
+        MIGRATION_6,
+        MIGRATION_7,
         MIGRATION_README,
         M9_SPEC,
         M9_ERD,
@@ -84,10 +111,11 @@ def test_migration_uses_azure_sql_types_and_migration_tracking():
     ]
     for term in required_terms:
         assert term in content, f"Migration must include Azure SQL term {term}"
+    assert "document_fingerprint nvarchar(64) NULL" in content
 
 
 def test_migration_creates_required_m9_tables():
-    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}".lower()
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}\n{read(MIGRATION_5)}\n{read(MIGRATION_6)}\n{read(MIGRATION_7)}".lower()
     required_tables = [
         "dbo.validation_results",
         "dbo.stats_documents",
@@ -105,13 +133,17 @@ def test_migration_creates_required_m9_tables():
         "dbo.financial_evidence_links",
         "dbo.findings",
         "dbo.review_items",
+        "dbo.duplicate_check_batches",
+        "dbo.duplicate_check_results",
+        "dbo.document_processing_jobs",
+        "dbo.document_processing_steps",
     ]
     for table in required_tables:
         assert table in content, f"Migration must create or reference {table}"
 
 
 def test_migration_avoids_postgresql_only_syntax():
-    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}".lower()
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}\n{read(MIGRATION_5)}\n{read(MIGRATION_6)}\n{read(MIGRATION_7)}".lower()
     forbidden_terms = [
         " jsonb",
         " uuid",
@@ -127,7 +159,7 @@ def test_migration_avoids_postgresql_only_syntax():
 
 
 def test_migration_supports_dashboard_indexes_and_duplicate_key():
-    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}"
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}\n{read(MIGRATION_5)}"
     required_terms = [
         "ix_transactions_reporting",
         "ux_transactions_duplicate_key",
@@ -166,6 +198,64 @@ def test_validation_reporting_migration_supports_current_validation_contract():
     ]
     for term in required_terms:
         assert term in content, f"M9 must support evolved validation persistence term {term}"
+    normalize_migration_content = "\n".join(
+        read(path)
+        for path in [
+            MIGRATION_2,
+            REPO_ROOT / "apps" / "stats-data" / "migrations" / "azure-sql" / "003_normalize_validation_results_schema.sql",
+            REPO_ROOT / "apps" / "stats-data" / "migrations" / "azure-sql" / "004_normalize_stats_documents_validation_reference.sql",
+        ]
+    )
+    assert "sp_executesql" not in normalize_migration_content
+    assert "EXEC sp_rename N'dbo.m8_validation_results', N'validation_results'" in content
+
+
+def test_processing_jobs_migration_supports_async_cloud_upload_contract():
+    content = read(MIGRATION_6)
+    required_terms = [
+        "006_document_processing_jobs",
+        "CREATE TABLE dbo.document_processing_jobs",
+        "job_id",
+        "ingestion_id",
+        "uploaded_by_user_id",
+        "original_filename",
+        "status",
+        "stage",
+        "parse_id",
+        "extraction_id",
+        "validation_id",
+        "result_payload_json",
+        "error_detail",
+        "ix_document_processing_jobs_user_status",
+        "ck_document_processing_jobs_result_json",
+    ]
+    for term in required_terms:
+        assert term in content, f"M9 async processing job migration must include {term}"
+
+
+def test_processing_steps_migration_supports_upload_timing_contract():
+    content = read(MIGRATION_7)
+    required_terms = [
+        "007_document_processing_steps",
+        "CREATE TABLE dbo.document_processing_steps",
+        "step_id",
+        "job_id",
+        "document_id",
+        "correlation_id",
+        "module_name",
+        "step_name",
+        "started_at_utc",
+        "completed_at_utc",
+        "duration_ms",
+        "metadata_json",
+        "error_code",
+        "error_message",
+        "fk_document_processing_steps_job",
+        "ix_document_processing_steps_job_created",
+        "ck_document_processing_steps_metadata_json",
+    ]
+    for term in required_terms:
+        assert term in content, f"M9 processing-step migration must include {term}"
 
 
 def test_erd_matches_validation_promoted_tables():
@@ -339,8 +429,11 @@ def test_m9_adapter_maps_validation_staging_and_promoted_tables():
         "line_items",
         "installments",
         "review_items",
+        "duplicate_check_batches",
+        "duplicate_check_results",
         "payload_json",
         "duplicate_key",
+        "document_fingerprint",
     ]
     for term in required_terms:
         assert term in adapter, f"M9 adapter must include {term}"
@@ -357,6 +450,7 @@ def test_m9_adapter_uses_temp_validation_payload_handoff_until_success():
         "VALIDATION_HANDOFF_DIR_ENV",
         "STATS_VALIDATION_HANDOFF_DIR",
         "handoff_path.unlink()",
+        "Could not remove validation handoff file after successful commit",
         "persist_validation_result(connection, load_validation_payload_temp_file",
     ]
     for term in required_terms:
@@ -368,9 +462,12 @@ def test_m9_stats_data_api_exposes_save_boundary():
     database = read(STATS_DATA_DATABASE)
 
     assert '@app.post("/api/v1/transactions/batches"' in api
+    assert '@app.post("/api/v1/transactions/duplicate-checks"' in api
     assert '@app.get("/api/v1/documents"' in api
     assert '@app.delete("/api/v1/documents/{document_id}"' in api
     assert "SaveTransactionsBatchRequest" in api
+    assert "DuplicateCheckRequest" in api
+    assert "check_validation_duplicates" in api
     assert "UploadedDocumentsResponse" in api
     assert "DeleteUploadedDocumentResponse" in api
     assert "list_recent_uploaded_documents" in api

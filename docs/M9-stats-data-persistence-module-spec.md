@@ -29,6 +29,8 @@ Earlier modules may still be incomplete while this spec is refined. The purpose 
 - Store Data Validation normalized records only after the user chooses to save ready transactions.
 - Preserve traceability from saved transactions back to validation, extraction, parse, and ingestion identifiers.
 - Support database-backed duplicate checks before insert.
+- Track long-running upload processing jobs so cloud uploads do not depend on one browser request staying open while OCR/parsing/extraction/validation completes.
+- Persist per-step upload timing records so Docker/cloud logs and Azure SQL agree on how long validation, ingestion, parsing, extraction, validation, duplicate-check, and save stages took for a document.
 - Associate stored documents and transactions with the authenticated user who uploaded or saved them.
 - Keep sensitive financial document data controlled and avoid persisting full OCR text unless explicitly justified later.
 - Provide migrations and persistence adapters under `apps/stats-data/`.
@@ -66,7 +68,9 @@ M9 should keep a staging/audit table for each Data Validation `DataValidationRes
 
 This staging table is recommended because validation output includes nested arrays, evolving contract fields, review metadata, source references, and summary/evaluation data. Staging preserves the exact module result for troubleshooting, reprocessing, and contract-change safety while the normalized tables serve dashboard and reporting queries.
 
-Before the database write, M9 should write the received validation payload to a temporary handoff JSON file under the centrally managed `STATS_VALIDATION_HANDOFF_DIR` path, which defaults to `apps/stats-data/data/validation-handoff` through `config/stats.runtime.json` and `config/stats.paths.json`. M9 must persist from that exact file, then remove the temporary file only after the Azure SQL transaction commits and `validation_results.promotion_status` is marked `promoted`. If the save fails, the temporary file should remain available for retry and troubleshooting. Data Validation still does not own durable file storage; this temporary file is part of the M9 save boundary.
+Before the database write, M9 should write the received validation payload to a temporary handoff JSON file under the centrally managed `STATS_VALIDATION_HANDOFF_DIR` path, which defaults to `apps/stats-data/data/validation-handoff` through `config/stats.runtime.json` and `config/stats.paths.json`. M9 must persist from that exact file, then remove the temporary file only after the Azure SQL transaction commits and `validation_results.promotion_status` is marked `promoted`. If the save fails, the temporary file should remain available for retry and troubleshooting. After a successful commit, handoff cleanup is best-effort: cleanup errors are logged but must not turn a committed save into an API failure. Data Validation still does not own durable file storage; this temporary file is part of the M9 save boundary.
+
+Validation persistence is retry-safe. Re-submitting the same validation payload must not reset a previously promoted `validation_results` row back to pending, must not clear `promotion_error` or `promoted_at_utc`, and must not replace an existing non-empty `stats_documents.storage_reference` with an empty value.
 
 Recommended table:
 
@@ -127,6 +131,7 @@ M9 should store a product-level document/workflow record for each file that reac
 | `source_type` | Manual upload, email attachment, batch import, API |
 | `source_id` | Optional upstream source identifier |
 | `sha256` | File hash for duplicate/source matching |
+| `document_fingerprint` | Hashed normalized document-level evidence for same-document matching across renamed files or different photos |
 | `detected_mime_type` | Accepted content type |
 | `size_bytes` | File size |
 | `storage_reference` | Local/cloud path or object key, not raw file bytes |
@@ -190,6 +195,110 @@ M9 should store the validation save attempt as a batch so the UI can show what w
 | `credit_total` | Batch credit total |
 | `net_total` | Batch net total |
 | `created_at_utc` | Save attempt time |
+
+### Pre-Save Duplicate Checks
+
+M9 must perform database-backed duplicate checks before Stats Web saves reviewed transactions. This is separate from M8 request-local duplicate detection. M8 can flag duplicate rows inside one validation payload, but only M9 can compare against persisted documents and transactions.
+
+Stats Web should call a M9 duplicate-check endpoint after M8 validation and local review edits, but before `POST /api/v1/transactions/batches`.
+
+Recommended endpoint:
+
+```text
+POST /api/v1/transactions/duplicate-checks
+```
+
+The request should include the current Data Validation result, user scope, and optional storage reference. The response should include a persisted `duplicate_check_id`, document-level matches, per-record transaction matches, and summary counts.
+
+When this endpoint returns `blocked` or `needs_review`, Stats Web must not present the result as a generic database save failure. The upload page should show a plain-language duplicate review panel with the duplicate-check status, summary counts, and the document/transaction messages returned by M9, such as whether the same file was already uploaded, the document fingerprint looks similar, a transaction already exists, or a row has the same date/amount/currency/direction as a saved transaction.
+
+Duplicate match types:
+
+| Match Type | Meaning |
+| --- | --- |
+| `exact_file_duplicate` | `stats_documents.sha256` already exists for the user |
+| `possible_same_document` | Document fingerprint evidence matches a previously saved document |
+| `within_batch_duplicate` | Two rows in the current validation payload share the same duplicate key |
+| `exact_transaction_duplicate` | A saved transaction has the same duplicate key |
+| `possible_transaction_duplicate` | Date, amount, currency, and direction match, but description differs |
+
+M9 should persist duplicate-check batches and results so the review decision is auditable and tied back to database records. Exact transaction duplicates should be treated as blocking or skipped by the save workflow unless a future explicit override is added. Possible matches should require review but not be silently discarded.
+
+Duplicate checks must treat empty duplicate keys and empty document fingerprints as unavailable evidence, not as real match keys. A row without a deterministic duplicate key may still be compared through possible-match signals such as date, amount, currency, and direction, but it must not collapse with other no-key rows as an exact duplicate. Persisted duplicate-check result identifiers must be stable from row content, match type, and matched database records rather than list position so a re-check cannot silently attach an old result row to a different transaction after ordering changes.
+
+Exact transaction duplicate lookup should be batched by deterministic duplicate key when possible. Possible transaction matches are allowed to remain row-scoped until the matching model is mature enough to batch without broadening false-positive behavior across nullable dates, currencies, directions, or edited descriptions.
+
+Document fingerprints are normalized evidence hashes used when filenames or image bytes differ. The first generic fingerprint should use available evidence from the validation payload: document type, source institution or merchant entity, document SHA-256, statement/invoice/receipt totals and dates, references, confirmation/approval/RRN values, masked account/card evidence, and a small set of normalized transaction keys when document-level evidence is sparse. The fingerprint must be stored as a hash, not as full unredacted source text.
+
+## Long-Running Upload Processing Jobs
+
+Cloud-dev proved that synchronous browser calls to M5 can exceed the Azure Container Apps ingress request timeout for OCR-heavy files. M9 therefore owns a durable processing-job checkpoint that Stats Web can create before starting module work and poll while work continues in the runtime container.
+
+This job tracking does not move OCR, extraction, or validation logic into M9. M9 only records job state, progress, user ownership, safe document metadata, final validation payload, and sanitized error details.
+
+Recommended table: `document_processing_jobs`
+
+| Column | Purpose |
+| --- | --- |
+| `job_id` | Stable processing job identifier returned to Stats Web. |
+| `ingestion_id` | M3/M4 ingestion identifier when available. |
+| `uploaded_by_user_id` | User that started the upload workflow. |
+| `original_filename` | Source filename for user-facing progress and troubleshooting. |
+| `source_type` | Manual upload, email attachment, batch import, or API. |
+| `source_id` | Source channel identifier. |
+| `sha256` | File hash from validation metadata when available. |
+| `status` | `queued`, `running`, `completed`, or `failed`. |
+| `stage` | `uploaded`, `parsing`, `extracting`, `validating`, `completed`, or `failed`. |
+| `message` | Short user-facing progress or failure message. |
+| `parse_id` | M5 parse identifier after parsing completes. |
+| `extraction_id` | M7 extraction identifier after extraction completes. |
+| `validation_id` | M8 validation identifier after validation completes. |
+| `result_payload_json` | Final validation/checkpoint payload for Stats Web review. |
+| `error_detail` | Sanitized failure detail. |
+| `created_at_utc`, `updated_at_utc`, `completed_at_utc` | Job lifecycle timestamps. |
+
+API contract:
+
+```text
+POST /api/v1/processing-jobs
+PATCH /api/v1/processing-jobs/{job_id}
+GET /api/v1/processing-jobs/{job_id}
+```
+
+Recommended timing table: `document_processing_steps`
+
+| Column | Purpose |
+| --- | --- |
+| `step_id` | Stable processing-step identifier. |
+| `job_id` | Parent `document_processing_jobs.job_id`. |
+| `document_id` | M9 document ID when known, otherwise null until persistence/save creates it. |
+| `correlation_id` | Web/request correlation ID when available. |
+| `module_name` | Module or boundary name, such as `StatsWeb`, `M3M4`, `M5`, `M7`, `M8`, or `M9`. |
+| `step_name` | Stable step name, such as `file_validation`, `document_upload`, `document_parsing`, `transaction_extraction`, `data_validation`, `duplicate_check`, or `database_save`. |
+| `status` | `started`, `completed`, `completed_with_warnings`, `failed`, or `skipped`. |
+| `started_at_utc` | Step start time. |
+| `completed_at_utc` | Step completion time when known. |
+| `duration_ms` | Measured elapsed time in milliseconds. |
+| `metadata_json` | Safe counts and identifiers, not raw OCR text or secret values. |
+| `error_code` | Controlled failure code when the step fails. |
+| `error_message` | Sanitized failure message when the step fails. |
+| `created_at_utc` | Row insert time. |
+
+Processing-step records are summaries, not a raw log sink. Detailed runtime diagnostics remain in structured application logs. M9 exposes `POST /api/v1/processing-jobs/{job_id}/steps` for appending step records and `GET /api/v1/processing-jobs/{job_id}/steps` for troubleshooting and future review UI. Stats Web must write a step record even when a step fails so cloud-dev operators can diagnose where an upload stalled. Timing writes attached to successful duplicate-check and transaction-save operations are best-effort after the primary work succeeds; a timing insert failure must be logged and must not change the successful primary API response into a 500.
+
+Processing-job writes must clean up cursors on database errors. Once a job reaches a terminal status such as `completed` or `failed`, later updates must not move it back to a non-terminal status or overwrite its final stage/message accidentally. If Stats Web cannot write the initial upload timing step before launching the background processing task, it must delete the temporary upload file and fail the start request instead of orphaning local temp content.
+
+Stats Web should:
+
+- create the job immediately after M3/M4 accepts/queues the upload,
+- run M5 -> M7 -> M8 outside the original browser request,
+- avoid forcing `page_limit=1` on the background M5 request because the async job is intended to preserve complete statement coverage while avoiding ingress timeouts,
+- update the job at each stage,
+- poll the job from the Upload page,
+- render the normal M8 transaction-check result once the job is `completed`,
+- show a fresh upload picker and a concise failure message when the job is `failed`.
+
+This is the first cloud-safe async workflow. It is compatible with current single-container cloud-dev. Future Blob Storage work should replace local temporary file handling so jobs can resume across container restarts.
 
 ### Transaction Records
 
@@ -491,18 +600,21 @@ The M9 schema should therefore keep:
 
 1. Stats Web receives Data Validation `DataValidationResult`.
 2. User reviews the transaction checkpoint.
-3. User clicks save ready transactions.
-4. Stats Web sends the validation result plus authenticated user context to M9.
-5. M9 validates ownership and required identifiers.
-6. `apps/stats-data/src/stats_data/validation_persistence.py` writes the validation payload to a temporary handoff JSON file.
-7. The adapter loads that same handoff file and stages the full validation payload in `validation_results`.
-8. The adapter creates or updates the `stats_documents` row.
-9. The adapter stores processing run summaries, transaction batches, normalized transactions, financial fields, document sections, entities, references, line items, installments, findings, and review items.
-10. M9 checks normalized records against existing stored transactions when the save/query API is wired.
-11. M9 inserts non-duplicate valid records into `transactions`.
-12. M9 marks duplicate or invalid records as skipped/review items.
-13. After the Azure SQL commit succeeds, M9 deletes the temporary handoff file.
-14. M9 returns a save summary to Stats Web.
+3. Stats Web sends the reviewed validation result plus authenticated user context to the M9 duplicate-check endpoint.
+4. M9 checks document hash, document fingerprint, within-batch transaction keys, exact stored transaction keys, and possible transaction matches.
+5. M9 persists the duplicate-check batch/results and returns document and transaction duplicate findings to Stats Web.
+6. User reviews exact/possible duplicate warnings.
+7. User clicks save ready transactions.
+8. Stats Web sends the accepted validation result plus authenticated user context to M9.
+9. M9 validates ownership and required identifiers.
+10. `apps/stats-data/src/stats_data/validation_persistence.py` writes the validation payload to a temporary handoff JSON file.
+11. The adapter loads that same handoff file and stages the full validation payload in `validation_results`.
+12. The adapter creates or updates the `stats_documents` row.
+13. The adapter stores processing run summaries, transaction batches, normalized transactions, financial fields, document sections, entities, references, line items, installments, findings, and review items.
+14. M9 inserts non-duplicate valid records into `transactions`; the unique duplicate-key index remains the final safety net.
+15. M9 marks duplicate or invalid records as skipped/review items.
+16. After the Azure SQL commit succeeds, M9 deletes the temporary handoff file on a best-effort basis and logs cleanup failures without failing the committed save.
+17. M9 returns a save summary to Stats Web.
 
 ## Stats Web Save Requirements
 
@@ -564,6 +676,10 @@ Cloud-first deployment order:
 | --- | --- | --- |
 | `/health` | `GET` | Service/database readiness |
 | `/api/v1/transactions/batches` | `POST` | Save Data Validation normalized records |
+| `/api/v1/transactions/duplicate-checks` | `POST` | Check reviewed validation records against persisted documents and transactions before saving |
+| `/api/v1/processing-jobs` | `POST` | Create a durable upload processing job |
+| `/api/v1/processing-jobs/{job_id}` | `GET/PATCH` | Read or update upload processing job status |
+| `/api/v1/processing-jobs/{job_id}/steps` | `POST/GET` | Append or read durable per-step timing summaries for an upload processing job |
 | `/api/v1/documents` | `GET` | List stored documents for current user/admin scope |
 | `/api/v1/documents/{document_id}` | `GET` | Retrieve document workflow summary |
 | `/api/v1/transactions` | `GET` | Query saved transactions |

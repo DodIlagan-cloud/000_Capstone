@@ -69,6 +69,7 @@ erDiagram
         string source_type
         string source_id
         string sha256
+        string document_fingerprint
         string detected_mime_type
         int size_bytes
         string storage_reference
@@ -96,6 +97,44 @@ erDiagram
         json finding_counts_json
     }
 
+    DOCUMENT_PROCESSING_JOBS {
+        string job_id PK
+        string ingestion_id
+        string uploaded_by_user_id FK
+        string original_filename
+        string source_type
+        string source_id
+        string sha256
+        string status
+        string stage
+        string message
+        string parse_id
+        string extraction_id
+        string validation_id
+        json result_payload_json
+        string error_detail
+        datetime created_at_utc
+        datetime updated_at_utc
+        datetime completed_at_utc
+    }
+
+    DOCUMENT_PROCESSING_STEPS {
+        string step_id PK
+        string job_id FK
+        string document_id
+        string correlation_id
+        string module_name
+        string step_name
+        string status
+        datetime started_at_utc
+        datetime completed_at_utc
+        int duration_ms
+        json metadata_json
+        string error_code
+        string error_message
+        datetime created_at_utc
+    }
+
     TRANSACTION_BATCHES {
         string transaction_batch_id PK
         string document_id FK
@@ -110,6 +149,40 @@ erDiagram
         decimal debit_total
         decimal credit_total
         decimal net_total
+        datetime created_at_utc
+    }
+
+    DUPLICATE_CHECK_BATCHES {
+        string duplicate_check_id PK
+        string validation_id FK
+        string document_id FK
+        string uploaded_by_user_id FK
+        string saved_by_user_id FK
+        string status
+        int total_record_count
+        int exact_file_duplicate_count
+        int possible_document_duplicate_count
+        int within_batch_duplicate_count
+        int exact_transaction_duplicate_count
+        int possible_transaction_duplicate_count
+        int ready_to_save_count
+        json summary_json
+        datetime created_at_utc
+    }
+
+    DUPLICATE_CHECK_RESULTS {
+        string duplicate_check_result_id PK
+        string duplicate_check_id FK
+        string document_id FK
+        string record_id
+        string result_scope
+        string match_type
+        string match_status
+        string matched_document_id FK
+        string matched_transaction_id FK
+        decimal confidence
+        json reason_codes_json
+        string message
         datetime created_at_utc
     }
 
@@ -371,12 +444,21 @@ erDiagram
     USERS ||--o{ TRANSACTION_BATCHES : saves
     USERS ||--o{ FINDINGS : resolves
     USERS ||--o{ REVIEW_ITEMS : resolves
+    USERS ||--o{ DOCUMENT_PROCESSING_JOBS : starts
 
     VALIDATION_RESULTS ||--o{ STATS_DOCUMENTS : promotes_to
     STATS_DOCUMENTS ||--o{ PROCESSING_RUNS : has
+    DOCUMENT_PROCESSING_JOBS ||--o{ DOCUMENT_PROCESSING_STEPS : records
+    STATS_DOCUMENTS ||--o{ DOCUMENT_PROCESSING_STEPS : may_reference
     STATS_DOCUMENTS ||--o{ TRANSACTION_BATCHES : has
     STATS_DOCUMENTS ||--o{ TRANSACTIONS : sources
     TRANSACTION_BATCHES ||--o{ TRANSACTIONS : contains
+    STATS_DOCUMENTS ||--o{ DUPLICATE_CHECK_BATCHES : checked
+    VALIDATION_RESULTS ||--o{ DUPLICATE_CHECK_BATCHES : checks
+    DUPLICATE_CHECK_BATCHES ||--o{ DUPLICATE_CHECK_RESULTS : contains
+    STATS_DOCUMENTS ||--o{ DUPLICATE_CHECK_RESULTS : current_document
+    STATS_DOCUMENTS ||--o{ DUPLICATE_CHECK_RESULTS : matched_document
+    TRANSACTIONS ||--o{ DUPLICATE_CHECK_RESULTS : matched_transaction
 
     STATS_DOCUMENTS ||--o{ FINANCIAL_FIELDS : has
     TRANSACTION_BATCHES ||--o{ FINANCIAL_FIELDS : captures
@@ -410,6 +492,8 @@ erDiagram
 - M9 persists only validation output. M5 parse IDs and M7 extraction IDs are lineage fields; raw M5/M7 metadata is not promoted into first-class reporting tables.
 - `document_sections`, `validated_entities`, `validated_references`, `line_items`, and `installments` reflect the enriched validation handoff used for robust dashboard and review experiences.
 - `findings` are module/system findings. `review_items` are user-facing review tasks derived from Data Validation review items or M9 duplicate/reconciliation checks.
+- `duplicate_check_batches` and `duplicate_check_results` persist the pre-save duplicate review outcome so exact file matches, possible same-document matches, within-upload duplicates, exact transaction duplicates, and same-date/amount/currency/direction matches are auditable before write.
+- `document_processing_jobs` and `document_processing_steps` persist cloud-safe upload progress and per-step timing summaries for operational troubleshooting. They store safe counts, identifiers, durations, and sanitized errors, not raw OCR text.
 - `financial_evidence_links` is intentionally flexible so M9 can relate invoice-to-proof, receipt-to-EFTPOS, statement-to-transaction, and duplicate-like evidence without forcing everything into `transactions`.
 
 <!-- M9 End -->

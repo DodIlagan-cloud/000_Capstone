@@ -14,9 +14,7 @@ BEGIN
         AND COL_LENGTH(N'dbo.validation_results', N'validation_result_id') IS NULL
         AND COL_LENGTH(N'dbo.validation_results', @legacy_validation_result_id_column) IS NOT NULL
     BEGIN
-        DECLARE @rename_validation_result_id_sql nvarchar(max) =
-            N'EXEC sp_rename N''dbo.validation_results.' + @legacy_validation_result_id_column + N''', N''validation_result_id'', N''COLUMN'';';
-        EXEC sp_executesql @rename_validation_result_id_sql;
+        EXEC sp_rename N'dbo.validation_results.m8_validation_result_id', N'validation_result_id', N'COLUMN';
     END;
 
     INSERT INTO dbo.schema_migrations (migration_id)

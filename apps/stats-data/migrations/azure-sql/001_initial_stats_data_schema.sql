@@ -62,6 +62,7 @@ BEGIN
         source_type nvarchar(50) NOT NULL,
         source_id nvarchar(100) NULL,
         sha256 nvarchar(64) NULL,
+        document_fingerprint nvarchar(64) NULL,
         detected_mime_type nvarchar(150) NULL,
         size_bytes bigint NULL,
         storage_reference nvarchar(1024) NOT NULL,

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -20,6 +21,7 @@ from typing import Any, Iterable
 NAMESPACE = uuid.UUID("7a783aa3-f5a3-44be-98c7-0c571e44c31f")
 DEFAULT_CURRENCY = "PHP"
 VALIDATION_HANDOFF_DIR_ENV = "STATS_VALIDATION_HANDOFF_DIR"
+LOGGER = logging.getLogger(__name__)
 
 TABLE_PRIMARY_KEYS = {
     "validation_results": "validation_result_id",
@@ -37,6 +39,8 @@ TABLE_PRIMARY_KEYS = {
     "installments": "installment_id",
     "findings": "finding_id",
     "review_items": "review_item_id",
+    "duplicate_check_batches": "duplicate_check_id",
+    "duplicate_check_results": "duplicate_check_result_id",
 }
 
 
@@ -145,9 +149,10 @@ def build_validation_persistence_plan(
                 "source_type": _text(document.get("source_type")) or "api",
                 "source_id": _text(document.get("source_id")),
                 "sha256": _text(document.get("sha256")),
+                "document_fingerprint": _document_fingerprint(result),
                 "detected_mime_type": _text(document.get("detected_mime_type")),
                 "size_bytes": _int_or_none(document.get("size_bytes")),
-                "storage_reference": storage_reference or _text(document.get("storage_reference")) or "",
+                "storage_reference": _text(storage_reference) or _text(document.get("storage_reference")) or "",
                 "document_type": document_type,
                 "source_institution": _first_entity_value(result, "institution"),
                 "status": _document_status(summary, result),
@@ -262,6 +267,8 @@ def persist_validation_result(connection: Any, result: dict[str, Any], **kwargs:
     except Exception:
         connection.rollback()
         raise
+    finally:
+        _close_cursor(cursor)
     return plan
 
 
@@ -269,9 +276,10 @@ def list_recent_uploaded_documents(connection: Any, *, limit: int = 25) -> list[
     """Return recent uploaded documents saved through M9."""
     normalized_limit = max(1, min(int(limit), 100))
     cursor = connection.cursor()
-    cursor.execute(
-        f"""
-SELECT TOP ({normalized_limit})
+    try:
+        cursor.execute(
+            """
+SELECT
     sd.document_id,
     sd.original_filename,
     sd.document_type,
@@ -301,10 +309,14 @@ OUTER APPLY (
     FROM dbo.review_items AS r
     WHERE r.document_id = sd.document_id
 ) AS ri
-ORDER BY sd.created_at_utc DESC;
-"""
-    )
-    return [_uploaded_document_summary(row) for row in cursor.fetchall()]
+ORDER BY sd.created_at_utc DESC
+OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY;
+""",
+            normalized_limit,
+        )
+        return [_uploaded_document_summary(row) for row in cursor.fetchall()]
+    finally:
+        _close_cursor(cursor)
 
 
 def delete_uploaded_document_records(connection: Any, document_id: str) -> DeleteDocumentResult:
@@ -457,6 +469,8 @@ WHERE duplicate_of_transaction_id IN (SELECT transaction_id FROM dbo.transaction
     except Exception:
         connection.rollback()
         raise
+    finally:
+        _close_cursor(cursor)
 
     return DeleteDocumentResult(
         document_id=target_document_id,
@@ -473,7 +487,12 @@ def persist_validation_result_from_temp_file(
     """Persist a validation handoff file and remove it only after a successful commit."""
     handoff_path = Path(handoff_file)
     plan = persist_validation_result(connection, load_validation_payload_temp_file(handoff_path), **kwargs)
-    handoff_path.unlink()
+    try:
+        handoff_path.unlink()
+    except FileNotFoundError:
+        LOGGER.info("Validation handoff file was already removed: %s", handoff_path)
+    except OSError:
+        LOGGER.warning("Could not remove validation handoff file after successful commit: %s", handoff_path, exc_info=True)
     return plan
 
 
@@ -523,7 +542,7 @@ def _transaction_op(
             "transaction_id": transaction_id,
             "transaction_batch_id": batch_id,
             "document_id": document_id,
-            "source_candidate_id": _text(record.get("source_candidate_id")),
+            "source_candidate_id": _text(record.get("source_candidate_id")) or _text(record.get("record_id")),
             "transaction_date": _date_or_default(record.get("transaction_date")),
             "posted_date": _date_or_none(record.get("posted_date")),
             "description": _text(record.get("description")) or "",
@@ -774,7 +793,7 @@ def _execute_insert_if_missing(cursor: Any, operation: SqlOperation) -> None:
         for column in columns
         if column != operation.key_column and column not in {"created_at_utc", "created_at"}
     ]
-    update_sql = ", ".join(f"[{column}] = src.[{column}]" for column in update_columns)
+    update_sql = ", ".join(_merge_update_assignment(operation.table, column) for column in update_columns)
     update_clause = f"WHEN MATCHED THEN UPDATE SET {update_sql}" if update_sql else ""
     source_sql = ", ".join(f"? AS [{column}]" for column in columns)
     sql = f"""
@@ -790,13 +809,31 @@ WHEN NOT MATCHED THEN
     cursor.execute(sql, *params)
 
 
+def _close_cursor(cursor: Any) -> None:
+    try:
+        cursor.close()
+    except Exception:
+        pass
+
+
+def _merge_update_assignment(table: str, column: str) -> str:
+    if table == "validation_results" and column in {"promotion_status", "promotion_error", "promoted_at_utc"}:
+        return f"[{column}] = target.[{column}]"
+    if table == "stats_documents" and column == "storage_reference":
+        return "[storage_reference] = COALESCE(NULLIF(src.[storage_reference], ''), target.[storage_reference])"
+    return f"[{column}] = src.[{column}]"
+
+
 def _mark_promoted(cursor: Any, validation_result_id: str) -> None:
     cursor.execute(
         """
 UPDATE dbo.validation_results
-SET promotion_status = ?, promotion_error = NULL, promoted_at_utc = SYSUTCDATETIME()
+SET promotion_status = ?,
+    promotion_error = CASE WHEN promotion_status = ? THEN promotion_error ELSE NULL END,
+    promoted_at_utc = COALESCE(promoted_at_utc, SYSUTCDATETIME())
 WHERE validation_result_id = ?;
 """,
+        "promoted",
         "promoted",
         validation_result_id,
     )
@@ -1010,6 +1047,48 @@ def _duplicate_key(owner_id: str | None, record: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _document_fingerprint(result: dict[str, Any]) -> str:
+    document = result.get("document") or {}
+    summary = result.get("document_financial_summary") or {}
+    parts: list[str] = [
+        _text(result.get("document_type")) or "",
+        _text(document.get("sha256")) or "",
+        _first_entity_value(result, "institution") or "",
+        _first_entity_value(result, "merchant") or "",
+        _first_entity_value(result, "counterparty") or "",
+    ]
+    for field_name in [
+        "statement_date",
+        "period_start_date",
+        "period_end_date",
+        "payment_due_date",
+        "issue_date",
+        "total_amount",
+        "receipt_total",
+        "total_amount_due",
+        "total_due",
+        "paid_amount",
+        "owing_amount",
+        "currency",
+    ]:
+        parts.append(_text(summary.get(field_name)) or "")
+    for reference in (result.get("validated_references") or [])[:6]:
+        parts.append(_text(reference.get("reference_type")) or "")
+        parts.append(_text(reference.get("value")) or "")
+    for record in (result.get("normalized_records") or [])[:5]:
+        parts.extend(
+            [
+                _text(record.get("transaction_date")) or "",
+                _normalize_description(record.get("description")),
+                str(_money(record.get("signed_amount")) or _money(record.get("amount")) or ""),
+                _currency(record.get("currency")),
+                _text(record.get("direction")) or "unknown",
+            ]
+        )
+    material = "|".join(re.sub(r"\s+", " ", part.lower()).strip() for part in parts if part)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
 def _first_entity_value(result: dict[str, Any], entity_type: str) -> str | None:
     for entity in result.get("validated_entities") or []:
         if (_text(entity.get("entity_type")) or "").lower() == entity_type:
@@ -1079,5 +1158,5 @@ def table_counts(operations: Iterable[SqlOperation]) -> dict[str, int]:
     return counts
 
 
-def _utc_now_token() -> str:
+def _utc_now_token() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)

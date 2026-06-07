@@ -23,6 +23,8 @@ if str(STATS_DATA_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(STATS_DATA_SCRIPTS))
 
 from stats_data.validation_persistence import (  # noqa: E402
+    _execute_insert_if_missing,
+    _mark_promoted,
     build_validation_persistence_plan,
     build_validation_persistence_plan_from_temp_file,
     delete_uploaded_document_records,
@@ -73,11 +75,13 @@ def test_build_validation_persistence_plan_uses_real_document_pipeline_output():
     document = _only(plan, "stats_documents")
     assert document["original_filename"] == fixture_file.name
     assert document["storage_reference"] == f"local-file://tests/input/{fixture_file.name}"
+    assert re.fullmatch(r"[0-9a-f]{64}", document["document_fingerprint"])
 
     if result["normalized_records"]:
         transaction = _only(plan, "transactions")
         assert transaction["normalized_description"]
         assert transaction["duplicate_key"]
+        assert transaction["source_candidate_id"] == result["normalized_records"][0]["record_id"]
 
     if result["document_financial_summary"]:
         statement_summary = _only(plan, "statement_summaries")
@@ -206,8 +210,44 @@ def test_list_recent_uploaded_documents_returns_frontend_summary_rows():
     assert documents[0].transaction_count == 16
     assert documents[0].financial_field_count == 9
     assert documents[0].review_item_count == 15
-    assert "top (5)" in connection.cursor_instance.executed_sql.lower()
+    assert "fetch next ? rows only" in connection.cursor_instance.executed_sql.lower()
+    assert "desc;\noffset" not in connection.cursor_instance.executed_sql.lower()
+    assert connection.cursor_instance.executed_params == (5,)
     assert connection.cursor_instance.executed_sql.lower().find("stats_documents") < connection.cursor_instance.executed_sql.lower().find("order by")
+    assert connection.cursor_instance.closed is True
+
+
+def test_validation_results_retry_does_not_reset_promotion_state():
+    result, _fixture_file = _actual_validation_result()
+    operation = _only_operation(
+        build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user"),
+        "validation_results",
+    )
+    cursor = _FakeMergeCursor()
+
+    _execute_insert_if_missing(cursor, operation)
+
+    sql = cursor.executed_sql.lower()
+    assert "[promotion_status] = target.[promotion_status]" in sql
+
+    _mark_promoted(cursor, operation.values["validation_result_id"])
+    promotion_sql = cursor.executed_sql.lower()
+    assert "promotion_error = case when promotion_status = ?" in promotion_sql
+    assert "promoted_at_utc = coalesce(promoted_at_utc, sysutcdatetime())" in promotion_sql
+
+
+def test_stats_documents_retry_preserves_existing_storage_reference_when_source_is_empty():
+    result, _fixture_file = _actual_validation_result()
+    operation = _only_operation(
+        build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user"),
+        "stats_documents",
+    )
+    operation.values["storage_reference"] = ""
+    cursor = _FakeMergeCursor()
+
+    _execute_insert_if_missing(cursor, operation)
+
+    assert "coalesce(nullif(src.[storage_reference], ''), target.[storage_reference])" in cursor.executed_sql.lower()
 
 
 def _actual_validation_result() -> tuple[dict[str, Any], Path]:
@@ -329,6 +369,10 @@ def _only(plan, table):
     return [operation.values for operation in plan.operations if operation.table == table][0]
 
 
+def _only_operation(plan, table):
+    return [operation for operation in plan.operations if operation.table == table][0]
+
+
 class _FakeRow:
     def __init__(self, *values):
         self._values = values
@@ -367,6 +411,9 @@ class _FakeDeleteCursor:
     def fetchone(self):
         return self._next_row
 
+    def close(self):
+        self.closed = True
+
 
 class _FakeDeleteConnection:
     def __init__(self):
@@ -403,13 +450,30 @@ class _FakeListRow:
 class _FakeListCursor:
     def __init__(self):
         self.executed_sql = ""
+        self.executed_params = ()
+        self.closed = False
 
     def execute(self, sql, *params):
         self.executed_sql = sql
+        self.executed_params = params
         return self
 
     def fetchall(self):
         return [_FakeListRow()]
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeMergeCursor:
+    def __init__(self):
+        self.executed_sql = ""
+        self.executed_params = ()
+
+    def execute(self, sql, *params):
+        self.executed_sql = sql
+        self.executed_params = params
+        return self
 
 
 class _FakeListConnection:

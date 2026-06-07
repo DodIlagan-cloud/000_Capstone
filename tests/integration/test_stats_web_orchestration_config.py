@@ -157,11 +157,77 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert "return normalizedBase ? `${normalizedBase}${normalizedPath}` : normalizedPath;" in upload_source
     assert 'statsApiUrl(fileValidationBaseUrl, "/api/v1/files/validate")' in upload_source
     assert 'statsApiUrl(fileIngestionBaseUrl, "/api/v1/ingestions")' in upload_source
-    assert 'statsApiUrl(documentParsingBaseUrl, "/api/v1/parses")' in upload_source
+    assert 'fetch("/api/v1/upload-processing-jobs"' in upload_source
+    assert 'fetch(`/api/v1/upload-processing-jobs/${encodeURIComponent(jobId)}`' in upload_source
+    assert 'statsApiUrl(documentParsingBaseUrl, "/api/v1/parses")' not in upload_source
     assert 'statsApiUrl(transactionExtractionBaseUrl, "/api/v1/extractions")' in upload_source
     assert 'statsApiUrl(dataValidationBaseUrl, "/api/v1/validations")' in upload_source
     assert 'statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/batches")' in upload_source
+    assert 'statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/duplicate-checks")' in upload_source
     assert "buildSaveValidationResult" in upload_source
+    assert "checkDuplicateTransactions" in upload_source
+    assert "duplicateCheckMessage" in upload_source
+    assert "renderDuplicateCheckPanel" in upload_source
+    assert "Duplicate save blocked" in upload_source
+    assert "Transaction already saved" in upload_source
+    assert "downstreamErrorMessage" in upload_source
+    assert "resetUploadPage" in upload_source
+    assert "Document processing could not be started." in upload_source
+    assert "Transactions saved. Choose another file to continue." in upload_source
+
+
+def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+
+    assert "StatsUploadProcessingJobs.StartUploadProcessingJobAsync" in program_source
+    assert "StatsUploadProcessingJobs.GetUploadProcessingJobAsync" in program_source
+    assert "RunProcessingJobAsync" in program_source
+    assert "TimeSpan.FromMinutes(30)" in program_source
+    assert '"/api/v1/upload-processing-jobs"' in program_source
+    assert '"/api/v1/upload-processing-jobs/{jobId}"' in program_source
+    assert "startAcceptedFileProcessingJob" in upload_source
+    assert "pollProcessingJob" in upload_source
+    assert "renderProcessingJobProgress" in upload_source
+    assert "payload.validation_result" in upload_source
+
+
+def test_upload_js_does_not_force_single_page_parse_in_async_flow():
+    """Ensure async browser processing preserves statement page coverage."""
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert 'formData.append("allow_ocr_fallback", "true");' in upload_source
+    assert 'formData.append("page_limit", "1");' not in upload_source
+    assert 'PageLimit: FormValue(form, "page_limit")' in program_source
+    assert 'PageLimit: FormValue(form, "page_limit") ?? "1"' not in program_source
+    assert 'AddForm(form, "page_limit", metadata.PageLimit);' in program_source
+    assert 'formData.append("classification_threshold", "0.1");' in upload_source
+
+
+def test_stats_web_persists_upload_processing_step_timing():
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert "RunTimedStepAsync" in program_source
+    assert "AppendProcessingStepAsync" in program_source
+    assert "/api/v1/processing-jobs/{WebUtility.UrlEncode(jobId)}/steps" in program_source
+    assert '"document_upload"' in program_source
+    assert '"document_parsing"' in program_source
+    assert '"transaction_extraction"' in program_source
+    assert '"data_validation"' in program_source
+    assert "duration_ms={DurationMs}" in program_source
+    assert "Stopwatch.StartNew()" in program_source
+    assert "failed and the failure status could not be persisted" in program_source
+    assert "Failed to record initial upload processing step" in program_source
+    assert program_source.index("Failed to record initial upload processing step") > program_source.index("TryDeleteTempFile(tempPath);")
+
+
+def test_upload_reconciliation_respects_explicit_zero_credit_total():
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+
+    assert 'Object.prototype.hasOwnProperty.call(reconciliation, "credit_total")' in upload_source
+    assert "const effectiveCreditTotal = hasStatementCreditTotal ? statementCreditTotal : creditTotal;" in upload_source
+    assert "statementCreditTotal > 0 ? statementCreditTotal : creditTotal" not in upload_source
 
 
 def test_documents_page_lists_and_removes_stats_data_records():

@@ -13,9 +13,7 @@ BEGIN
     IF OBJECT_ID(N'dbo.validation_results', N'U') IS NULL
         AND OBJECT_ID(N'dbo.' + @legacy_validation_results_table, N'U') IS NOT NULL
     BEGIN
-        DECLARE @rename_validation_results_sql nvarchar(max) =
-            N'EXEC sp_rename N''dbo.' + @legacy_validation_results_table + N''', N''validation_results'';';
-        EXEC sp_executesql @rename_validation_results_sql;
+        EXEC sp_rename N'dbo.m8_validation_results', N'validation_results';
     END;
 
     IF COL_LENGTH('dbo.validation_results', 'section_candidate_count') IS NULL
