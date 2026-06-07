@@ -334,10 +334,44 @@ def _rotate_image(image: Image.Image, degrees: int) -> Image.Image:
     return image.rotate(degrees, expand=True)
 
 
-def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1) -> OcrAttempt:
+def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1, fast_pdf_profile: bool = False) -> OcrAttempt:
     prepared_image = _prepare_image_for_ocr(image)
+    if fast_pdf_profile:
+        fast_psm_values = list(dict.fromkeys(settings.ocr_pdf_fast_psm_values or [6]))
+        fast_attempt = _ocr_attempt_profile(
+            prepared_image,
+            language,
+            page_number,
+            orientations=[0],
+            psm_values=fast_psm_values,
+            max_variants=2,
+        )
+        if _ocr_attempt_meets_fast_threshold(fast_attempt):
+            return fast_attempt
+
+        repair_attempt = _ocr_best_image(image, language, page_number, fast_pdf_profile=False)
+        return replace(repair_attempt, attempt_count=fast_attempt.attempt_count + repair_attempt.attempt_count)
+
     orientations = [0, 90, 180, 270] if settings.ocr_retry_orientations else [0]
     psm_values = list(dict.fromkeys([*(settings.ocr_psm_values or [6]), 3]))
+    return _ocr_attempt_profile(
+        prepared_image,
+        language,
+        page_number,
+        orientations=orientations,
+        psm_values=psm_values,
+        max_variants=None,
+    )
+
+
+def _ocr_attempt_profile(
+    prepared_image: Image.Image,
+    language: str,
+    page_number: int,
+    orientations: list[int],
+    psm_values: list[int],
+    max_variants: Optional[int],
+) -> OcrAttempt:
     best_attempt = OcrAttempt(
         text="",
         mean_confidence=None,
@@ -353,6 +387,8 @@ def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1) -> 
     for orientation in orientations:
         rotated = _rotate_image(prepared_image, orientation)
         variants = _image_variants(rotated)
+        if max_variants is not None:
+            variants = variants[:max_variants]
         if orientation != 0:
             variants = variants[:2]
         for variant_name, variant in variants:
@@ -375,6 +411,20 @@ def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1) -> 
                     best_attempt = attempt
 
     return replace(best_attempt, attempt_count=attempt_count)
+
+
+def _ocr_attempt_meets_fast_threshold(attempt: OcrAttempt) -> bool:
+    if len(attempt.text.strip()) < settings.ocr_fast_min_text_length:
+        return False
+    if attempt.quality_score < settings.ocr_fast_min_quality_score:
+        return False
+    if attempt.mean_confidence is not None and attempt.mean_confidence < settings.ocr_min_confidence:
+        return False
+    return (
+        attempt.keyword_hits > 0
+        or _financial_amount_token_score(attempt.text) > 0
+        or _receipt_amount_evidence_score(attempt.text) > 0
+    )
 
 
 def _ocr_attempt_is_better(attempt: OcrAttempt, best_attempt: OcrAttempt) -> bool:
@@ -494,14 +544,14 @@ def _ocr_pdf_pages(content: bytes, page_limit: int, language: str) -> tuple[str,
     pages: list[PageParseResult] = []
     extracted_parts: list[str] = []
     attempts: list[OcrAttempt] = []
-    matrix = fitz.Matrix(2.0, 2.0)
+    matrix = fitz.Matrix(settings.ocr_pdf_render_scale, settings.ocr_pdf_render_scale)
 
     try:
         for page_number in range(1, min(page_count, page_limit) + 1):
             page = document.load_page(page_number - 1)
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
             image = Image.open(io.BytesIO(pixmap.tobytes("png")))
-            attempt = _ocr_best_image(image, language, page_number)
+            attempt = _ocr_best_image(image, language, page_number, fast_pdf_profile=True)
             attempts.append(attempt)
             page_text = attempt.text
             pages.append(

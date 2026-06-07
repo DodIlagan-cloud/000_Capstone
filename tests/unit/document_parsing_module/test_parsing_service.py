@@ -5,11 +5,12 @@ M5/M6 End"""
 import json
 
 import pytest
+from PIL import Image
 
 from app.models.parsing import ParseStatus
 from app.services import classification_service
 from app.services.classification_service import classify_document
-from app.services.parsing_service import _is_tesseract_available, parse_document_content
+from app.services.parsing_service import _is_tesseract_available, _ocr_best_image, parse_document_content
 from app.services.redaction_service import redact_text
 
 
@@ -74,6 +75,29 @@ def test_real_scanned_pdf_uses_tesseract_ocr_and_classifies_credit_card_statemen
     assert result.extraction_handoff.tesseract_available is True
     assert result.extraction_handoff.extraction_ready is True
     assert any(page.ocr_word_blocks for page in result.pages)
+
+
+def test_pdf_ocr_fast_profile_stops_when_quality_is_sufficient(monkeypatch):
+    calls = []
+
+    def fake_ocr(image, language, psm, page_number):
+        calls.append(psm)
+        return (
+            "Statement transaction date amount total payment 2026-01-01 PHP 123.45",
+            82.0,
+            [],
+        )
+
+    monkeypatch.setattr("app.services.parsing_service._ocr_image_with_confidence", fake_ocr)
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_pdf_fast_psm_values", [6])
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_fast_min_quality_score", 0.35)
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_fast_min_text_length", 20)
+
+    attempt = _ocr_best_image(Image.new("RGB", (240, 240), "white"), "eng", fast_pdf_profile=True)
+
+    assert attempt.attempt_count == 2
+    assert attempt.psm == 6
+    assert calls == [6, 6]
 
 
 def test_real_payment_terminal_image_uses_tesseract_ocr(input_file):

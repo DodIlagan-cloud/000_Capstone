@@ -72,6 +72,10 @@ class Settings:
     ocr_languages: List[str]
     ocr_psm_values: List[int]
     ocr_retry_orientations: bool
+    ocr_pdf_fast_psm_values: List[int]
+    ocr_fast_min_quality_score: float
+    ocr_fast_min_text_length: int
+    ocr_pdf_render_scale: float
     ocr_min_confidence: float
     ocr_min_quality_score: float
     ocr_min_alnum_ratio: float
@@ -117,6 +121,10 @@ class Settings:
         self.ocr_languages = self._parse_csv_values(_config_value(config_values, "OCR_LANGUAGES"))
         self.ocr_psm_values = self._parse_csv_int_values(config_values.get("OCR_PSM_VALUES", "6,11,4"))
         self.ocr_retry_orientations = _parse_bool(config_values.get("OCR_RETRY_ORIENTATIONS"), True)
+        self.ocr_pdf_fast_psm_values = self._parse_csv_int_values(config_values.get("OCR_PDF_FAST_PSM_VALUES", "6,4"))
+        self.ocr_fast_min_quality_score = _parse_float(config_values.get("OCR_FAST_MIN_QUALITY_SCORE"), 0.55)
+        self.ocr_fast_min_text_length = _parse_int(config_values.get("OCR_FAST_MIN_TEXT_LENGTH"), 120)
+        self.ocr_pdf_render_scale = _parse_float(config_values.get("OCR_PDF_RENDER_SCALE"), 2.0)
         self.ocr_min_confidence = _parse_float(config_values.get("OCR_MIN_CONFIDENCE"), 35.0)
         self.ocr_min_quality_score = _parse_float(config_values.get("OCR_MIN_QUALITY_SCORE"), 0.35)
         self.ocr_min_alnum_ratio = _parse_float(config_values.get("OCR_MIN_ALNUM_RATIO"), 0.35)

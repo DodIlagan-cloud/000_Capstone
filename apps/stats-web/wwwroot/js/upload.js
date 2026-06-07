@@ -46,6 +46,30 @@ function statsApiUrl(baseUrl, path) {
   return normalizedBase ? `${normalizedBase}${normalizedPath}` : normalizedPath;
 }
 
+async function downstreamErrorMessage(response, fallbackMessage) {
+  const payload = await response.json().catch(() => null);
+  if (payload?.detail) {
+    return typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+  }
+  if (payload?.message) {
+    return payload.message;
+  }
+  return `${fallbackMessage} (${response.status})`;
+}
+
+function resetUploadPage(message = "Choose a file to validate.", tone = "pending") {
+  selectedFile = null;
+  acceptedValidation = null;
+  if (documentFileInput) {
+    documentFileInput.value = "";
+  }
+  selectedFileSummary.hidden = true;
+  validationResult.hidden = true;
+  ingestionResult.hidden = true;
+  parseResult.hidden = true;
+  setValidationState(message, tone);
+}
+
 function valueFromPath(path) {
   if (!path) {
     return "Pending";
@@ -234,8 +258,11 @@ function reconciliationSnapshot(reviewState, extractionResult) {
   const creditTotal = reviewState.records
     .filter((record) => record.direction === "credit")
     .reduce((total, record) => total + numericValue(record.amount), 0);
+  const hasStatementCreditTotal = Object.prototype.hasOwnProperty.call(reconciliation, "credit_total")
+    && reconciliation.credit_total !== null
+    && reconciliation.credit_total !== undefined;
   const statementCreditTotal = numericValue(reconciliation.credit_total);
-  const effectiveCreditTotal = statementCreditTotal > 0 ? statementCreditTotal : creditTotal;
+  const effectiveCreditTotal = hasStatementCreditTotal ? statementCreditTotal : creditTotal;
   const previousBalance = numericValue(reconciliation.previous_balance);
   const documentTotalDue = numericValue(reconciliation.total_due);
   const computedTotalDue = previousBalance + debitTotal - effectiveCreditTotal;
@@ -447,8 +474,7 @@ function validateFileCandidate(file) {
   acceptedValidation = null;
 
   if (!file) {
-    selectedFileSummary.hidden = true;
-    setValidationState("Choose a file to validate.");
+    resetUploadPage();
     return;
   }
 
@@ -473,7 +499,7 @@ async function validateSelectedFile(file) {
     });
 
     if (!response.ok) {
-      throw new Error("Validation service did not accept the request.");
+      throw new Error(await downstreamErrorMessage(response, "Validation service did not accept the request."));
     }
 
     const result = await response.json();
@@ -487,9 +513,9 @@ async function validateSelectedFile(file) {
       return;
     }
 
-    setValidationState("File rejected. Choose another file to continue.", "error");
+    resetUploadPage("File rejected. Choose another file to continue.", "error");
   } catch (error) {
-    setValidationState(error.message || "File validation failed.", "error");
+    resetUploadPage(error.message || "File validation failed.", "error");
   }
 }
 
@@ -1089,10 +1115,23 @@ function renderTransactionCheckResult(result, parsePayload, extractionResult, ex
     : "Accept all rows and resolve reconciliation before saving.";
   saveButton.addEventListener("click", async () => {
     saveButton.disabled = true;
-    saveButton.textContent = "Saving transactions";
+    saveButton.textContent = "Checking duplicates";
     try {
+      const duplicateCheck = await checkDuplicateTransactions(result, reviewState);
+      if (duplicateCheck.status !== "ready") {
+        const existingDuplicatePanel = parseResult.querySelector(".duplicate-review");
+        if (existingDuplicatePanel) {
+          existingDuplicatePanel.remove();
+        }
+        parseResult.insertBefore(renderDuplicateCheckPanel(duplicateCheck), actions);
+        saveButton.disabled = false;
+        saveButton.textContent = "Save ready transactions";
+        setValidationState(duplicateCheckMessage(duplicateCheck), "error");
+        return;
+      }
+      saveButton.textContent = "Saving transactions";
       const saveResult = await saveReadyTransactions(result, reviewState);
-      setValidationState("Transactions saved.", "success");
+      resetUploadPage("Transactions saved. Choose another file to continue.", "success");
       saveButton.textContent = "Transactions saved";
       saveButton.title = `Saved ${saveResult.saved_record_count || 0} transaction rows.`;
     } catch (error) {
@@ -1170,7 +1209,7 @@ async function sendAcceptedFileToProcessing() {
     });
 
     if (!response.ok) {
-      throw new Error("Ingestion service did not accept the request.");
+      throw new Error(await downstreamErrorMessage(response, "Ingestion service did not accept the request."));
     }
 
     const record = await response.json();
@@ -1179,54 +1218,113 @@ async function sendAcceptedFileToProcessing() {
     if (record.status === "queued" || record.status === "duplicate") {
       renderProcessingProgress(2, "Reading document", "The document is uploaded. Stats is reading the text.");
       setValidationState("Document ingested. Parsing document.", "pending");
-      await parseAcceptedFile(record);
+      await startAcceptedFileProcessingJob(record);
       return;
     }
 
-    setValidationState("Document was not queued. Review the ingestion result.", "error");
+    resetUploadPage("Document was not queued. Choose another file to continue.", "error");
   } catch (error) {
-    setValidationState(error.message || "File ingestion failed.", "error");
+    resetUploadPage(error.message || "File ingestion failed.", "error");
   }
 }
 
-async function parseAcceptedFile(record) {
+async function startAcceptedFileProcessingJob(record) {
   const metadata = acceptedValidation.metadata || {};
   const formData = new FormData();
   formData.append("file", selectedFile);
   formData.append("ingestion_id", record.ingestion_id || "");
+  const user = await window.statsAccess.currentUser();
+  formData.append("uploaded_by_user_id", user.id || "");
   formData.append("source_type", "manual_upload");
   formData.append("source_id", "stats-web-upload");
   formData.append("sha256", metadata.sha256 || "");
+  formData.append("detected_mime_type", metadata.detected_mime_type || selectedFile.type || "");
+  formData.append("allow_ocr_fallback", "true");
+  formData.append("classification_threshold", "0.1");
 
   try {
-    renderProcessingProgress(2, "Reading document", "Stats is reading the document text. This may take a little while for images.");
-    const response = await fetch(statsApiUrl(documentParsingBaseUrl, "/api/v1/parses"), {
+    renderProcessingProgress(2, "Reading document", "Stats is reading the document text. You can keep this page open while it works.");
+    const response = await fetch("/api/v1/upload-processing-jobs", {
       method: "POST",
       body: formData,
     });
 
     if (!response.ok) {
-      throw new Error("Document parsing service did not accept the request.");
+      throw new Error(await downstreamErrorMessage(response, "Document processing could not be started."));
     }
 
-    const result = await response.json();
+    const job = await response.json();
+    await pollProcessingJob(job.job_id);
+  } catch (error) {
+    resetUploadPage(error.message || "Document processing failed.", "error");
+  }
+}
 
-    if (result.status === "failed") {
-      renderParseResult(result);
-      setValidationState("Document parsing needs review.", "error");
+async function pollProcessingJob(jobId) {
+  if (!jobId) {
+    throw new Error("Document processing did not return a job identifier.");
+  }
+
+  const startedAt = Date.now();
+  const maxWaitMs = 30 * 60 * 1000;
+
+  while (Date.now() - startedAt < maxWaitMs) {
+    const response = await fetch(`/api/v1/upload-processing-jobs/${encodeURIComponent(jobId)}`, {
+      headers: window.statsAccess.authHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(await downstreamErrorMessage(response, "Document processing status could not be read."));
+    }
+
+    const job = await response.json();
+    renderProcessingJobProgress(job);
+
+    if (job.status === "completed") {
+      const payload = job.result_payload || {};
+      const parseResultPayload = payload.parse_result;
+      const extraction = payload.extraction_result;
+      const validation = payload.validation_result;
+      if (!parseResultPayload || !extraction || !validation) {
+        throw new Error("Document processing completed without the expected review output.");
+      }
+
+      validation.processing_job_id = job.job_id;
+      renderTransactionCheckResult(validation, parseResultPayload, extraction);
+      setValidationState("Transactions checked. Review the results before saving.", "success");
       return;
     }
 
-    renderProcessingProgress(3, "Checking transactions", "Text was read. Stats is checking transaction candidates.");
-    setValidationState("Document parsed. Extracting transaction candidates.", "pending");
-    const extraction = await extractTransactions(result);
-    setValidationState("Transaction candidates extracted. Validating data.", "pending");
-    const validation = await validateExtractedData(extraction);
-    renderTransactionCheckResult(validation, result, extraction);
-    setValidationState("Transactions checked. Review the results before saving.", "success");
-  } catch (error) {
-    setValidationState(error.message || "Document parsing failed.", "error");
+    if (job.status === "failed") {
+      resetUploadPage(job.message || job.error_detail || "Document processing failed. Choose another file to continue.", "error");
+      return;
+    }
+
+    await sleep(2500);
   }
+
+  throw new Error("Document processing is still running. Refresh the page and check the upload again.");
+}
+
+function renderProcessingJobProgress(job) {
+  const stage = job.stage || "parsing";
+  const stageIndex = {
+    uploaded: 1,
+    parsing: 2,
+    extracting: 3,
+    validating: 3,
+    completed: 4,
+    failed: 2,
+  }[stage] ?? 2;
+
+  const title = stage === "completed" ? "Transactions checked" : "Processing document";
+  const message = job.message || "Stats is checking the document.";
+  renderProcessingProgress(stageIndex, title, message);
+  setValidationState(message, stage === "failed" ? "error" : "pending");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function extractTransactions(parseResultPayload) {
@@ -1237,7 +1335,7 @@ async function extractTransactions(parseResultPayload) {
   });
 
   if (!response.ok) {
-    throw new Error("Transaction extraction service did not accept the request.");
+    throw new Error(await downstreamErrorMessage(response, "Transaction extraction service did not accept the request."));
   }
 
   return response.json();
@@ -1251,7 +1349,7 @@ async function validateExtractedData(extractionResult) {
   });
 
   if (!response.ok) {
-    throw new Error("Data validation service did not accept the request.");
+    throw new Error(await downstreamErrorMessage(response, "Data validation service did not accept the request."));
   }
 
   return response.json();
@@ -1270,6 +1368,7 @@ async function saveReadyTransactions(validationResult, reviewState) {
       uploaded_by_user_id: user.id,
       saved_by_user_id: user.id,
       user_email: user.email,
+      processing_job_id: validationResult.processing_job_id || null,
     }),
   });
 
@@ -1279,6 +1378,111 @@ async function saveReadyTransactions(validationResult, reviewState) {
   }
 
   return response.json();
+}
+
+async function checkDuplicateTransactions(validationResult, reviewState) {
+  const user = await window.statsAccess.currentUser();
+  const response = await fetch(statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/duplicate-checks"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...window.statsAccess.authHeaders(),
+    },
+    body: JSON.stringify({
+      validation_result: buildSaveValidationResult(validationResult, reviewState),
+      uploaded_by_user_id: user.id,
+      saved_by_user_id: user.id,
+      user_email: user.email,
+      processing_job_id: validationResult.processing_job_id || null,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || "Stats Data could not check for duplicates.");
+  }
+
+  return response.json();
+}
+
+function duplicateCheckMessage(duplicateCheck) {
+  const summary = duplicateCheck.summary || {};
+  const exact = Number(summary.exact_file_duplicates || 0) + Number(summary.exact_transaction_duplicates || 0);
+  const possible = Number(summary.possible_document_duplicates || 0)
+    + Number(summary.possible_transaction_duplicates || 0)
+    + Number(summary.within_batch_duplicates || 0);
+  if (exact) {
+    return `${exact} saved item already matches this upload. Review duplicates before saving.`;
+  }
+  if (possible) {
+    return `${possible} possible duplicate item needs review before saving.`;
+  }
+  return "Duplicate review is not ready yet.";
+}
+
+function renderDuplicateCheckPanel(duplicateCheck) {
+  const summary = duplicateCheck.summary || {};
+  const panel = document.createElement("section");
+  panel.className = "duplicate-review";
+
+  const heading = document.createElement("h4");
+  heading.textContent = duplicateCheck.status === "blocked" ? "Duplicate save blocked" : "Possible duplicates need review";
+  const copy = document.createElement("p");
+  copy.textContent = duplicateCheck.status === "blocked"
+    ? "Stats found saved data that already matches this upload. Review the matches before trying to save again."
+    : "Stats found possible matches in saved data. Check these before saving so the database does not get duplicate records.";
+  panel.append(heading, copy);
+
+  const metrics = document.createElement("dl");
+  metrics.className = "duplicate-review-metrics";
+  [
+    ["Transactions checked", summary.total_checked ?? 0],
+    ["Already saved", Number(summary.exact_file_duplicates || 0) + Number(summary.exact_transaction_duplicates || 0)],
+    ["Possible matches", Number(summary.possible_document_duplicates || 0) + Number(summary.possible_transaction_duplicates || 0)],
+    ["Same upload duplicates", summary.within_batch_duplicates ?? 0],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = String(value);
+    row.append(term, description);
+    metrics.append(row);
+  });
+  panel.append(metrics);
+
+  const results = [
+    ...(duplicateCheck.document_results || []),
+    ...(duplicateCheck.transaction_results || []),
+  ];
+  if (results.length) {
+    const list = document.createElement("ul");
+    list.className = "duplicate-review-list";
+    results.forEach((item) => {
+      const row = document.createElement("li");
+      const title = document.createElement("strong");
+      title.textContent = duplicateMatchLabel(item);
+      const message = document.createElement("span");
+      message.textContent = item.message || "This item may already be saved.";
+      row.append(title, message);
+      list.append(row);
+    });
+    panel.append(list);
+  }
+
+  return panel;
+}
+
+function duplicateMatchLabel(item) {
+  const labels = {
+    exact_file_duplicate: "Same file already uploaded",
+    possible_same_document: "Similar document already saved",
+    within_batch_duplicate: "Duplicate row in this upload",
+    exact_transaction_duplicate: "Transaction already saved",
+    possible_transaction_duplicate: "Similar transaction already saved",
+  };
+  const prefix = labels[item.match_type] || "Possible duplicate";
+  return item.record_id ? `${prefix}: ${item.record_id}` : prefix;
 }
 
 documentFileInput?.addEventListener("change", () => {

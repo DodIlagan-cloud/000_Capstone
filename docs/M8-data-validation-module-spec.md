@@ -40,8 +40,9 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 - Prepare dashboard-ready quality statuses for both transaction records and document-level financial facts.
 - Preserve upstream M7 extracted table groups and reconciliation status for user review. M8 may add validation status/review columns, but it must not hide non-transaction extracted data.
 - Produce guided review output that prioritizes exceptions before full extracted data. M8 must create review items for repaired OCR rows, suspicious OCR text, reconciliation mismatches, duplicates, and incomplete or ambiguous records so Stats Web can show a small review queue instead of asking the user to inspect every row.
-- Keep database-backed duplicate checks out of M8; M9/M10 will compare normalized records against stored transactions before persistence.
+- Keep database-backed duplicate checks out of M8; M9/M10 compare normalized records against stored documents and transactions through the M9 pre-save duplicate-check endpoint before persistence.
 - Return summary and evaluation metadata for module evidence.
+- Support upload workflow observability by returning validation identifiers, status, review counts, and summary metadata that Stats Web can log and M9 can persist as the M8 processing-step summary.
 - Keep runtime behavior configurable through safe defaults, ignored local overrides, and environment variables.
 - Follow the central Stats path convention if file-based fixtures or evidence paths are added: resolve logical paths from `config/stats.paths.json` and `STATS_APP_ROOT` instead of assuming a local, container, or cloud root.
 
@@ -84,6 +85,10 @@ Installment balance candidates are reviewable records, but they are not normal t
 | `/` | `GET` | Returns root service metadata. |
 | `/api/v1/validations` | `POST` | Validates and normalizes transaction candidates. |
 
+## Processing Step Timing
+
+M8 remains a synchronous reusable validation API. It does not write M9 timing records directly. Stats Web owns the orchestration timer around `POST /api/v1/validations`, logs the structured step event, and asks M9 to persist it as `module = M8`, `step_name = data_validation`, with safe metadata such as validation ID, validation status, normalized record count, review item count, document review status, and finding count.
+
 ## Finding Codes
 
 | Code | Severity | Meaning |
@@ -109,7 +114,7 @@ Installment balance candidates are reviewable records, but they are not normal t
 | `DUPLICATE_TRANSACTION` | Warning | A normalized transaction duplicates an earlier normalized record in the same validation batch. |
 | `RECORD_LIMIT_APPLIED` | Warning | Only the configured maximum records were validated. |
 | `OCR_REPAIR_REVIEW` | Warning | M7 repaired OCR layout text and the row should be reviewed before final save. |
-| `SUSPICIOUS_OCR_TEXT` | Warning | A normalized description contains generic likely OCR damage such as empty text, a one-character leading token, or an OCR-substitution prefix that leaves the first word malformed. This must be treated as a review gate, not as an issuer- or merchant-specific correction. |
+| `SUSPICIOUS_OCR_TEXT` | Warning | A normalized description contains generic likely OCR damage such as empty text, a one-character leading token, or an OCR-substitution prefix that leaves the first word malformed. This must be treated as a review gate, not as an issuer- or merchant-specific correction, and must avoid flagging legitimate short alphanumeric merchant names such as `3M` or `4G` solely because the leading token is short. |
 | `DOCUMENT_RECONCILIATION_REVIEW` | Warning | M7/M8 reconciliation indicates extracted totals do not match the document summary. |
 
 ## Guided Review Output
@@ -134,13 +139,15 @@ Stats Web review actions before M9 persistence are local to the current upload s
 - A high-confidence or `Ready` row must still remain editable because OCR can miss or alter digits even when the row passes M8 validation rules.
 - The transaction-row `Edit` action must remain visible wherever transaction rows are shown. Hiding an already-reserved action column behind hover does not add user value in this checkpoint.
 - Transaction rows must not offer an `Exclude` action in this iteration because every extracted transaction should either be corrected or accepted before the future database write.
-- Accepting rows does not persist anything. M9/M10 will own database writes and database-backed duplicate checks.
-- Statement-like documents must keep save readiness gated by reconciliation. After each edit or accept, the Upload page recalculates document totals using the supplied M7/M8 reconciliation facts. When M7 has separated statement payments into document-level `payments_and_credits`, the Upload page must use that reconciliation credit total instead of assuming all credits are transaction rows. Transactions are not final ready-to-save while the calculated total differs from the document total outside tolerance.
+- Accepting rows does not persist anything. M9/M10 own database writes and the pre-save database-backed duplicate check.
+- Statement-like documents must keep save readiness gated by reconciliation. After each edit or accept, the Upload page recalculates document totals using the supplied M7/M8 reconciliation facts. When M7 has separated statement payments into document-level `payments_and_credits`, the Upload page must use the statement-level credit total only when it is explicitly present in the M7 reconciliation payload; an explicit zero credit total must not be replaced by the sum of normalized credit rows. Transactions are not final ready-to-save while the calculated total differs from the document total outside tolerance.
 - Non-transaction extracted data tables such as statement summary, document summary, entities/references, line items, and findings must be hidden behind a user-controlled toggle by default. The review queue and transaction readiness state remain the primary visible checkpoint.
 <!-- M8 Review UX - 2026-06-02 End -->
 
 <!-- Fixture Robustness - 2026-06-02 Start -->
 Stats Web must provide a standard Upload checkpoint across supported document types. The normal user view should show one normalized transaction/review surface from M8. Raw M7 `transactions` extracted-data tables must not be repeated in the normal extracted-data toggle because they duplicate M8 normalized transaction rows; raw transaction candidates may remain in developer details for troubleshooting. Supporting non-transaction tables such as document summary, statement summary, entities/references, line items, findings, and reconciliation details may remain available behind the toggle.
+
+For cloud-dev and later production-style runtime, Stats Web must not hold a single browser request open while waiting for M5/M7/M8 to finish. Long-running OCR/parsing workflows should be started as an M9-tracked processing job, then polled by the Upload page until the final M8 validation payload is ready. M8 remains a synchronous validation API internally; the async behavior belongs to the Upload/M9 orchestration boundary.
 <!-- Fixture Robustness - 2026-06-02 End -->
 
 ## Runtime Configuration
@@ -210,7 +217,7 @@ The normal Upload page should not show:
 - Internal module names as the main user-facing status.
 - Parse IDs, extraction IDs, hashes, OCR engine names, confidence decimals, or source debug fields unless a developer/admin detail view is explicitly opened.
 
-Before M9 exists, the primary save action may remain disabled or labelled as a deferred storage step. After M9/M10 exist, clicking the primary save action should send M8 normalized records to persistence, where database duplicate checks are performed.
+Before M9 exists, the primary save action may remain disabled or labelled as a deferred storage step. After M9/M10 exist, clicking the primary save action should first send M8 normalized records to the M9 duplicate-check endpoint. Only after duplicate results are reviewed should the accepted payload be sent to the M9 save endpoint.
 
 Before M9 exists, `Save ready transactions` remains disabled even when all rows are accepted and reconciled. The Upload page should still show whether rows are ready for the future save step.
 

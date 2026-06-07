@@ -558,8 +558,8 @@ def _looks_like_suspicious_ocr_description(description: str) -> bool:
     words = description.split()
     if not words:
         return True
-    first_word = re.sub(r"[^A-Za-z]", "", words[0])
-    if len(first_word) <= 1:
+    first_token = re.sub(r"[^A-Za-z0-9]", "", words[0])
+    if len(first_token) <= 1:
         return True
     if any(pattern.match(description) for pattern in OCR_SUSPICIOUS_PREFIX_PATTERNS):
         return True

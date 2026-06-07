@@ -55,6 +55,7 @@ The current roadmap may still show M5 as OCR Extraction and M6 as Document Class
 - For receipt and payment-terminal photos, include preprocessing attempts that improve faint thermal-printer text and terminal/customer-copy rows, such as autocontrast, sharpened contrast, and thresholded variants, without relying on merchant-specific templates.
 - Score OCR attempts using mean confidence, text volume, character quality, and financial keywords so the module can pick the best Tesseract output instead of accepting the first pass blindly.
 - OCR attempt scoring for receipt-like documents should favor preservation of transaction-critical evidence, including date/time tokens, terminal/EFTPOS/payment terms, approval/reference signals, and amount/currency tokens, so a longer or smoother OCR attempt does not win if it loses visible transaction details.
+- Use adaptive OCR effort so cloud-dev remains lightweight: scanned PDFs should run a small fast OCR profile first and escalate to the broader orientation/preprocessing/PSM retry matrix only for pages whose first pass does not meet configured quality, text-volume, confidence, or transaction-signal thresholds. Image/photo uploads may still use the broader retry matrix because a single camera image often needs orientation and preprocessing repair.
 - Use a PDF rendering dependency, preferably PyMuPDF, to render scanned PDF pages before OCR.
 - Classify parsed documents using the shared document-classification vocabulary after text extraction completes, regardless of whether text came from direct PDF extraction, scanned-PDF OCR, or image OCR.
 - Return both `document_type` and optional `document_subtype` when the shared vocabulary and rule signals support a subtype.
@@ -63,6 +64,7 @@ The current roadmap may still show M5 as OCR Extraction and M6 as Document Class
 - Return explicit findings for unsupported media, unreadable files, OCR disabled, Tesseract unavailable, renderer unavailable, OCR failure, no text, low text quality, and uncertain classification.
 - Return evaluation-ready fields for measuring extraction reliability, OCR fallback rate, classification confidence, processing time, and redaction compliance.
 - Return an extraction handoff audit that proves whether OCR/Tesseract ran, whether parse text is present, whether transaction-like signals exist, and whether the parse output is ready for downstream transaction extraction.
+- Support upload workflow observability by exposing safe parse/OCR timing metadata that Stats Web can log and M9 can persist as the M5 processing-step summary.
 - Redact personal information, account numbers, card numbers, and other sensitive values from evidence previews.
 - Use real approved project TestData for automated/evidence checks.
 - Keep runtime behavior configurable through defaults, ignored local overrides, environment variables, and later M13 container settings.
@@ -71,6 +73,7 @@ The current roadmap may still show M5 as OCR Extraction and M6 as Document Class
 
 - Validating upload file type, size, extension, or signatures. That belongs to M3/M4.
 - Creating ingestion records or storage handoff records. That belongs to M3/M4.
+- Handling storage-provider failures for accepted uploads. That belongs to M3/M4, and those failures must return controlled ingestion rejection details rather than an unhandled 500 before M5 is invoked.
 - Extracting structured transaction rows or financial fields. That belongs to Transaction Processing.
 - Cleaning, categorising, deduplicating, or validating transaction records.
 - Persisting parsed results into the Stats database.
@@ -152,6 +155,14 @@ It is part of the API response for developer diagnostics, regression evidence, a
 | `/health` | `GET` | Returns service and OCR readiness metadata. |
 | `/` | `GET` | Returns root service metadata. |
 | `/api/v1/parses` | `POST` | Parses a multipart document and returns the Document Parsing Result. |
+
+M5 remains a synchronous module API. Cloud-facing upload flows must not expose that synchronous runtime directly to the browser for OCR-heavy files because Azure Container Apps ingress can cancel long-running HTTP requests. Stats Web should call M5 from a background upload-processing workflow and report progress through an M9 processing-job status record. Once this async workflow is used, Stats Web must not force the earlier cloud-timeout workaround of `page_limit=1`; statement and multi-page documents need the M5 default page coverage so M7 can see the transaction pages.
+
+## Processing Step Timing
+
+M5 participates in the cross-module upload timing contract. The M5 response must continue to expose safe parse timing and OCR metadata such as elapsed milliseconds, page count, pages processed, OCR attempted, OCR engine, OCR attempt count where available, selected strategy, and finding count.
+
+Stats Web owns the orchestration timer around the M5 `/api/v1/parses` call. M9 owns durable persistence of that step as `module = M5`, `step_name = document_parsing`, `status`, `started_at_utc`, `completed_at_utc`, `duration_ms`, and safe metadata. M5 must not write M9 database rows directly.
 
 ## Strategy Rules
 
@@ -279,6 +290,10 @@ Expected settings:
 | `OCR_LANGUAGES` | `eng` | OCR language hint. |
 | `OCR_PSM_VALUES` | `6,11,4` | Tesseract page segmentation modes tried for OCR. |
 | `OCR_RETRY_ORIENTATIONS` | `true` | Enables 0/90/180/270 orientation retry after EXIF normalization. |
+| `OCR_PDF_FAST_PSM_VALUES` | `6,4` | Smaller first-pass PSM set for scanned PDF pages before heavier OCR repair is attempted. |
+| `OCR_FAST_MIN_QUALITY_SCORE` | `0.55` | Minimum OCR quality score that allows a scanned PDF page to skip heavier OCR repair. |
+| `OCR_FAST_MIN_TEXT_LENGTH` | `120` | Minimum first-pass OCR text length that allows a scanned PDF page to skip heavier OCR repair. |
+| `OCR_PDF_RENDER_SCALE` | `2.0` | PDF page render scale used before Tesseract OCR. |
 | `OCR_MIN_CONFIDENCE` | `35` | Minimum acceptable mean OCR confidence before a warning is raised. |
 | `OCR_MIN_QUALITY_SCORE` | `0.35` | Minimum OCR quality score before noisy-text warning is raised. |
 | `OCR_MIN_ALNUM_RATIO` | `0.35` | Minimum alphanumeric ratio before noisy-text warning is raised. |

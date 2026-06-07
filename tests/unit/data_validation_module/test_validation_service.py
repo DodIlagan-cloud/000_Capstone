@@ -373,7 +373,7 @@ def test_repaired_ocr_candidate_creates_guided_review_item():
     assert result.evaluation.finding_counts["SUSPICIOUS_OCR_TEXT"] == 1
 
 
-def test_iso_dates_still_normalize_and_legitimate_i_prefix_is_not_suspicious():
+def test_iso_dates_and_short_alphanumeric_merchants_are_not_suspicious():
     result = validate_data(
         DataValidationRequest(
             document_type="statement",
@@ -394,6 +394,23 @@ def test_iso_dates_still_normalize_and_legitimate_i_prefix_is_not_suspicious():
                         "text": "IKEA MAKATI 2023-11-22 2023-11-19 2,935.80",
                         "section_label": "transaction_table",
                     },
+                },
+                {
+                    "candidate_id": "txn_short_merchant",
+                    "date_text": "22 Nov 2023",
+                    "posted_date_text": "19 Nov 2023",
+                    "description": "3M SUPPLIES MAKATI",
+                    "amount": 1200.00,
+                    "currency": "PHP",
+                    "direction": "debit",
+                    "confidence": 0.9,
+                    "reason_codes": ["OCR_LAYOUT_REPAIRED"],
+                    "source": {
+                        "page_number": 3,
+                        "line_number": 133,
+                        "text": "3M SUPPLIES MAKATI 22 Nov 19 Nov 1,200.00",
+                        "section_label": "transaction_table",
+                    },
                 }
             ],
         )
@@ -402,6 +419,7 @@ def test_iso_dates_still_normalize_and_legitimate_i_prefix_is_not_suspicious():
     assert result.normalized_records[0].transaction_date == "2023-11-22"
     assert result.normalized_records[0].posted_date == "2023-11-19"
     assert "SUSPICIOUS_OCR_TEXT" not in result.normalized_records[0].reason_codes
+    assert "SUSPICIOUS_OCR_TEXT" not in result.normalized_records[1].reason_codes
     assert "SUSPICIOUS_OCR_TEXT" not in result.evaluation.finding_counts
 
 
