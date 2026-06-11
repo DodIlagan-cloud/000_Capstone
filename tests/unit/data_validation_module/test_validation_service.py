@@ -18,6 +18,31 @@ from app.models.validation import DataValidationRequest
 from app.services.validation_service import validate_data
 
 
+def _classified_candidate(**overrides):
+    candidate = {
+        "candidate_id": "txn_classified",
+        "date_text": "2026-01-08",
+        "description": "Classified transaction",
+        "amount": 100.0,
+        "currency": "PHP",
+        "direction": "debit",
+        "confidence": 0.9,
+        "transaction_type": "purchase",
+        "transaction_subtype": "merchant_purchase",
+        "transaction_type_confidence": 0.86,
+        "transaction_type_status": "classified",
+        "transaction_type_reason_codes": ["MERCHANT_PURCHASE_SIGNALS"],
+        "spending_category": "shopping",
+        "spending_subcategory": "retail",
+        "spending_category_confidence": 0.84,
+        "spending_category_status": "classified",
+        "spending_category_reason_codes": ["RETAIL_CATEGORY_SIGNALS"],
+        "classification_source": "rules",
+    }
+    candidate.update(overrides)
+    return candidate
+
+
 def test_valid_extraction_candidates_are_normalized(extraction_candidates):
     extraction_candidates["transaction_candidates"][0]["posted_date_text"] = "Nov 03 2023"
 
@@ -37,7 +62,7 @@ def test_hyphenated_receipt_date_is_normalized():
         DataValidationRequest(
             document_type="receipt",
             transaction_candidates=[
-                {
+                _classified_candidate(**{
                     "candidate_id": "txn_receipt",
                     "date_text": "24-05-2026",
                     "description": "Receipt purchase",
@@ -47,7 +72,7 @@ def test_hyphenated_receipt_date_is_normalized():
                     "source": {"page_number": 1, "line_number": 1, "text": "DATE: 24-05-2026 TOTAL $56.00"},
                     "confidence": 0.82,
                     "reason_codes": ["RECEIPT_TOTAL_TRANSACTION_DERIVED", "AMOUNT_DETECTED"],
-                }
+                })
             ],
         )
     )
@@ -61,7 +86,7 @@ def test_missing_date_unknown_direction_and_low_confidence_return_warnings():
         DataValidationRequest(
             document_type="receipt",
             transaction_candidates=[
-                {
+                _classified_candidate(**{
                     "candidate_id": "txn_warn",
                     "date_text": None,
                     "description": "Transfer to Vendor",
@@ -69,7 +94,7 @@ def test_missing_date_unknown_direction_and_low_confidence_return_warnings():
                     "currency": "PHP",
                     "direction": "unknown",
                     "confidence": 0.44,
-                }
+                })
             ],
         )
     )
@@ -81,12 +106,45 @@ def test_missing_date_unknown_direction_and_low_confidence_return_warnings():
     assert result.evaluation.finding_counts["LOW_CONFIDENCE_RECORD"] == 1
 
 
+def test_pending_recognition_suggestion_is_preserved_and_marked_for_review():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="receipt",
+            transaction_candidates=[
+                _classified_candidate(**{
+                    "candidate_id": "txn_suggested_label",
+                    "recognition_suggestion_id": "suggestion_123",
+                    "recognition_suggestion_status": "pending",
+                    "suggested_transaction_type": "transport",
+                    "suggested_transaction_subtype": "public_transport_topup",
+                    "suggested_spending_category": "transport",
+                    "suggested_spending_subcategory": "stored_value_card",
+                    "suggestion_confidence": 0.81,
+                    "suggestion_reason_codes": ["AI_LABEL_SUGGESTION"],
+                    "suggestion_source": "ai",
+                    "suggestion_evidence_ref": "redacted:evidence:1",
+                })
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+    assert result.status == "completed_with_warnings"
+    assert record.recognition_suggestion_id == "suggestion_123"
+    assert record.recognition_suggestion_status == "pending"
+    assert record.suggested_transaction_type == "transport"
+    assert record.suggested_spending_subcategory == "stored_value_card"
+    assert record.suggestion_confidence == 0.81
+    assert "PENDING_RECOGNITION_LABEL_SUGGESTION" in record.reason_codes
+    assert result.evaluation.finding_counts["PENDING_RECOGNITION_LABEL_SUGGESTION"] == 1
+
+
 def test_invalid_amount_and_blank_description_mark_record_invalid():
     result = validate_data(
         DataValidationRequest(
             document_type="receipt",
             transaction_candidates=[
-                {
+                _classified_candidate(**{
                     "candidate_id": "txn_bad",
                     "date_text": "2026-01-08",
                     "description": "   ",
@@ -94,7 +152,7 @@ def test_invalid_amount_and_blank_description_mark_record_invalid():
                     "currency": "PHP",
                     "direction": "debit",
                     "confidence": 0.91,
-                }
+                })
             ],
         )
     )
@@ -309,7 +367,7 @@ def test_document_financial_summary_excludes_transaction_table_fields(extraction
 
 def test_transaction_candidate_from_non_transaction_section_needs_review(extraction_candidates):
     extraction_candidates["transaction_candidates"] = [
-        {
+        _classified_candidate(**{
             "candidate_id": "txn_summary",
             "date_text": "Nov 07 2023",
             "description": "Credit limit",
@@ -324,7 +382,7 @@ def test_transaction_candidate_from_non_transaction_section_needs_review(extract
             },
             "confidence": 0.9,
             "reason_codes": ["AMOUNT_DETECTED"],
-        }
+        })
     ]
     extraction_candidates["financial_field_candidates"] = []
 
@@ -342,7 +400,7 @@ def test_repaired_ocr_candidate_creates_guided_review_item():
         DataValidationRequest(
             document_type="statement",
             transaction_candidates=[
-                {
+                _classified_candidate(**{
                     "candidate_id": "txn_ocr",
                     "date_text": "22 Nov 2023",
                     "posted_date_text": "19 Nov 2023",
@@ -358,7 +416,7 @@ def test_repaired_ocr_candidate_creates_guided_review_item():
                         "text": "IANG NAN FOOD MAKATI 22 Nov 19 Nov a H 2,935.80",
                         "section_label": "transaction_table",
                     },
-                }
+                })
             ],
         )
     )
@@ -378,7 +436,7 @@ def test_iso_dates_and_short_alphanumeric_merchants_are_not_suspicious():
         DataValidationRequest(
             document_type="statement",
             transaction_candidates=[
-                {
+                _classified_candidate(**{
                     "candidate_id": "txn_iso",
                     "date_text": "2023-11-22",
                     "posted_date_text": "2023-11-19",
@@ -394,8 +452,8 @@ def test_iso_dates_and_short_alphanumeric_merchants_are_not_suspicious():
                         "text": "IKEA MAKATI 2023-11-22 2023-11-19 2,935.80",
                         "section_label": "transaction_table",
                     },
-                },
-                {
+                }),
+                _classified_candidate(**{
                     "candidate_id": "txn_short_merchant",
                     "date_text": "22 Nov 2023",
                     "posted_date_text": "19 Nov 2023",
@@ -411,7 +469,7 @@ def test_iso_dates_and_short_alphanumeric_merchants_are_not_suspicious():
                         "text": "3M SUPPLIES MAKATI 22 Nov 19 Nov 1,200.00",
                         "section_label": "transaction_table",
                     },
-                }
+                })
             ],
         )
     )
@@ -428,7 +486,7 @@ def test_low_confidence_ocr_amount_creates_guided_review_item_without_reconcilia
         DataValidationRequest(
             document_type="statement",
             transaction_candidates=[
-                {
+                _classified_candidate(**{
                     "candidate_id": "txn_low_amount",
                     "date_text": "07 Dec 2023",
                     "posted_date_text": "05 Dec 2023",
@@ -445,7 +503,7 @@ def test_low_confidence_ocr_amount_creates_guided_review_item_without_reconcilia
                         "section_label": "transaction_table",
                         "ocr_confidence": 0.5,
                     },
-                }
+                })
             ],
         )
     )
@@ -483,3 +541,215 @@ def test_reconciliation_mismatch_creates_document_review_item(extraction_candida
     assert result.review_items[0].item_type == "document_reconciliation"
     assert "DOCUMENT_RECONCILIATION_REVIEW" in result.review_items[0].reason_codes
     assert result.evaluation.finding_counts["DOCUMENT_RECONCILIATION_REVIEW"] == 1
+
+
+def test_transaction_classification_fields_are_preserved_for_reporting():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="payment_proof",
+            transaction_candidates=[
+                {
+                    "candidate_id": "txn_transfer",
+                    "date_text": "2026-01-08",
+                    "description": "Transfer to Acqua Eden",
+                    "amount": 17274.97,
+                    "currency": "PHP",
+                    "direction": "debit",
+                    "confidence": 0.9,
+                    "transaction_type": "transfer",
+                    "transaction_subtype": "bank_transfer",
+                    "transaction_type_confidence": 0.78,
+                    "transaction_type_status": "classified",
+                    "transaction_type_reason_codes": ["BANK_TRANSFER_SIGNALS"],
+                    "transaction_type_scores": {"transfer.bank_transfer": 0.78},
+                    "spending_category": "transfers",
+                    "spending_subcategory": "bank_transfer",
+                    "spending_category_confidence": 0.84,
+                    "spending_category_status": "classified",
+                    "spending_category_reason_codes": ["TRANSFER_CATEGORY_SIGNALS"],
+                    "spending_category_scores": {"transfers.bank_transfer": 0.84},
+                    "classification_source": "rules",
+                    "ai_model_name": "gemini-2.5-flash",
+                    "ai_model_version": "gemini-2.5-flash",
+                    "ai_confidence": 0.84,
+                }
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert result.status == "completed"
+    assert record.transaction_type == "transfer"
+    assert record.transaction_subtype == "bank_transfer"
+    assert record.spending_category == "transfers"
+    assert record.spending_subcategory == "bank_transfer"
+    assert record.classification_source == "rules"
+    assert record.ai_model_name == "gemini-2.5-flash"
+    assert record.ai_confidence == 0.84
+
+
+def test_unknown_document_type_blocks_transaction_save():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="unknown",
+            transaction_candidates=[_classified_candidate()],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert result.status == "completed_with_warnings"
+    assert record.quality_status == "invalid"
+    assert "UNKNOWN_DOCUMENT_TYPE" in record.reason_codes
+    assert result.summary.valid_record_count == 0
+    assert result.summary.invalid_record_count == 1
+    assert result.summary.document_review_status == "blocked"
+    assert result.evaluation.finding_counts["UNKNOWN_DOCUMENT_TYPE"] == 1
+
+
+def test_low_confidence_required_classifications_create_review_item_without_blocking():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="receipt",
+            document_type_confidence=0.42,
+            document_type_status="classified",
+            transaction_candidates=[
+                _classified_candidate(
+                    transaction_type_confidence=0.43,
+                    spending_category_confidence=0.44,
+                )
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert result.status == "completed_with_warnings"
+    assert record.quality_status == "warning"
+    assert "LOW_CONFIDENCE_DOCUMENT_TYPE" in record.reason_codes
+    assert "LOW_CONFIDENCE_TRANSACTION_TYPE" in record.reason_codes
+    assert "LOW_CONFIDENCE_SPENDING_CATEGORY" in record.reason_codes
+    assert result.summary.warning_record_count == 1
+    assert result.summary.invalid_record_count == 0
+    assert result.summary.document_review_status == "needs_review"
+    assert result.evaluation.finding_counts["LOW_CONFIDENCE_DOCUMENT_TYPE"] == 1
+
+
+def test_supplied_unknown_transaction_classification_creates_review_item():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="receipt",
+            transaction_candidates=[
+                {
+                    "candidate_id": "txn_unclear_category",
+                    "date_text": "2026-06-08",
+                    "description": "Blurred merchant receipt",
+                    "amount": 34.33,
+                    "currency": "NZD",
+                    "direction": "debit",
+                    "confidence": 0.82,
+                    "transaction_type": "unknown",
+                    "transaction_type_confidence": 0.2,
+                    "transaction_type_status": "unknown",
+                    "transaction_type_reason_codes": ["NO_CLASSIFICATION_SIGNALS"],
+                    "spending_category": "uncategorized",
+                    "spending_category_confidence": 0.2,
+                    "spending_category_status": "unknown",
+                    "spending_category_reason_codes": ["NO_CLASSIFICATION_SIGNALS"],
+                    "classification_source": "rules",
+                }
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert result.status == "completed_with_warnings"
+    assert record.quality_status == "warning"
+    assert "UNKNOWN_TRANSACTION_TYPE" in record.reason_codes
+    assert "UNKNOWN_SPENDING_CATEGORY" in record.reason_codes
+    assert result.summary.warning_record_count == 1
+    assert result.summary.invalid_record_count == 0
+    assert result.summary.valid_record_count == 0
+    assert result.summary.review_item_count == 1
+    assert result.summary.document_review_status == "needs_review"
+    assert result.evaluation.finding_counts["UNKNOWN_TRANSACTION_TYPE"] == 1
+    assert result.evaluation.finding_counts["UNKNOWN_SPENDING_CATEGORY"] == 1
+
+
+def test_ai_transaction_classification_review_metadata_creates_review_item():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="receipt",
+            transaction_candidates=[
+                {
+                    "candidate_id": "txn_ai_conflict",
+                    "date_text": "2026-06-08",
+                    "description": "Transfer to Vendor",
+                    "amount": 34.33,
+                    "currency": "NZD",
+                    "direction": "debit",
+                    "confidence": 0.9,
+                    "transaction_type": "transfer",
+                    "transaction_subtype": "bank_transfer",
+                    "transaction_type_confidence": 0.82,
+                    "transaction_type_status": "classified",
+                    "spending_category": "transfers",
+                    "spending_subcategory": "bank_transfer",
+                    "spending_category_confidence": 0.82,
+                    "spending_category_status": "classified",
+                    "classification_source": "rules_ai_conflict",
+                    "ai_model_name": "gemini-2.5-flash",
+                    "ai_model_version": "gemini-2.5-flash",
+                    "ai_confidence": 0.91,
+                    "classification_review_required": True,
+                    "classification_review_reason_codes": ["RULE_AI_TRANSACTION_TYPE_CONFLICT"],
+                }
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert result.status == "completed_with_warnings"
+    assert record.quality_status == "warning"
+    assert record.classification_source == "rules_ai_conflict"
+    assert record.classification_review_required is True
+    assert "RULE_AI_TRANSACTION_TYPE_CONFLICT" in record.reason_codes
+    assert result.summary.review_item_count == 1
+    assert result.evaluation.finding_counts["AI_CLASSIFICATION_REVIEW_REQUIRED"] == 1
+
+
+def test_document_recognition_suggestion_metadata_is_preserved_for_m9():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="unknown",
+            document_type_status="unknown",
+            document_recognition_suggestion_id="doc_suggestion_1",
+            document_recognition_suggestion_status="pending",
+            suggested_document_type="receipt",
+            suggested_document_subtype="tax_receipt",
+            document_suggestion_confidence=0.91,
+            document_suggestion_reason_codes=["AI_SUGGESTED_INACTIVE_DOCUMENT_LABEL"],
+            document_suggestion_source="m5_ai_document_classification",
+            document_suggestion_evidence_ref="m5:redacted_classification_prompt",
+            financial_field_candidates=[
+                {
+                    "field_name": "receipt_total",
+                    "value_text": "34.33",
+                    "normalized_value": "34.33",
+                    "value_type": "amount",
+                    "confidence": 0.9,
+                }
+            ],
+        )
+    )
+
+    assert result.document_type == "unknown"
+    assert result.document_recognition_suggestion_id == "doc_suggestion_1"
+    assert result.document_recognition_suggestion_status == "pending"
+    assert result.suggested_document_type == "receipt"
+    assert result.suggested_document_subtype == "tax_receipt"
+    assert result.document_suggestion_confidence == 0.91
+    assert result.document_suggestion_source == "m5_ai_document_classification"

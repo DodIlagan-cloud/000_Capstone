@@ -265,6 +265,7 @@ def test_compose_configures_data_validation_port():
     assert 'TRANSACTION_EXTRACTION_PORT: "${TRANSACTION_EXTRACTION_PORT:-8016}"' in content
     assert 'DATA_VALIDATION_PORT: "${DATA_VALIDATION_PORT:-8017}"' in content
     assert 'STATS_DATA_PORT: "${STATS_DATA_PORT:-8018}"' in content
+    assert 'STATS_INTERNAL_API_KEY: "${STATS_INTERNAL_API_KEY:?Set STATS_INTERNAL_API_KEY in infrastructure/compose/.env.container}"' in content
 
 
 def test_compose_references_dockerfile():

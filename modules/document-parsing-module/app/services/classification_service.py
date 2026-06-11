@@ -4,96 +4,21 @@ M5/M6 End"""
 
 import json
 import re
-from functools import lru_cache
-from pathlib import Path
+import time
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from app.config import settings
 from app.models.parsing import ClassificationResult
+from app.services.ai_classification_service import (
+    ai_classify_document,
+    merge_rule_and_ai_classification,
+    should_try_ai_classification,
+)
 
 
-FALLBACK_VOCABULARY = {
-    "document_types": ["statement", "receipt", "invoice", "payment_proof", "utility_bill", "unknown"],
-    "document_subtypes": {
-        "statement": ["credit_card_statement", "account_statement", "loan_statement", "unknown"],
-        "receipt": ["sales_receipt", "tax_receipt", "payment_terminal_receipt", "card_receipt", "medical_receipt", "unknown"],
-        "invoice": ["service_invoice", "medical_invoice", "tax_invoice", "utility_invoice", "unknown"],
-        "payment_proof": ["bank_transfer_proof", "card_payment_proof", "eftpos_proof", "unknown"],
-        "utility_bill": ["electricity_bill", "water_bill", "gas_bill", "telecommunications_bill", "unknown"],
-        "unknown": ["unknown"],
-    },
-}
-
-FALLBACK_RULES = {
-    "rules": [
-        {
-            "document_type": "statement",
-            "document_subtype": "credit_card_statement",
-            "reason_code": "CREDIT_CARD_STATEMENT_SIGNALS",
-            "required_any": ["credit card", "card type", "mastercard", "visa"],
-            "signals": [
-                "statement of account",
-                "credit limit",
-                "minimum amount due",
-                "payment due date",
-                "finance charge",
-                "previous balance",
-                "unbilled installment",
-                "total outstanding balance",
-                "amount due",
-            ],
-            "minimum_score": 0.38,
-        },
-        {
-            "document_type": "receipt",
-            "document_subtype": "payment_terminal_receipt",
-            "reason_code": "PAYMENT_TERMINAL_RECEIPT_SIGNALS",
-            "required_any": ["eftpos", "terminal", "approved", "merchant copy", "rrn", "aid", "tvr", "tsi", "auth"],
-            "signals": ["purchase", "rrn", "aid", "tvr", "tsi", "card", "auth", "merchant", "total"],
-            "minimum_score": 0.34,
-        },
-        {
-            "document_type": "receipt",
-            "document_subtype": "tax_receipt",
-            "reason_code": "RECEIPT_SIGNALS",
-            "required_any": ["receipt", "tax invoice", "total", "subtotal", "gst", "eftpos", "purchase"],
-            "signals": ["subtotal", "gst", "includes gst", "tax", "tax invoice", "eftpos", "purchase", "merchant", "total", "total due", "approved", "card"],
-            "minimum_score": 0.35,
-        },
-        {
-            "document_type": "invoice",
-            "document_subtype": "medical_invoice",
-            "reason_code": "MEDICAL_INVOICE_SIGNALS",
-            "required_any": ["tax invoice no", "invoice", "nhi", "dob", "lab"],
-            "signals": ["tests", "price", "price incl", "service fee", "payment history", "paid", "owing", "gst", "gender", "phone"],
-            "minimum_score": 0.35,
-        },
-        {
-            "document_type": "invoice",
-            "document_subtype": "service_invoice",
-            "reason_code": "INVOICE_SIGNALS",
-            "required_any": ["invoice", "tax invoice", "bill to"],
-            "signals": ["amount due", "invoice number", "invoice no", "payment terms", "due date", "subtotal", "gst", "paid", "owing"],
-            "minimum_score": 0.35,
-        },
-        {
-            "document_type": "payment_proof",
-            "document_subtype": "bank_transfer_proof",
-            "reason_code": "PAYMENT_PROOF_SIGNALS",
-            "required_any": ["transfer successful", "confirmation no", "transfer amount"],
-            "signals": ["transfer to", "transfer from", "confirmation", "reference", "payment", "sent via", "account"],
-            "minimum_score": 0.35,
-        },
-        {
-            "document_type": "utility_bill",
-            "document_subtype": "unknown",
-            "reason_code": "UTILITY_BILL_SIGNALS",
-            "required_any": ["utility", "electricity", "water", "gas", "meter", "kwh"],
-            "signals": ["usage", "charges", "billing period", "due date", "amount due", "service address"],
-            "minimum_score": 0.35,
-        },
-    ]
-}
+_active_settings_cache: tuple[float, dict[str, Any]] | None = None
 
 
 def classify_document(
@@ -104,8 +29,21 @@ def classify_document(
     allow_unknown: bool,
 ) -> ClassificationResult:
     normalized_text = " ".join((text or "").lower().split())
-    vocabulary = _load_vocabulary()
-    rules = _load_rules()
+    active_settings = _load_active_settings()
+    if not active_settings:
+        return ClassificationResult(
+            document_type="unknown",
+            document_subtype="unknown",
+            confidence=0.0,
+            status="unknown",
+            reason_codes=["RECOGNITION_SETTINGS_UNAVAILABLE"],
+            scores={},
+            requires_review=True,
+            review_reason_codes=["RECOGNITION_SETTINGS_UNAVAILABLE"],
+        )
+
+    vocabulary = active_settings.get("document_vocabulary", {})
+    rules = active_settings.get("document_rules", {})
     supported = {document_type.lower() for document_type in supported_document_types}
     allowed_types = {document_type.lower() for document_type in vocabulary.get("document_types", [])}
     allowed_subtypes = {
@@ -115,13 +53,18 @@ def classify_document(
     candidate_types = (supported & allowed_types) - {"unknown"}
 
     if not candidate_types:
-        return ClassificationResult(
-            document_type="unknown",
-            document_subtype="unknown",
-            confidence=0.0,
-            status="unsupported",
-            reason_codes=["NO_SUPPORTED_CLASSES"],
-            scores={},
+        return _finalize_classification(
+            ClassificationResult(
+                document_type="unknown",
+                document_subtype="unknown",
+                confidence=0.0,
+                status="unsupported",
+                reason_codes=["NO_SUPPORTED_CLASSES"],
+                scores={},
+            ),
+            text=text,
+            supported_document_types=supported_document_types,
+            approved_document_types=allowed_types,
         )
 
     scored_rules = []
@@ -145,7 +88,19 @@ def classify_document(
         scored_rules.append((document_type, document_subtype, score, matched, rule))
 
     if not scored_rules:
-        return _unknown_result(0.0, ["NO_CLASSIFICATION_SIGNALS"], allow_unknown)
+        unknown = _unknown_result(0.0, ["NO_CLASSIFICATION_SIGNALS"], allow_unknown)
+        unknown = _content_shape_suggestion(
+            unknown,
+            text=normalized_text,
+            supported_document_types=supported,
+            approved_document_types=allowed_types,
+        )
+        return _finalize_classification(
+            unknown,
+            text=text,
+            supported_document_types=supported_document_types,
+            approved_document_types=allowed_types,
+        )
 
     best_type, best_subtype, best_score, _matched, _rule = max(scored_rules, key=lambda item: item[2])
     confidence = round(best_score, 3)
@@ -153,39 +108,54 @@ def classify_document(
     ambiguous = len(sorted_scores) > 1 and sorted_scores[0] > 0 and abs(sorted_scores[0] - sorted_scores[1]) < 0.10
 
     if confidence >= confidence_threshold and not ambiguous:
-        return ClassificationResult(
-            document_type=best_type,
-            document_subtype=best_subtype,
-            confidence=confidence,
-            status="classified",
-            reason_codes=sorted(set(reason_codes)),
-            scores=scores,
+        return _finalize_classification(
+            ClassificationResult(
+                document_type=best_type,
+                document_subtype=best_subtype,
+                confidence=confidence,
+                status="classified",
+                reason_codes=sorted(set(reason_codes)),
+                scores=scores,
+            ),
+            text=text,
+            supported_document_types=supported_document_types,
+            approved_document_types=allowed_types,
         )
 
     if best_type == "statement" and confidence >= confidence_threshold:
-        return ClassificationResult(
-            document_type=best_type,
-            document_subtype=best_subtype,
-            confidence=confidence,
-            status="classified",
-            reason_codes=sorted(set([*reason_codes, "STATEMENT_AMBIGUITY_RESOLVED"])),
-            scores=scores,
+        return _finalize_classification(
+            ClassificationResult(
+                document_type=best_type,
+                document_subtype=best_subtype,
+                confidence=confidence,
+                status="classified",
+                reason_codes=sorted(set([*reason_codes, "STATEMENT_AMBIGUITY_RESOLVED"])),
+                scores=scores,
+            ),
+            text=text,
+            supported_document_types=supported_document_types,
+            approved_document_types=allowed_types,
         )
 
     receipt_override = _receipt_favored_result(scored_rules)
     if receipt_override:
         best_type, best_subtype, confidence = receipt_override
-        return ClassificationResult(
-            document_type=best_type,
-            document_subtype=best_subtype,
-            confidence=confidence,
-            status="classified",
-            reason_codes=sorted(set([*reason_codes, "RECEIPT_AMBIGUITY_RESOLVED"])),
-            scores=scores,
+        return _finalize_classification(
+            ClassificationResult(
+                document_type=best_type,
+                document_subtype=best_subtype,
+                confidence=confidence,
+                status="classified",
+                reason_codes=sorted(set([*reason_codes, "RECEIPT_AMBIGUITY_RESOLVED"])),
+                scores=scores,
+            ),
+            text=text,
+            supported_document_types=supported_document_types,
+            approved_document_types=allowed_types,
         )
 
     if ambiguous:
-        return ClassificationResult(
+        ambiguous_result = ClassificationResult(
             document_type="unknown" if allow_unknown else best_type,
             document_subtype="unknown" if allow_unknown else best_subtype,
             confidence=confidence,
@@ -193,14 +163,60 @@ def classify_document(
             reason_codes=sorted(set([*reason_codes, "AMBIGUOUS_DOCUMENT_SIGNALS"])),
             scores=scores,
         )
+        ambiguous_result = _content_shape_suggestion(
+            ambiguous_result,
+            text=normalized_text,
+            supported_document_types=supported,
+            approved_document_types=allowed_types,
+        )
+        return _finalize_classification(
+            ambiguous_result,
+            text=text,
+            supported_document_types=supported_document_types,
+            approved_document_types=allowed_types,
+        )
 
-    return _unknown_result(
+    unknown = _unknown_result(
         confidence,
         [*reason_codes, "CONFIDENCE_BELOW_THRESHOLD", "POSSIBLE_NEW_DOCUMENT_SHAPE"],
         allow_unknown,
         best_type=best_type,
         best_subtype=best_subtype,
         scores=scores,
+    )
+    unknown = _content_shape_suggestion(
+        unknown,
+        text=normalized_text,
+        supported_document_types=supported,
+        approved_document_types=allowed_types,
+    )
+    return _finalize_classification(
+        unknown,
+        text=text,
+        supported_document_types=supported_document_types,
+        approved_document_types=allowed_types,
+    )
+
+
+def _finalize_classification(
+    rule_result: ClassificationResult,
+    *,
+    text: str,
+    supported_document_types: list[str],
+    approved_document_types: set[str],
+) -> ClassificationResult:
+    if not settings.classification_ai_enabled or not should_try_ai_classification(rule_result):
+        return rule_result
+
+    ai_result = ai_classify_document(
+        text=text,
+        supported_document_types=supported_document_types,
+        rule_result=rule_result,
+    )
+    return merge_rule_and_ai_classification(
+        rule_result=rule_result,
+        ai_result=ai_result,
+        approved_document_types=approved_document_types,
     )
 
 
@@ -252,6 +268,76 @@ def _receipt_favored_result(scored_rules: list[tuple[str, str, float, list[str],
     return None
 
 
+def _content_shape_suggestion(
+    result: ClassificationResult,
+    *,
+    text: str,
+    supported_document_types: set[str],
+    approved_document_types: set[str],
+) -> ClassificationResult:
+    if result.suggested_document_type or "receipt" not in supported_document_types or "receipt" in approved_document_types:
+        return result
+
+    receipt_signals = {
+        "receipt",
+        "tax invoice",
+        "customer receipt",
+        "merchant copy",
+        "sales",
+        "items",
+        "total",
+        "tax",
+        "gst",
+        "eftpos",
+        "purchase",
+        "approved",
+        "terminal",
+        "bank card",
+        "debit",
+        "card",
+        "rrn",
+        "auth",
+    }
+    hits = sorted(signal for signal in receipt_signals if _contains_signal(text, signal))
+    has_amount = bool(re.search(r"(?:\$|nzd|total|eftpos|purchase)\s*[:=]?\s*\$?\s*\d+[., ]\d{2}", text))
+    strong_anchor = bool({"receipt", "tax invoice", "customer receipt", "total"} & set(hits))
+    payment_anchor = bool({"eftpos", "approved", "terminal", "bank card", "debit", "card", "rrn", "auth"} & set(hits))
+    commerce_anchor = bool({"sales", "items", "purchase"} & set(hits))
+    if len(hits) < 3 or not has_amount or not strong_anchor or not (payment_anchor or commerce_anchor):
+        return result
+
+    terminal_hits = {"eftpos", "approved", "terminal", "bank card", "debit", "card", "rrn", "auth", "merchant copy"} & set(hits)
+    subtype = "payment_terminal_receipt" if len(terminal_hits) >= 2 else "sales_receipt"
+    confidence = round(min(0.9, 0.48 + (0.05 * len(hits))), 3)
+    reason_codes = sorted(
+        set(
+            [
+                *result.reason_codes,
+                "PENDING_DOCUMENT_LABEL_SUGGESTION",
+                "CONTENT_RECEIPT_SHAPE_SUGGESTION",
+                *[f"RECEIPT_SIGNAL_{signal.upper().replace(' ', '_')}" for signal in hits[:8]],
+            ]
+        )
+    )
+    return result.model_copy(
+        update={
+            "confidence": max(result.confidence, confidence),
+            "requires_review": True,
+            "review_reason_codes": sorted(
+                set([*result.review_reason_codes, "PENDING_DOCUMENT_LABEL_SUGGESTION"])
+            ),
+            "reason_codes": reason_codes,
+            "recognition_suggestion_status": "pending",
+            "suggested_document_type": "receipt",
+            "suggested_document_subtype": subtype,
+            "suggestion_confidence": confidence,
+            "suggestion_reason_codes": reason_codes,
+            "suggestion_source": "m5_rules_document_shape",
+            "suggestion_evidence_ref": "m5:redacted_document_shape_signals",
+        }
+    )
+
+
 def re_escape(value: str) -> str:
     return re.escape(" ".join(value.split()))
 
@@ -274,18 +360,45 @@ def _unknown_result(
     )
 
 
-@lru_cache(maxsize=1)
-def _load_vocabulary() -> dict[str, Any]:
-    return _load_json_file(settings.document_classification_vocabulary_path, FALLBACK_VOCABULARY)
-
-
-@lru_cache(maxsize=1)
-def _load_rules() -> dict[str, Any]:
-    return _load_json_file(settings.document_classification_rules_path, FALLBACK_RULES)
-
-
-def _load_json_file(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+def _load_active_settings() -> dict[str, Any] | None:
+    global _active_settings_cache
+    if not settings.recognition_settings_url:
+        return None
+    now = time.monotonic()
+    if _active_settings_cache and now - _active_settings_cache[0] < settings.recognition_settings_cache_seconds:
+        return _active_settings_cache[1]
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return fallback
+        request = Request(settings.recognition_settings_url)
+        if settings.recognition_settings_internal_key:
+            request.add_header("X-Stats-Internal-Key", settings.recognition_settings_internal_key)
+        with urlopen(request, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, TimeoutError, HTTPError, URLError, json.JSONDecodeError):
+        if _active_settings_cache:
+            return _active_settings_cache[1]
+        return None
+    _active_settings_cache = (now, payload)
+    return payload
+
+
+def _load_vocabulary() -> dict[str, Any]:
+    active = _load_active_settings()
+    if active and isinstance(active.get("document_vocabulary"), dict):
+        return active["document_vocabulary"]
+    return {}
+
+
+def _load_rules() -> dict[str, Any]:
+    active = _load_active_settings()
+    if active and isinstance(active.get("document_rules"), dict):
+        return active["document_rules"]
+    return {"rules": []}
+
+
+def _clear_settings_cache() -> None:
+    global _active_settings_cache
+    _active_settings_cache = None
+
+
+_load_vocabulary.cache_clear = _clear_settings_cache  # type: ignore[attr-defined]
+_load_rules.cache_clear = _clear_settings_cache  # type: ignore[attr-defined]

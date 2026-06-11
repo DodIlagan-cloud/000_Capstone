@@ -9,7 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stats User Management</title>
     <link rel="stylesheet" href="/css/access.css" />
-    <script src="/js/access.js" defer></script>
+    <script src="/js/access.js" defer asp-append-version="true"></script>
     <script src="/js/users.js" defer></script>
   </head>
   <body data-api-base-url="@Model.ApiBaseUrl">
@@ -25,6 +25,10 @@
           @* Keeps administrator user management connected to the broader Stats shell navigation. *@
           <a href="/Upload">Upload</a>
           <a href="/EmailSetup">Email setup</a>
+          @if (Model.IsAdmin)
+          {
+            <a href="/Admin/Classifications">Recognition settings</a>
+          }
           @* M2 End *@
           <button id="logout-button" type="button">Sign out</button>
         </nav>

@@ -3,15 +3,40 @@ Tests document parsing strategy, classification, redaction, and evaluation outpu
 M5/M6 End"""
 
 import json
+from pathlib import Path
 
 import pytest
 from PIL import Image
 
 from app.models.parsing import ParseStatus
+from app.models.parsing import ClassificationResult
+from app.services import ai_classification_service
 from app.services import classification_service
 from app.services.classification_service import classify_document
-from app.services.parsing_service import _is_tesseract_available, _ocr_best_image, parse_document_content
+from app.services.parsing_service import (
+    _document_crop_variant,
+    _is_tesseract_available,
+    _ocr_best_image,
+    _receipt_amount_coherence,
+    parse_document_content,
+)
 from app.services.redaction_service import redact_text
+
+
+def _active_recognition_settings_payload() -> dict:
+    config_dir = Path(__file__).resolve().parents[3] / "config"
+    return {
+        "document_vocabulary": json.loads((config_dir / "document-classification.vocabulary.json").read_text(encoding="utf-8")),
+        "document_rules": json.loads((config_dir / "document-classification.rules.json").read_text(encoding="utf-8")),
+    }
+
+
+@pytest.fixture(autouse=True)
+def m9_active_recognition_settings(monkeypatch):
+    classification_service._clear_settings_cache()
+    monkeypatch.setattr(classification_service, "_load_active_settings", lambda: _active_recognition_settings_payload())
+    yield
+    classification_service._clear_settings_cache()
 
 
 def test_text_pdf_parse_classifies_invoice_and_exposes_evaluation(monkeypatch, sample_pdf_content):
@@ -100,6 +125,46 @@ def test_pdf_ocr_fast_profile_stops_when_quality_is_sufficient(monkeypatch):
     assert calls == [6, 6]
 
 
+def test_image_ocr_stops_early_when_receipt_evidence_is_strong(monkeypatch):
+    calls = []
+
+    def fake_ocr(image, language, psm, page_number):
+        calls.append(psm)
+        return (
+            "Tax Invoice receipt DATE: 08-06-2026 12:19 TOTAL: $34.33 EFTPOS: $34.33 INCLUDE TAX: $4.48",
+            78.0,
+            [],
+        )
+
+    monkeypatch.setattr("app.services.parsing_service._ocr_image_with_confidence", fake_ocr)
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_image_fast_psm_values", [6, 11])
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_image_fast_min_quality_score", 0.35)
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_image_fast_min_text_length", 20)
+    monkeypatch.setattr("app.services.parsing_service.settings.ocr_image_fast_min_confidence", 50.0)
+
+    attempt = _ocr_best_image(Image.new("RGB", (240, 240), "white"), "eng")
+
+    assert attempt.attempt_count == 1
+    assert attempt.early_stopped is True
+    assert attempt.early_stop_reason == "STRONG_RECEIPT_AND_CLEAN_TOTAL"
+    assert attempt.amount_coherence_status == "clean"
+    assert calls == [6]
+
+
+def test_document_crop_variant_trims_bright_receipt_region():
+    image = Image.new("RGB", (1000, 1000), "#303030")
+    receipt = Image.new("RGB", (420, 760), "white")
+    image.paste(receipt, (260, 90))
+
+    cropped = _document_crop_variant(image)
+
+    assert cropped is not None
+    assert cropped.width < image.width
+    assert cropped.height < image.height
+    assert cropped.width > 350
+    assert cropped.height > 650
+
+
 def test_real_payment_terminal_image_uses_tesseract_ocr(input_file):
     image_file = input_file("20260528_083213.jpg")
     result = parse_document_content(
@@ -178,21 +243,16 @@ def test_classifier_keeps_hsbc_statement_ahead_of_generic_receipt_signals():
     assert "STATEMENT_AMBIGUITY_RESOLVED" in result.reason_codes
 
 
-def test_classification_loads_configured_vocabulary_and_rules(monkeypatch, tmp_path):
-    vocabulary_path = tmp_path / "vocabulary.json"
-    rules_path = tmp_path / "rules.json"
-    vocabulary_path.write_text(
-        json.dumps(
-            {
+def test_classification_loads_m9_active_vocabulary_and_rules(monkeypatch):
+    monkeypatch.setattr(
+        classification_service,
+        "_load_active_settings",
+        lambda: {
+            "document_vocabulary": {
                 "document_types": ["invoice", "unknown"],
                 "document_subtypes": {"invoice": ["service_invoice", "unknown"], "unknown": ["unknown"]},
-            }
-        ),
-        encoding="utf-8",
-    )
-    rules_path.write_text(
-        json.dumps(
-            {
+            },
+            "document_rules": {
                 "rules": [
                     {
                         "document_type": "invoice",
@@ -203,57 +263,40 @@ def test_classification_loads_configured_vocabulary_and_rules(monkeypatch, tmp_p
                         "minimum_score": 0.1,
                     }
                 ]
-            }
-        ),
-        encoding="utf-8",
+            },
+        },
     )
-    monkeypatch.setattr(classification_service.settings, "document_classification_vocabulary_path", vocabulary_path)
-    monkeypatch.setattr(classification_service.settings, "document_classification_rules_path", rules_path)
-    classification_service._load_vocabulary.cache_clear()
-    classification_service._load_rules.cache_clear()
 
-    try:
-        result = classify_document(
-            text="Custom service invoice with invoice total and balance payable.",
-            supported_document_types=["invoice", "unknown"],
-            confidence_threshold=0.2,
-            allow_unknown=True,
-        )
-    finally:
-        classification_service._load_vocabulary.cache_clear()
-        classification_service._load_rules.cache_clear()
+    result = classify_document(
+        text="Custom service invoice with invoice total and balance payable.",
+        supported_document_types=["invoice", "unknown"],
+        confidence_threshold=0.2,
+        allow_unknown=True,
+    )
 
     assert result.document_type == "invoice"
     assert result.document_subtype == "service_invoice"
     assert "CUSTOM_SERVICE_INVOICE_RULE" in result.reason_codes
 
 
-def test_classification_falls_back_when_configured_json_is_missing_or_malformed(monkeypatch, tmp_path):
-    missing_vocabulary_path = tmp_path / "missing-vocabulary.json"
-    malformed_rules_path = tmp_path / "rules.json"
-    malformed_rules_path.write_text("{not-json", encoding="utf-8")
-    monkeypatch.setattr(classification_service.settings, "document_classification_vocabulary_path", missing_vocabulary_path)
-    monkeypatch.setattr(classification_service.settings, "document_classification_rules_path", malformed_rules_path)
-    classification_service._load_vocabulary.cache_clear()
-    classification_service._load_rules.cache_clear()
+def test_classification_requires_m9_active_settings(monkeypatch):
+    monkeypatch.setattr(classification_service, "_load_active_settings", lambda: None)
 
-    try:
-        result = classify_document(
-            text=(
-                "Credit Cards Statement of Account Card Type Gold Mastercard "
-                "Credit Limit 989,000.00 Minimum Amount Due 1,612.08 Payment Due Date"
-            ),
-            supported_document_types=["statement", "receipt", "invoice", "unknown"],
-            confidence_threshold=0.2,
-            allow_unknown=True,
-        )
-    finally:
-        classification_service._load_vocabulary.cache_clear()
-        classification_service._load_rules.cache_clear()
+    result = classify_document(
+        text=(
+            "Credit Cards Statement of Account Card Type Gold Mastercard "
+            "Credit Limit 989,000.00 Minimum Amount Due 1,612.08 Payment Due Date"
+        ),
+        supported_document_types=["statement", "receipt", "invoice", "unknown"],
+        confidence_threshold=0.2,
+        allow_unknown=True,
+    )
 
-    assert result.document_type == "statement"
-    assert result.document_subtype == "credit_card_statement"
-    assert "CREDIT_CARD_STATEMENT_SIGNALS" in result.reason_codes
+    assert result.document_type == "unknown"
+    assert result.document_subtype == "unknown"
+    assert result.status == "unknown"
+    assert result.requires_review is True
+    assert "RECOGNITION_SETTINGS_UNAVAILABLE" in result.reason_codes
 
 
 def test_real_image_ocr_classifies_payment_terminal_receipt_subtype(input_file):
@@ -348,6 +391,26 @@ def test_real_receipt_photo_ocr_preserves_terminal_date_and_amount(input_file, f
     assert result.classification.document_type == "receipt"
     for fragment in expected_fragments:
         assert fragment in normalized_text
+
+
+def test_receipt_amount_coherence_accepts_clean_final_total():
+    result = _receipt_amount_coherence(
+        "Tax Invoice DATE 08-06-2026 TOTAL: $34.33 EFTPOS: $34.33 INCLUDE TAX: $4.48"
+    )
+
+    assert result["status"] == "clean"
+    assert result["score"] >= 3
+    assert "CLEAN_LABELLED_AMOUNT" in result["reasons"]
+
+
+def test_receipt_amount_coherence_rejects_damaged_competing_totals():
+    result = _receipt_amount_coherence(
+        "HOP Puhinui COMPLETE NZD55 . OF TOTAL NZ055 00 "
+        "Unregistered HOP money Sale 3 $5.00 Due amount $ 56.00"
+    )
+
+    assert result["status"] == "conflicting"
+    assert "DAMAGED_LABELLED_AMOUNT" in result["reasons"]
 
 
 def test_pdf_ocr_reports_renderer_unavailable(monkeypatch, sample_pdf_content):
@@ -447,3 +510,226 @@ def test_classifier_returns_unknown_when_confidence_is_low():
     assert result.document_subtype == "unknown"
     assert result.status == "unknown"
     assert "POSSIBLE_NEW_DOCUMENT_SHAPE" in result.reason_codes or "NO_CLASSIFICATION_SIGNALS" in result.reason_codes
+
+
+def test_classifier_keeps_ai_fallback_disabled_by_default(monkeypatch):
+    calls = []
+
+    def fake_ai_classify(**_kwargs):
+        calls.append("called")
+        return ClassificationResult(
+            document_type="receipt",
+            document_subtype="tax_receipt",
+            confidence=0.91,
+            status="classified",
+            reason_codes=["AI_RECEIPT_SIGNALS"],
+            scores={"ai.receipt.tax_receipt": 0.91},
+            classification_source="ai_assist",
+            ai_model_name="test-model",
+            ai_model_version="test-v1",
+            ai_confidence=0.91,
+        )
+
+    monkeypatch.setattr(classification_service.settings, "classification_ai_enabled", False)
+    monkeypatch.setattr(classification_service, "ai_classify_document", fake_ai_classify)
+
+    result = classify_document(
+        text="financial document with very few useful signals",
+        supported_document_types=["statement", "receipt", "invoice", "payment_proof", "utility_bill", "unknown"],
+        confidence_threshold=0.7,
+        allow_unknown=True,
+    )
+
+    assert calls == []
+    assert result.document_type == "unknown"
+    assert result.classification_source == "rules"
+
+
+def test_classifier_uses_ai_fallback_for_unknown_document_shape(monkeypatch):
+    def fake_ai_classify(**_kwargs):
+        return ClassificationResult(
+            document_type="receipt",
+            document_subtype="tax_receipt",
+            confidence=0.88,
+            status="classified",
+            reason_codes=["AI_RECEIPT_SIGNALS"],
+            scores={"ai.receipt.tax_receipt": 0.88},
+            classification_source="ai_assist",
+            ai_model_name="test-model",
+            ai_model_version="test-v1",
+            ai_confidence=0.88,
+        )
+
+    monkeypatch.setattr(classification_service.settings, "classification_ai_enabled", True)
+    monkeypatch.setattr(classification_service.settings, "classification_ai_min_confidence", 0.76)
+    monkeypatch.setattr(classification_service.settings, "classification_ai_trigger_threshold", 0.70)
+    monkeypatch.setattr(classification_service, "ai_classify_document", fake_ai_classify)
+
+    result = classify_document(
+        text="faint shop docket total paid with incomplete OCR text",
+        supported_document_types=["statement", "receipt", "invoice", "payment_proof", "utility_bill", "unknown"],
+        confidence_threshold=0.7,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "receipt"
+    assert result.document_subtype == "tax_receipt"
+    assert result.classification_source == "ai_assist"
+    assert result.ai_model_name == "test-model"
+    assert result.ai_model_version == "test-v1"
+    assert result.ai_confidence == 0.88
+    assert "AI_ASSISTED_CLASSIFICATION" in result.reason_codes
+
+
+def test_classifier_preserves_rule_result_when_ai_conflicts(monkeypatch):
+    def fake_ai_classify(**_kwargs):
+        return ClassificationResult(
+            document_type="receipt",
+            document_subtype="tax_receipt",
+            confidence=0.92,
+            status="classified",
+            reason_codes=["AI_RECEIPT_SIGNALS"],
+            scores={"ai.receipt.tax_receipt": 0.92},
+            classification_source="ai_assist",
+            ai_model_name="test-model",
+            ai_model_version="test-v1",
+            ai_confidence=0.92,
+        )
+
+    monkeypatch.setattr(classification_service.settings, "classification_ai_enabled", True)
+    monkeypatch.setattr(classification_service.settings, "classification_ai_min_confidence", 0.76)
+    monkeypatch.setattr(classification_service.settings, "classification_ai_trigger_threshold", 1.01)
+    monkeypatch.setattr(classification_service, "ai_classify_document", fake_ai_classify)
+
+    result = classify_document(
+        text="Tax invoice no invoice NHI DOB lab tests price incl service fee payment history paid owing gst gender phone",
+        supported_document_types=["statement", "receipt", "invoice", "payment_proof", "utility_bill", "unknown"],
+        confidence_threshold=0.2,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "invoice"
+    assert result.document_subtype == "medical_invoice"
+    assert result.classification_source == "rules_ai_conflict"
+    assert result.ai_model_name == "test-model"
+    assert result.ai_confidence == 0.92
+    assert result.requires_review is True
+    assert "RULE_AI_CLASSIFICATION_CONFLICT" in result.review_reason_codes
+
+
+def test_gemini_ai_provider_uses_redacted_text_and_supported_vocabulary(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _traceback):
+            return False
+
+        @staticmethod
+        def read():
+            return json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "document_type": "receipt",
+                                                "document_subtype": "tax_receipt",
+                                                "confidence": 0.89,
+                                                "reason_codes": ["GEMINI_RECEIPT_SIGNALS"],
+                                                "requires_review": False,
+                                            }
+                                        )
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_enabled", True)
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_provider", "gemini")
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_endpoint", "")
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_api_key_env", "GEMINI_API_KEY")
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_model", "gemini-2.5-flash")
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_model_version", "gemini-2.5-flash")
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_max_chars", 3000)
+    monkeypatch.setattr(ai_classification_service.settings, "classification_ai_min_confidence", 0.76)
+    monkeypatch.setattr(ai_classification_service.urllib.request, "urlopen", fake_urlopen)
+
+    result = ai_classification_service.ai_classify_document(
+        text="Tax invoice total $34.33 card 4111 1111 1111 1111 Account Number: ABC12345",
+        supported_document_types=["statement", "receipt", "invoice", "unknown"],
+        rule_result=ClassificationResult(
+            document_type="unknown",
+            document_subtype="unknown",
+            confidence=0.1,
+            status="unknown",
+            reason_codes=["POSSIBLE_NEW_DOCUMENT_SHAPE"],
+            scores={},
+        ),
+    )
+
+    request_text = captured["payload"]["contents"][0]["parts"][0]["text"]
+
+    assert captured["url"] == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    assert captured["headers"]["X-goog-api-key"] == "test-key"
+    assert captured["payload"]["generationConfig"]["responseMimeType"] == "application/json"
+    assert "4111 1111 1111 1111" not in request_text
+    assert "ABC12345" not in request_text
+    assert "[REDACTED_CARD]" in request_text
+    assert "[REDACTED_ACCOUNT]" in request_text
+    assert result is not None
+    assert result.document_type == "receipt"
+    assert result.document_subtype == "tax_receipt"
+    assert result.ai_model_name == "gemini-2.5-flash"
+
+
+def test_ai_document_label_outside_active_vocabulary_becomes_pending_suggestion():
+    rule_result = ClassificationResult(
+        document_type="unknown",
+        document_subtype="unknown",
+        confidence=0.2,
+        status="unknown",
+        reason_codes=["POSSIBLE_NEW_DOCUMENT_SHAPE"],
+        scores={},
+    )
+    ai_result = ClassificationResult(
+        document_type="receipt",
+        document_subtype="tax_receipt",
+        confidence=0.91,
+        status="classified",
+        reason_codes=["GEMINI_RECEIPT_SIGNALS"],
+        scores={"ai.receipt.tax_receipt": 0.91},
+        classification_source="ai_assist",
+        ai_model_name="gemini-2.5-flash",
+        ai_model_version="gemini-2.5-flash",
+        ai_confidence=0.91,
+    )
+
+    result = ai_classification_service.merge_rule_and_ai_classification(
+        rule_result=rule_result,
+        ai_result=ai_result,
+        approved_document_types={"statement", "invoice", "unknown"},
+    )
+
+    assert result.document_type == "unknown"
+    assert result.suggested_document_type == "receipt"
+    assert result.suggested_document_subtype == "tax_receipt"
+    assert result.recognition_suggestion_status == "pending"
+    assert result.requires_review is True
+    assert "PENDING_DOCUMENT_LABEL_SUGGESTION" in result.review_reason_codes

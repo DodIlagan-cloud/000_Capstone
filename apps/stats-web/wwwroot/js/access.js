@@ -2,11 +2,41 @@
 // Shares browser-session token and backend API helpers across the Module 1 Razor pages.
 window.statsAccess = {
   tokenKey: "stats.accessToken",
+  tokenCookieName: "stats_access_token",
   apiUrl(path) {
     return `${document.body.dataset.apiBaseUrl}${path}`;
   },
+  setToken(token) {
+    sessionStorage.setItem(this.tokenKey, token);
+    this.setTokenCookie(token);
+  },
+  setTokenCookie(token) {
+    document.cookie = `${this.tokenCookieName}=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
+  },
+  cookieToken() {
+    const prefix = `${this.tokenCookieName}=`;
+    const cookie = document.cookie
+      .split(";")
+      .map((value) => value.trim())
+      .find((value) => value.startsWith(prefix));
+    return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+  },
   token() {
-    return sessionStorage.getItem(this.tokenKey);
+    const sessionToken = sessionStorage.getItem(this.tokenKey);
+    if (sessionToken) {
+      return sessionToken;
+    }
+
+    const cookieToken = this.cookieToken();
+    if (cookieToken) {
+      sessionStorage.setItem(this.tokenKey, cookieToken);
+    }
+
+    return cookieToken;
+  },
+  clearToken() {
+    sessionStorage.removeItem(this.tokenKey);
+    document.cookie = `${this.tokenCookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
   },
   authHeaders() {
     return {
@@ -14,10 +44,16 @@ window.statsAccess = {
     };
   },
   signOut() {
-    sessionStorage.removeItem(this.tokenKey);
+    this.clearToken();
     window.location.assign("/Login");
   },
   async currentUser() {
+    const token = this.token();
+    if (!token) {
+      throw new Error("Session expired. Sign in again.");
+    }
+
+    this.setTokenCookie(token);
     const response = await fetch(this.apiUrl("/api/v1/auth/me"), {
       headers: this.authHeaders(),
     });

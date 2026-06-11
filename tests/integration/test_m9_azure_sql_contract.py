@@ -317,6 +317,8 @@ def test_runtime_config_documents_m9_database_provider_settings():
     assert database["DATABASE_PROVIDER"]["default"] == "AzureSql"
     assert database["DATABASE_SCHEMA"]["default"] == "dbo"
     assert database["AZURE_SQL_CONNECTIONSTRING"]["secret"] is True
+    assert config["interServiceAuth"]["STATS_INTERNAL_API_KEY"]["secret"] is True
+    assert "X-Stats-Internal-Key" in config["interServiceAuth"]["STATS_INTERNAL_API_KEY"]["purpose"]
     assert storage["STATS_VALIDATION_HANDOFF_DIR"]["default"] == "apps/stats-data/data/validation-handoff"
     assert storage["STATS_VALIDATION_HANDOFF_DIR"]["secret"] is False
     assert "DATABASE_URL" not in database
@@ -386,6 +388,7 @@ def test_compose_uses_azure_sql_runtime_without_postgres_service():
     ) in compose
     assert 'STATS_VALIDATION_HANDOFF_DIR: "${STATS_VALIDATION_HANDOFF_DIR:-/app/apps/stats-data/data/validation-handoff}"' in compose
     assert 'STATS_DATA_PORT: "${STATS_DATA_PORT:-8018}"' in compose
+    assert 'STATS_INTERNAL_API_KEY: "${STATS_INTERNAL_API_KEY:?Set STATS_INTERNAL_API_KEY in infrastructure/compose/.env.container}"' in compose
     assert "postgres:" not in compose.lower()
     assert "stats-db:" not in compose
     assert "POSTGRES_PASSWORD" not in compose

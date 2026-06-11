@@ -4,7 +4,11 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Stats.Web.Pages;
 
-public class UploadModel(StatsApiOptions statsApiOptions, StatsWebShellOptions shellOptions) : PageModel
+public class UploadModel(
+    StatsApiOptions statsApiOptions,
+    StatsWebShellOptions shellOptions,
+    StatsUserContextService userContext
+) : PageModel
 {
     public string ApiBaseUrl { get; } = statsApiOptions.BaseUrl.TrimEnd('/');
 
@@ -32,5 +36,12 @@ public class UploadModel(StatsApiOptions statsApiOptions, StatsWebShellOptions s
     // Exposes the Stats Data save target for reviewed validation results.
     public string StatsDataBaseUrl { get; } = shellOptions.StatsDataBaseUrl.TrimEnd('/');
     // M9 End
+
+    public bool IsAdmin { get; private set; }
+
+    public async Task OnGetAsync()
+    {
+        IsAdmin = await userContext.IsAdminAsync(HttpContext);
+    }
 }
 // M2 End

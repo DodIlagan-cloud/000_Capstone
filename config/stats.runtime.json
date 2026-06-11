@@ -117,6 +117,12 @@
       "secret": true
     }
   },
+  "interServiceAuth": {
+    "STATS_INTERNAL_API_KEY": {
+      "purpose": "Shared server-side secret used by Stats Web and M5/M7 modules when calling Stats Data recognition settings and admin endpoints. Stats Data requires this value via the X-Stats-Internal-Key header on /api/v1/admin/recognition-settings/* routes and fails closed when it is unset.",
+      "secret": true
+    }
+  },
   "ocr": {
     "ALLOW_OCR_FALLBACK": {
       "purpose": "Enables OCR fallback path when Tesseract is available.",
@@ -261,6 +267,24 @@
     "SUPPORTED_DOCUMENT_TYPES": {"purpose": "Document types supported by parsing/extraction.", "secret": false},
     "CLASSIFICATION_CONFIDENCE_THRESHOLD": {"purpose": "Minimum classification confidence.", "secret": false},
     "CLASSIFICATION_ALLOW_UNKNOWN": {"purpose": "Whether unknown classification is allowed.", "secret": false},
+    "CLASSIFICATION_AI_ENABLED": {"purpose": "Enables M5 AI-assisted document classification fallback after deterministic rules produce unknown, ambiguous, or low-confidence results.", "secret": false},
+    "CLASSIFICATION_AI_PROVIDER": {"purpose": "AI classification provider selector. Supported values are gemini, openai, and openai_compatible.", "secret": false},
+    "CLASSIFICATION_AI_ENDPOINT": {"purpose": "Optional AI classification endpoint override. Gemini defaults to Google generateContent for the configured model when this is empty.", "secret": false},
+    "CLASSIFICATION_AI_API_KEY_ENV": {"purpose": "Name of the environment variable that contains the AI provider API key. The referenced value is secret and must come from a secret provider.", "secret": false},
+    "CLASSIFICATION_AI_MODEL": {"purpose": "Model name used by optional M5 AI-assisted document classification.", "secret": false},
+    "CLASSIFICATION_AI_MODEL_VERSION": {"purpose": "Model version or deployment label returned in M5 classification audit metadata.", "secret": false},
+    "CLASSIFICATION_AI_MIN_CONFIDENCE": {"purpose": "Minimum AI confidence required before M5 accepts an AI-assisted document classification.", "secret": false},
+    "CLASSIFICATION_AI_TRIGGER_THRESHOLD": {"purpose": "Rule-confidence threshold below which M5 may ask the optional AI classifier for help.", "secret": false},
+    "CLASSIFICATION_AI_MAX_CHARS": {"purpose": "Maximum redacted extracted-text characters sent to the optional AI classifier.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_ENABLED": {"purpose": "Enables M7 optional AI-assisted fallback for weak, ambiguous, or unknown transaction and spending category classification.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_PROVIDER": {"purpose": "M7 AI classification provider selector. Supported values are gemini, openai, and openai_compatible.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_ENDPOINT": {"purpose": "Optional M7 AI classification endpoint override. Gemini defaults to Google generateContent for the configured model when this is empty.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV": {"purpose": "Name of the environment variable containing the M7 AI provider API key. The referenced value is secret and must come from a secret provider.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_MODEL": {"purpose": "Model name used by optional M7 AI-assisted transaction classification.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_MODEL_VERSION": {"purpose": "Model version or deployment label returned in M7 transaction classification audit metadata.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_MIN_CONFIDENCE": {"purpose": "Minimum AI confidence required before M7 accepts AI-assisted transaction/category classification.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_TRIGGER_THRESHOLD": {"purpose": "Rule-confidence threshold below which M7 may ask the optional AI classifier for help.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_MAX_CHARS": {"purpose": "Maximum redacted transaction-context characters sent to the optional M7 AI classifier.", "secret": false},
     "EXTRACTION_TIMEOUT_SECONDS": {"purpose": "Document extraction timeout.", "secret": false},
     "MAX_PAGE_COUNT": {"purpose": "Maximum pages processed.", "secret": false},
     "MIN_TEXT_LENGTH": {"purpose": "Minimum extracted text length.", "secret": false},

@@ -17,6 +17,82 @@ const statsDataBaseUrl = document.body.dataset.statsDataBaseUrl ?? "";
 let selectedFile = null;
 let acceptedValidation = null;
 const uploadSteps = ["File accepted", "Document uploaded", "Text read", "Transactions checked"];
+const transactionTypeOptions = [
+  "unknown",
+  "purchase",
+  "payment",
+  "transfer",
+  "refund",
+  "fee",
+  "interest",
+  "cash_advance",
+  "installment_amortization",
+  "adjustment",
+  "tax",
+];
+const spendingCategoryOptions = [
+  "uncategorized",
+  "medical",
+  "pharmacy",
+  "groceries",
+  "utilities",
+  "transport",
+  "housing",
+  "insurance",
+  "banking_fees",
+  "interest",
+  "transfers",
+  "shopping",
+  "food_dining",
+  "income",
+  "tax",
+];
+const transactionSubtypeOptions = [
+  "unknown",
+  "card_purchase",
+  "eftpos_payment",
+  "merchant_purchase",
+  "cash_purchase",
+  "credit_card_payment",
+  "invoice_payment",
+  "bill_payment",
+  "loan_payment",
+  "bank_transfer",
+  "internal_transfer",
+  "external_transfer",
+  "merchant_refund",
+  "statement_credit",
+  "reversal",
+  "late_payment_fee",
+  "service_fee",
+  "bank_fee",
+  "finance_charge",
+  "cash_advance_interest",
+  "atm_cash_advance",
+  "counter_cash_advance",
+  "credit_card_installment",
+  "loan_installment",
+  "debit_adjustment",
+  "credit_adjustment",
+  "gst_tax",
+  "sales_tax",
+  "withholding_tax",
+];
+const spendingSubcategoryOptions = [
+  "unknown",
+  "diagnostics",
+  "prescription",
+  "supermarket",
+  "telecommunications",
+  "public_transport",
+  "service_fee",
+  "finance_charge",
+  "bank_transfer",
+  "restaurant",
+  "retail",
+  "gst",
+];
+const transactionDirectionOptions = ["unknown", "debit", "credit"];
 
 function formatFileSize(bytes) {
   if (bytes < 1024) {
@@ -57,6 +133,24 @@ async function downstreamErrorMessage(response, fallbackMessage) {
   return `${fallbackMessage} (${response.status})`;
 }
 
+function findingMessages(findings = []) {
+  return findings
+    .map((finding) => {
+      const code = finding.code ? `${finding.code}: ` : "";
+      return `${code}${finding.message || "No detail provided."}`;
+    })
+    .filter(Boolean);
+}
+
+function ingestionFailureMessage(record) {
+  const status = record?.status || "unknown";
+  const reasons = findingMessages(record?.findings || []);
+  if (reasons.length) {
+    return `Document upload stopped at ingestion. Status: ${status}. Reason: ${reasons.join(" ")}`;
+  }
+  return `Document upload stopped at ingestion. Status: ${status}. The ingestion service did not queue the file and did not return a reason.`;
+}
+
 function resetUploadPage(message = "Choose a file to validate.", tone = "pending") {
   selectedFile = null;
   acceptedValidation = null;
@@ -89,6 +183,10 @@ function formatMoney(amount, currency = "PHP") {
 function humanizeStatus(value) {
   const normalized = String(value || "").replaceAll("_", " ");
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Pending";
+}
+
+function titleCaseLabel(value) {
+  return humanizeStatus(value || "unknown");
 }
 
 function documentClassificationLabel(classification = {}, fallbackType = "unknown") {
@@ -131,6 +229,18 @@ function transactionFieldsComplete(record) {
       && record.description
       && Number(record.amount) > 0
       && record.currency
+      && ["debit", "credit"].includes(String(record.direction || "").toLowerCase())
+      && String(record.transaction_type || "unknown").toLowerCase() !== "unknown"
+      && !["uncategorized", "unknown"].includes(String(record.spending_category || "uncategorized").toLowerCase()),
+  );
+}
+
+function transactionCoreFieldsComplete(record) {
+  return Boolean(
+    record.transaction_date
+      && record.description
+      && Number(record.amount) > 0
+      && record.currency
       && ["debit", "credit"].includes(String(record.direction || "").toLowerCase()),
   );
 }
@@ -143,7 +253,7 @@ function createReviewState(result) {
     installments,
     acceptedRecordIds: new Set(
       records
-        .filter((record) => userRecordStatus(record) === "Ready" && transactionFieldsComplete(record))
+        .filter((record) => userRecordStatus(record) === "Ready" && transactionCoreFieldsComplete(record))
         .map((record) => record.record_id),
     ),
     acceptedInstallmentIds: new Set(
@@ -155,7 +265,7 @@ function createReviewState(result) {
 }
 
 function localRecordStatus(record, reviewState) {
-  if (reviewState.acceptedRecordIds.has(record.record_id) && transactionFieldsComplete(record)) {
+  if (reviewState.acceptedRecordIds.has(record.record_id) && transactionCoreFieldsComplete(record)) {
     return "Ready";
   }
   return userRecordStatus(record);
@@ -187,8 +297,12 @@ function editableRecordFields(record) {
     ["description", "Description", "text"],
     ["amount", "Amount", "number"],
     ["currency", "Currency", "text"],
-    ["direction", "Direction", "select"],
-  ].map(([name, label, type]) => ({ name, label, type, value: record[name] ?? "" }));
+    ["direction", "Direction", "select", transactionDirectionOptions],
+    ["transaction_type", "Transaction type", "select", transactionTypeOptions],
+    ["transaction_subtype", "Transaction subtype", "select", transactionSubtypeOptions],
+    ["spending_category", "Spending category", "select", spendingCategoryOptions],
+    ["spending_subcategory", "Spending subcategory", "select", spendingSubcategoryOptions],
+  ].map(([name, label, type, options]) => ({ name, label, type, options: options || [], value: record[name] ?? "" }));
 }
 
 function editableInstallmentFields(installment) {
@@ -211,12 +325,20 @@ function fieldValueFromInput(input, fieldName) {
   if (fieldName === "currency") {
     return input.value.trim().toUpperCase() || "PHP";
   }
+  if (["direction", "transaction_type", "transaction_subtype", "spending_category", "spending_subcategory"].includes(fieldName)) {
+    return input.value.trim().toLowerCase() || (fieldName === "spending_category" ? "uncategorized" : "unknown");
+  }
   return input.value.trim();
 }
 
 function applyEditedRecord(record, values) {
   Object.assign(record, values);
   record.direction = String(record.direction || "").toLowerCase();
+  record.transaction_type = String(record.transaction_type || "unknown").toLowerCase();
+  record.transaction_subtype = String(record.transaction_subtype || "unknown").toLowerCase();
+  record.spending_category = String(record.spending_category || "uncategorized").toLowerCase();
+  record.spending_subcategory = String(record.spending_subcategory || "unknown").toLowerCase();
+  record.category = record.spending_category === "uncategorized" ? "Unknown" : titleCaseLabel(record.spending_category);
   record.amount = Math.abs(numericValue(record.amount));
   record.signed_amount = record.direction === "credit" ? record.amount : -record.amount;
   if (transactionFieldsComplete(record) && record.quality_status === "invalid") {
@@ -520,7 +642,7 @@ async function validateSelectedFile(file) {
 }
 
 function renderIngestionResult(record) {
-  ingestionResult.hidden = true;
+  ingestionResult.hidden = false;
   ingestionResult.dataset.status = record.status === "queued" ? "accepted" : "rejected";
   ingestionResult.replaceChildren();
 
@@ -626,11 +748,23 @@ function buildExtractionRequest(parseResultPayload) {
 }
 
 function buildValidationRequest(extractionResult) {
+  const classification = extractionResult.classification || {};
   return {
     extraction_id: extractionResult.extraction_id,
     parse_id: extractionResult.parse_id,
     document: extractionResult.document,
     document_type: extractionResult.document_type,
+    document_type_confidence: classification.confidence,
+    document_type_status: classification.status,
+    document_type_reason_codes: classification.reason_codes || [],
+    document_recognition_suggestion_id: classification.recognition_suggestion_id,
+    document_recognition_suggestion_status: classification.recognition_suggestion_status || "none",
+    suggested_document_type: classification.suggested_document_type,
+    suggested_document_subtype: classification.suggested_document_subtype,
+    document_suggestion_confidence: classification.suggestion_confidence,
+    document_suggestion_reason_codes: classification.suggestion_reason_codes || [],
+    document_suggestion_source: classification.suggestion_source,
+    document_suggestion_evidence_ref: classification.suggestion_evidence_ref,
     transaction_candidates: extractionResult.transaction_candidates || [],
     financial_field_candidates: extractionResult.financial_field_candidates || [],
     section_candidates: extractionResult.section_candidates || [],
@@ -648,7 +782,12 @@ function buildSaveValidationResult(validationResult, reviewState) {
   const acceptedInstallmentIds = reviewState.acceptedInstallmentIds;
   const normalizedRecords = reviewState.records.map((record) => ({
     ...record,
-    quality_status: acceptedRecordIds.has(record.record_id) && transactionFieldsComplete(record) ? "valid" : record.quality_status,
+    category: record.spending_category && record.spending_category !== "uncategorized"
+      ? titleCaseLabel(record.spending_category)
+      : record.category || "Unknown",
+    quality_status: acceptedRecordIds.has(record.record_id) && transactionCoreFieldsComplete(record)
+      ? (transactionFieldsComplete(record) ? "valid" : "warning")
+      : record.quality_status,
   }));
   const normalizedInstallments = reviewState.installments.map((installment) => ({
     ...installment,
@@ -696,10 +835,10 @@ function renderReviewItemEditor(record, onChange, options = {}) {
     let input;
     if (field.type === "select") {
       input = document.createElement("select");
-      ["debit", "credit"].forEach((optionValue) => {
+      field.options.forEach((optionValue) => {
         const option = document.createElement("option");
         option.value = optionValue;
-        option.textContent = humanizeStatus(optionValue);
+        option.textContent = titleCaseLabel(optionValue);
         option.selected = String(field.value).toLowerCase() === optionValue;
         input.append(option);
       });
@@ -768,21 +907,32 @@ function renderReviewItems(result, reviewState, onChange) {
   reviewItems.forEach((item) => {
     const row = document.createElement("article");
     row.className = "review-item";
+    const header = document.createElement("div");
+    header.className = "review-item-header";
+    const headerText = document.createElement("div");
     const title = document.createElement("h5");
     title.textContent = item.title || "Review item";
     const message = document.createElement("p");
     message.textContent = item.message || "This item needs review.";
-    row.append(title, message);
+    headerText.append(title, message);
+    header.append(headerText);
+    row.append(header);
 
     const record = reviewItemRecord(item, reviewState.records);
     const installment = reviewItemInstallment(item, reviewState.installments);
     if (record) {
       const details = document.createElement("dl");
+      details.className = "review-details review-details-transaction";
       [
         ["Date", record.transaction_date || "Needs review"],
         ["Description", record.description || "Needs review"],
         ["Amount", formatMoney(record.amount, record.currency)],
+        ["Direction", titleCaseLabel(record.direction || "unknown")],
         ["Status", localRecordStatus(record, reviewState)],
+        ["Transaction type", titleCaseLabel(record.transaction_type || "unknown")],
+        ["Transaction subtype", titleCaseLabel(record.transaction_subtype || "unknown")],
+        ["Spending category", titleCaseLabel(record.spending_category || "uncategorized")],
+        ["Spending subcategory", titleCaseLabel(record.spending_subcategory || "unknown")],
       ].forEach(([label, value]) => {
         const itemRow = document.createElement("div");
         const term = document.createElement("dt");
@@ -796,6 +946,7 @@ function renderReviewItems(result, reviewState, onChange) {
     }
     if (installment) {
       const details = document.createElement("dl");
+      details.className = "review-details review-details-installment";
       [
         ["Purchase date", installment.purchase_date || "Needs review"],
         ["Description", installment.description || "Needs review"],
@@ -832,11 +983,11 @@ function renderReviewItems(result, reviewState, onChange) {
       const acceptButton = document.createElement("button");
       acceptButton.type = "button";
       acceptButton.textContent = "Accept";
-      acceptButton.disabled = !transactionFieldsComplete(record);
-      acceptButton.title = acceptButton.disabled ? "Complete transaction details before accepting this row." : "";
+      acceptButton.disabled = !transactionCoreFieldsComplete(record);
+      acceptButton.title = acceptButton.disabled ? "Complete date, description, amount, currency, and direction before accepting this row." : "";
       acceptButton.addEventListener("click", () => {
         reviewState.acceptedRecordIds.add(record.record_id);
-        record.quality_status = "valid";
+        record.quality_status = transactionFieldsComplete(record) ? "valid" : "warning";
         onChange();
       });
 
@@ -868,7 +1019,7 @@ function renderReviewItems(result, reviewState, onChange) {
 
       actions.append(editButton, acceptButton);
     }
-    row.append(actions);
+    header.append(actions);
     section.append(row);
   });
 
@@ -934,7 +1085,7 @@ function renderRecordsTable(records, reviewState, onChange) {
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  ["Date", "Description", "Amount", "Status", "Actions"].forEach((label) => {
+  ["Date", "Description", "Amount", "Transaction type", "Spending category", "Status", "Actions"].forEach((label) => {
     const th = document.createElement("th");
     th.textContent = label;
     headerRow.append(th);
@@ -949,10 +1100,12 @@ function renderRecordsTable(records, reviewState, onChange) {
       record.transaction_date || "Needs review",
       record.description || "Needs review",
       formatMoney(record.amount, record.currency),
+      titleCaseLabel(record.transaction_type || "unknown"),
+      titleCaseLabel(record.spending_category || "uncategorized"),
       status,
     ].forEach((value, index) => {
       const cell = document.createElement("td");
-      if (index === 3) {
+      if (index === 5) {
         const pill = document.createElement("span");
         pill.className = status === "Ready" ? "state-pill" : "state-pill pending";
         pill.textContent = value;
@@ -978,7 +1131,7 @@ function renderRecordsTable(records, reviewState, onChange) {
       const editRow = document.createElement("tr");
       editRow.className = "inline-edit-row";
       const editCell = document.createElement("td");
-      editCell.colSpan = 5;
+      editCell.colSpan = 7;
       editCell.append(renderReviewItemEditor(record, onChange));
       editRow.append(editCell);
       row.after(editRow);
@@ -1222,7 +1375,8 @@ async function sendAcceptedFileToProcessing() {
       return;
     }
 
-    resetUploadPage("Document was not queued. Choose another file to continue.", "error");
+    renderProcessingProgress(1, "Document upload stopped", ingestionFailureMessage(record));
+    setValidationState(ingestionFailureMessage(record), "error");
   } catch (error) {
     resetUploadPage(error.message || "File ingestion failed.", "error");
   }

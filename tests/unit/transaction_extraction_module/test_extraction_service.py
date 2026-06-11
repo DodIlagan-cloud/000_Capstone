@@ -3,7 +3,10 @@ Verifies transaction and financial field candidate extraction behavior.
 M7 End"""
 
 import sys
+import json
 from pathlib import Path
+
+import pytest
 
 MODULE_ROOT = Path(__file__).resolve().parents[3] / "modules" / "transaction-extraction-module"
 for module_name in list(sys.modules):
@@ -15,6 +18,7 @@ if module_root_path in sys.path:
 sys.path.insert(0, module_root_path)
 
 from app.models.extraction import TransactionExtractionRequest
+from app.services import transaction_classification_service
 from app.services.extraction_service import extract_transactions
 
 
@@ -60,12 +64,48 @@ def _word_blocks_from_positioned_rows(positioned_rows):
     return blocks
 
 
+def _active_recognition_settings_payload() -> dict:
+    config_dir = Path(__file__).resolve().parents[3] / "config"
+    return {
+        "transaction_vocabulary": json.loads((config_dir / "transaction-classification.vocabulary.json").read_text(encoding="utf-8")),
+        "transaction_rules": json.loads((config_dir / "transaction-classification.rules.json").read_text(encoding="utf-8")),
+        "spending_vocabulary": json.loads((config_dir / "spending-category.vocabulary.json").read_text(encoding="utf-8")),
+        "spending_rules": json.loads((config_dir / "spending-category.rules.json").read_text(encoding="utf-8")),
+    }
+
+
+@pytest.fixture(autouse=True)
+def m9_active_recognition_settings(monkeypatch):
+    transaction_classification_service._clear_settings_cache()
+    monkeypatch.setattr(transaction_classification_service, "_load_active_settings", lambda: _active_recognition_settings_payload())
+    yield
+    transaction_classification_service._clear_settings_cache()
+
+
 def test_missing_text_fails_with_explicit_finding():
     result = extract_transactions(TransactionExtractionRequest(text="", document_type="statement"))
 
     assert result.status == "failed"
     assert result.summary.transaction_candidate_count == 0
     assert result.evaluation.finding_counts["MISSING_TEXT"] == 1
+
+
+def test_transaction_classification_requires_m9_active_settings(monkeypatch):
+    monkeypatch.setattr(transaction_classification_service, "_load_active_settings", lambda: None)
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="payment_proof",
+            text="Transfer successful confirmation no ABC123 transfer amount PHP 125.00",
+        )
+    )
+
+    assert result.summary.transaction_candidate_count == 1
+    candidate = result.transaction_candidates[0]
+    assert candidate.transaction_type == "unknown"
+    assert candidate.spending_category == "uncategorized"
+    assert candidate.classification_review_required is True
+    assert "RECOGNITION_SETTINGS_UNAVAILABLE" in result.evaluation.finding_counts
 
 
 def test_generic_statement_table_extracts_transaction_and_financial_candidates(generic_statement_table_text):
@@ -850,6 +890,25 @@ def test_receipt_ocr_damaged_card_amount_is_reviewable_transaction():
     assert "RECEIPT_PAYMENT_AMOUNT_REPAIRED" in result.transaction_candidates[0].reason_codes
 
 
+def test_receipt_ocr_damaged_total_beats_item_like_sale_amount():
+    text = (
+        "HOP Puhinui * EFTPOS * TERMINAL 0002 13 Aug 25 13:16 CHEQUE "
+        "EFTPOS ICI CONTACT CARD ************7414 RRN 001364865765 "
+        "COMPLETE NZD55 . OF TOTAL NZ055 00 APPROVED CUSTOMER COPY "
+        "Customer receipt Station name Puhinui Date Time 13/08/2025 13.16.36 "
+        "Unregistered HOP iioney Sale 3 $5.00 Hue amount: , $ 56.00 flank Cara ) 85.00"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.status in {"completed", "completed_with_warnings"}
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].amount == 55.00
+    assert result.transaction_candidates[0].currency == "NZD"
+    assert result.transaction_candidates[0].date_text == "13/08/2025"
+    assert "RECEIPT_DAMAGED_TOTAL_REPAIRED" in result.transaction_candidates[0].reason_codes
+
+
 def test_receipt_total_precedence_ignores_gst_amount_when_total_is_present():
     text = (
         "Receipt Store Sun 31/08/2025 03:01:41 SELF CHECKOUT TAX INVOICE "
@@ -901,6 +960,43 @@ def test_unknown_receipt_like_ocr_derives_receipt_total_transaction():
     assert result.transaction_candidates[0].direction == "debit"
     assert "OCR_RECEIPT_TOTAL_FALLBACK" in result.transaction_candidates[0].reason_codes
     assert fields["receipt_total"].normalized_value == "30.60"
+
+
+def test_unknown_receipt_photo_text_repairs_labelled_total_and_eftpos_amount():
+    text = (
+        "Tax Invoice MT Roskill FRESH DATE: 08-06-2026 12:19 "
+        "LOTTE CHOCO PIE 168G 1 @ $3.49 $3.49 "
+        "TOTAL:\n$34.33\nEFTPOS:\n$34.33\nINCLUDE TAX:\n$4.48"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="unknown", text=text))
+
+    assert result.status in {"completed", "completed_with_warnings"}
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].amount == 34.33
+    assert result.transaction_candidates[0].date_text == "08-06-2026"
+    assert result.transaction_candidates[0].direction == "debit"
+    assert result.transaction_candidates[0].reason_codes[0] in {
+        "RECEIPT_EFTPOS_TOTAL_REPAIRED",
+        "RECEIPT_LABELLED_TOTAL_REPAIRED",
+    }
+
+
+def test_receipt_split_decimal_total_beats_conflicting_eftpos_ocr():
+    text = (
+        "Tax Invoice MT Roskill FRESH DATE: 08-06-2026 12:19 "
+        "LOTTE CHOCO PIE 168G 1 @ $3.49 $3.49 "
+        "CHINESE HARD TOFU 2PCS 1 @ $4.49 $4.49 weight Meat 1 @ $10.87 $10.87 "
+        "TOTAL: $34 33 EFTPOS: 48 94 INCLUDE TAX:"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="receipt", text=text))
+
+    assert result.status in {"completed", "completed_with_warnings"}
+    assert result.summary.transaction_candidate_count == 1
+    assert result.transaction_candidates[0].amount == 34.33
+    assert result.transaction_candidates[0].date_text == "08-06-2026"
+    assert result.transaction_candidates[0].reason_codes[0] == "RECEIPT_DAMAGED_TOTAL_REPAIRED"
 
 
 def test_single_line_medical_invoice_derives_paid_transaction_from_item_total():
@@ -976,3 +1072,224 @@ def test_line_item_extraction_can_be_disabled():
 
     assert result.summary.line_item_candidate_count == 0
     assert result.line_item_candidates == []
+
+
+def test_transaction_classification_labels_transfer_for_m8():
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="payment_proof",
+            text="2026-01-08 Transfer to ACQUA EDEN RE PHP 17,274.97 Confirmation No. ABC123",
+        )
+    )
+
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.transaction_type == "transfer"
+    assert candidate.transaction_subtype == "bank_transfer"
+    assert candidate.spending_category == "transfers"
+    assert candidate.spending_subcategory == "bank_transfer"
+    assert candidate.classification_source == "rules"
+    assert "BANK_TRANSFER_SIGNALS" in candidate.transaction_type_reason_codes
+
+
+def test_transaction_classification_labels_medical_spending_category_for_reports():
+    text = (
+        "Invoice Example Labs Issued: 18/04/2026 09:36:20 "
+        "Tax Invoice no.: 384590 Patient Name Example "
+        "CC CRE - Creatinine $25.00 DRW - Service Fee $29.00 "
+        "Total GST $29.61 Payment History Paid 18/04/2026 09:36:20 - EFTPOS Owing"
+    )
+
+    result = extract_transactions(TransactionExtractionRequest(document_type="invoice", text=text))
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.transaction_type in {"payment", "purchase"}
+    assert candidate.spending_category == "medical"
+    assert candidate.spending_subcategory == "diagnostics"
+    assert candidate.spending_category_status == "classified"
+
+
+def test_strong_rule_transaction_classification_skips_ai(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    calls = []
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setattr(settings, "transaction_classification_ai_trigger_threshold", 0.50)
+    monkeypatch.setitem(
+        classifier_globals,
+        "ai_classify_transaction",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="payment_proof",
+            text="2026-01-08 Transfer to ACQUA EDEN RE PHP 17,274.97 Confirmation No. ABC123",
+        )
+    )
+
+    assert calls == []
+    assert result.transaction_candidates[0].classification_source == "rules"
+
+
+def test_weak_transaction_classification_accepts_ai_assist(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setattr(settings, "transaction_classification_ai_trigger_threshold", 0.70)
+    monkeypatch.setattr(settings, "transaction_classification_ai_min_confidence", 0.76)
+    monkeypatch.setattr(settings, "transaction_classification_ai_model", "gemini-2.5-flash")
+    monkeypatch.setattr(settings, "transaction_classification_ai_model_version", "gemini-2.5-flash")
+    monkeypatch.setitem(
+        classifier_globals,
+        "ai_classify_transaction",
+        lambda **kwargs: {
+            "transaction_type": "purchase",
+            "transaction_subtype": "merchant_purchase",
+            "spending_category": "shopping",
+            "spending_subcategory": "retail",
+            "confidence": 0.88,
+            "reason_codes": ["AI_MERCHANT_PURCHASE"],
+            "requires_review": False,
+            "review_reason_codes": [],
+            "ai_model_name": "gemini-2.5-flash",
+            "ai_model_version": "gemini-2.5-flash",
+        },
+    )
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text="2026-06-08 POS Merchant counter total PHP 34.33",
+        )
+    )
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.transaction_type == "purchase"
+    assert candidate.spending_category == "shopping"
+    assert candidate.classification_source == "ai_assist"
+    assert candidate.ai_confidence == 0.88
+    assert "AI_ASSISTED_TRANSACTION_CLASSIFICATION" in candidate.transaction_type_reason_codes
+
+
+def test_ai_outside_active_vocabulary_becomes_pending_suggestion(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setattr(settings, "transaction_classification_ai_trigger_threshold", 0.70)
+    monkeypatch.setattr(settings, "transaction_classification_ai_min_confidence", 0.76)
+    monkeypatch.setattr(settings, "transaction_classification_ai_model", "gemini-2.5-flash")
+    monkeypatch.setattr(settings, "transaction_classification_ai_model_version", "gemini-2.5-flash")
+    monkeypatch.setitem(
+        classifier_globals,
+        "ai_classify_transaction",
+        lambda **kwargs: {
+            "transaction_type": "membership_topup",
+            "transaction_subtype": "transport_card_topup",
+            "spending_category": "public_transport",
+            "spending_subcategory": "stored_value_topup",
+            "confidence": 0.91,
+            "reason_codes": ["AI_PUBLIC_TRANSPORT_TOPUP"],
+            "requires_review": False,
+            "review_reason_codes": [],
+            "ai_model_name": "gemini-2.5-flash",
+            "ai_model_version": "gemini-2.5-flash",
+        },
+    )
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text="2026-06-08 HOP card topup customer receipt NZD 55.00",
+        )
+    )
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.transaction_type == "unknown"
+    assert candidate.spending_category == "uncategorized"
+    assert candidate.recognition_suggestion_status == "pending"
+    assert candidate.recognition_suggestion_id.startswith("suggestion_")
+    assert candidate.suggested_transaction_type == "membership_topup"
+    assert candidate.suggested_spending_category == "public_transport"
+    assert candidate.suggestion_source == "ai"
+    assert "AI_RECOGNITION_LABEL_SUGGESTION" in candidate.suggestion_reason_codes
+
+
+def test_low_confidence_transaction_ai_result_is_rejected_for_review(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setattr(settings, "transaction_classification_ai_trigger_threshold", 0.70)
+    monkeypatch.setattr(settings, "transaction_classification_ai_min_confidence", 0.76)
+    monkeypatch.setitem(
+        classifier_globals,
+        "ai_classify_transaction",
+        lambda **kwargs: {
+            "transaction_type": "purchase",
+            "transaction_subtype": "merchant_purchase",
+            "spending_category": "shopping",
+            "spending_subcategory": "retail",
+            "confidence": 0.51,
+            "reason_codes": ["AI_WEAK_SIGNAL"],
+            "requires_review": True,
+            "review_reason_codes": ["AI_CLASSIFICATION_REVIEW_REQUIRED"],
+            "ai_model_name": "gemini-2.5-flash",
+            "ai_model_version": "gemini-2.5-flash",
+        },
+    )
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text="2026-06-08 POS Merchant counter total PHP 34.33",
+        )
+    )
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.classification_source == "rules_ai_low_confidence"
+    assert candidate.transaction_type == "purchase"
+    assert candidate.classification_review_required is True
+    assert "AI_CONFIDENCE_BELOW_THRESHOLD" in candidate.classification_review_reason_codes
+
+
+def test_conflicting_transaction_ai_result_preserves_rules_for_review(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setattr(settings, "transaction_classification_ai_trigger_threshold", 1.01)
+    monkeypatch.setattr(settings, "transaction_classification_ai_min_confidence", 0.76)
+    monkeypatch.setitem(
+        classifier_globals,
+        "ai_classify_transaction",
+        lambda **kwargs: {
+            "transaction_type": "refund",
+            "transaction_subtype": "merchant_refund",
+            "spending_category": "income",
+            "spending_subcategory": "refund_income",
+            "confidence": 0.9,
+            "reason_codes": ["AI_REFUND_SIGNAL"],
+            "requires_review": True,
+            "review_reason_codes": ["RULE_AI_TRANSACTION_TYPE_CONFLICT"],
+            "ai_model_name": "gemini-2.5-flash",
+            "ai_model_version": "gemini-2.5-flash",
+        },
+    )
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="payment_proof",
+            text="2026-01-08 Transfer to ACQUA EDEN RE PHP 17,274.97 Confirmation No. ABC123",
+        )
+    )
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.transaction_type == "transfer"
+    assert candidate.spending_category == "transfers"
+    assert candidate.classification_source == "rules_ai_conflict"
+    assert candidate.classification_review_required is True
+    assert "RULE_AI_TRANSACTION_TYPE_CONFLICT" in candidate.classification_review_reason_codes

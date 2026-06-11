@@ -27,6 +27,7 @@ from app.models.extraction import (
     TransactionExtractionRequest,
     TransactionExtractionResult,
 )
+from app.services.transaction_classification_service import classify_transaction_candidate
 
 
 AMOUNT_PATTERN = re.compile(
@@ -220,6 +221,28 @@ def extract_transactions(request: TransactionExtractionRequest) -> TransactionEx
     entities = _extract_entities(line_refs, document_type)
     references = _extract_references(fields, line_refs)
     line_items = _extract_line_items(line_refs) if line_items_enabled else []
+    if settings.enable_transaction_classification:
+        document_subtype = request.classification.document_subtype if request.classification else "unknown"
+        transactions = [
+            classify_transaction_candidate(
+                candidate,
+                document_type=document_type,
+                document_subtype=document_subtype,
+            )
+            for candidate in transactions
+        ]
+        if any(
+            "RECOGNITION_SETTINGS_UNAVAILABLE" in candidate.transaction_type_reason_codes
+            or "RECOGNITION_SETTINGS_UNAVAILABLE" in candidate.spending_category_reason_codes
+            for candidate in transactions
+        ):
+            findings.append(
+                ExtractionFinding(
+                    code="RECOGNITION_SETTINGS_UNAVAILABLE",
+                    severity="warning",
+                    message="Recognition settings could not be loaded from Stats Data, so transaction and spending classifications need review.",
+                )
+            )
 
     if not transactions:
         findings.append(
@@ -917,6 +940,23 @@ def _derive_receipt_invoice_transactions(
             )
         ]
 
+    if document_type == "receipt" or receipt_like_unknown:
+        repaired_labelled_total = _receipt_labelled_total_amount(line_refs)
+        if repaired_labelled_total:
+            amount, source, reason_code = repaired_labelled_total
+            return [
+                _field_derived_transaction(
+                    field=None,
+                    amount=amount,
+                    currency=_infer_currency_from_text(source.text),
+                    description=_receipt_invoice_description(source, "receipt" if receipt_like_unknown else document_type),
+                    source=source,
+                    date_text=document_date,
+                    reason_code=reason_code,
+                    confidence=0.66 if receipt_like_unknown else 0.72,
+                )
+            ]
+
     for field_name in ["receipt_total", "total_amount_due"]:
         field = _best_financial_field(fields, field_name)
         if not field or field.value_type != "amount":
@@ -984,13 +1024,107 @@ def _looks_like_receipt_ocr(line_refs: list[SourceReference]) -> bool:
         "total",
         "subtotal",
         "gst",
+        "tax",
+        "include tax",
         "eftpos",
+        "ef tpos",
         "purchase",
         "approved",
         "card",
         "terminal",
     ]
     return sum(1 for term in evidence if term in text) >= 3
+
+
+def _receipt_labelled_total_amount(line_refs: list[SourceReference]) -> tuple[float, SourceReference, str] | None:
+    text = "\n".join(line.text for line in line_refs)
+    if not text.strip():
+        return None
+
+    label_patterns = [
+        ("RECEIPT_COMPLETE_TOTAL_REPAIRED", r"\b(?:complete|approved)\b\s*[:;-]?\s*"),
+        ("RECEIPT_CARD_TOTAL_REPAIRED", r"\b(?:bank|flank|debit|credit)\s+card\b\s*[:;-]?\s*"),
+        ("RECEIPT_LABELLED_TOTAL_REPAIRED", r"\b(?:grand\s+total|total|amount\s+due|due\s+amount)\b\s*[:;-]?\s*"),
+        ("RECEIPT_EFTPOS_TOTAL_REPAIRED", r"\b(?:eftpos|ef\s*tpos)\b\s*[:;-]?\s*"),
+    ]
+    for reason_code, label_pattern in label_patterns:
+        for match in re.finditer(label_pattern, text, re.IGNORECASE):
+            context_start = max(0, match.start() - 24)
+            context = text[context_start : min(len(text), match.end() + 56)]
+            if re.search(r"\b(?:include|included|includes|gst|tax)\b.{0,12}\b(?:total|amount)\b", context, re.IGNORECASE):
+                continue
+            amount_match = re.search(
+                r"(?:NZD|NZ\$|\$|PHP|USD|AUD)?\s*([0-9]{1,4}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2}))",
+                context[match.start() - context_start :],
+                re.IGNORECASE,
+            )
+            if amount_match:
+                amount = _parse_amount(amount_match.group(1))
+                if amount > 0:
+                    source = _source_for_text_window(line_refs, match.start(), context)
+                    return amount, source, reason_code
+
+            repaired_amount = _repaired_receipt_amount_from_label_context(context[match.start() - context_start :])
+            if repaired_amount:
+                amount, repair_reason = repaired_amount
+                source = _source_for_text_window(line_refs, match.start(), context)
+                return amount, source, repair_reason
+    return None
+
+
+def _repaired_receipt_amount_from_label_context(context: str) -> tuple[float, str] | None:
+    compact_nzd = re.search(
+        r"\bNZD\s*0?([1-9]\d{1,3})\s*(?:[.,]\s*)?(?:O[0OF]?|[O0]F|G[O0]|[O0]{1,2})\b",
+        context,
+        re.IGNORECASE,
+    )
+    if compact_nzd:
+        return float(compact_nzd.group(1)), "RECEIPT_DAMAGED_TOTAL_REPAIRED"
+
+    split_total = re.search(
+        r"(?:NZD|NZ\$|\$)?\s*0?([1-9]\d{1,3})\s+([0-9O]{2})\b",
+        context,
+        re.IGNORECASE,
+    )
+    if split_total:
+        cents = split_total.group(2).upper().replace("O", "0")
+        return float(f"{split_total.group(1)}.{cents}"), "RECEIPT_DAMAGED_TOTAL_REPAIRED"
+
+    alpha_decimal = re.search(
+        r"(?:NZD|NZ\$|\$)?\s*0?([1-9]\d{1,3})\s*[.,]\s*[A-Z]{1,3}\b",
+        context,
+        re.IGNORECASE,
+    )
+    if alpha_decimal:
+        return float(alpha_decimal.group(1)), "RECEIPT_DAMAGED_TOTAL_REPAIRED"
+
+    return None
+
+
+def _source_for_text_window(line_refs: list[SourceReference], absolute_start: int, fallback_text: str) -> SourceReference:
+    offset = 0
+    for line in line_refs:
+        line_length = len(line.text) + 1
+        if offset <= absolute_start < offset + line_length:
+            return SourceReference(
+                page_number=line.page_number,
+                line_number=line.line_number,
+                text=line.text,
+                section_id=line.section_id,
+                section_label=line.section_label or "receipt_totals",
+                source_text_redacted=line.source_text_redacted,
+                ocr_confidence=line.ocr_confidence,
+                extraction_confidence=line.extraction_confidence,
+            )
+        offset += line_length
+    cleaned = fallback_text.strip()
+    return SourceReference(
+        page_number=None,
+        line_number=1,
+        text=cleaned,
+        section_label="receipt_totals",
+        source_text_redacted=_redact_sensitive(cleaned),
+    )
 
 
 def _receipt_document_date(line_refs: list[SourceReference]) -> str | None:
@@ -2137,6 +2271,7 @@ def _result(
         parse_id=request.parse_id,
         document=request.document,
         document_type=document_type,
+        classification=request.classification,
         transaction_candidates=transactions,
         financial_field_candidates=fields,
         section_candidates=sections,
@@ -2274,6 +2409,8 @@ def _document_tables(
             "Amount": f"{candidate.amount:.2f}",
             "Currency": candidate.currency,
             "Direction": candidate.direction,
+            "Transaction type": candidate.transaction_type,
+            "Spending category": candidate.spending_category,
             "Status": "Ready" if candidate.confidence >= settings.min_transaction_confidence else "Needs review",
         }
         for candidate in transactions
@@ -2282,7 +2419,7 @@ def _document_tables(
         _table(
             "transactions",
             "Transactions",
-            ["Transaction date", "Post date", "Description", "Amount", "Currency", "Direction", "Status"],
+            ["Transaction date", "Post date", "Description", "Amount", "Currency", "Direction", "Transaction type", "Spending category", "Status"],
             transaction_rows,
             transactions,
         )

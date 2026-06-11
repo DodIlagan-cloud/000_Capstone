@@ -70,6 +70,12 @@ class ParseMetadata(BaseModel):
     ocr_selected_orientation: Optional[int] = None
     ocr_selected_psm: Optional[int] = None
     ocr_attempt_count: int = 0
+    ocr_selected_variant: Optional[str] = None
+    ocr_early_stopped: bool = False
+    ocr_early_stop_reason: Optional[str] = None
+    amount_coherence_score: Optional[float] = None
+    amount_coherence_status: Optional[str] = None
+    amount_conflict_reasons: list[str] = Field(default_factory=list)
 
 
 class StrategyDecision(BaseModel):
@@ -87,6 +93,20 @@ class ClassificationResult(BaseModel):
     status: str
     reason_codes: list[str] = Field(default_factory=list)
     scores: dict[str, float] = Field(default_factory=dict)
+    classification_source: str = "rules"
+    ai_model_name: Optional[str] = None
+    ai_model_version: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    requires_review: bool = False
+    review_reason_codes: list[str] = Field(default_factory=list)
+    recognition_suggestion_id: Optional[str] = None
+    recognition_suggestion_status: str = "none"
+    suggested_document_type: Optional[str] = None
+    suggested_document_subtype: Optional[str] = None
+    suggestion_confidence: Optional[float] = None
+    suggestion_reason_codes: list[str] = Field(default_factory=list)
+    suggestion_source: Optional[str] = None
+    suggestion_evidence_ref: Optional[str] = None
 
 
 class QualityMetadata(BaseModel):
@@ -115,6 +135,7 @@ class EvaluationMetadata(BaseModel):
     classification_confidence: float
     classification_reason_codes: list[str]
     classification_status: str
+    classification_source: str = "rules"
 
 
 class RedactedEvidencePreview(BaseModel):

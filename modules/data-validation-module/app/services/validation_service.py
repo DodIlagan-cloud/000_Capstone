@@ -107,6 +107,7 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
         records.append(
             _normalize_transaction_candidate(
                 candidate=candidate,
+                request=request,
                 min_confidence=min_confidence,
                 require_date=require_date,
                 require_direction=require_direction,
@@ -168,6 +169,7 @@ def validate_data(request: DataValidationRequest) -> DataValidationResult:
 
 def _normalize_transaction_candidate(
     candidate,
+    request: DataValidationRequest,
     min_confidence: float,
     require_date: bool,
     require_direction: bool,
@@ -259,12 +261,43 @@ def _normalize_transaction_candidate(
             )
         )
 
+    required_field_reason_codes = _required_save_field_reason_codes(request, candidate, min_confidence, findings)
+    classification_reason_codes = _classification_review_reason_codes(candidate, min_confidence, findings)
+    reason_codes.extend(required_field_reason_codes)
+    reason_codes.extend(classification_reason_codes)
+
     quality_status = "valid"
-    if any(code in reason_codes for code in ["INVALID_AMOUNT", "MISSING_DESCRIPTION"]):
+    if any(
+        code in reason_codes
+        for code in [
+            "INVALID_AMOUNT",
+            "MISSING_DESCRIPTION",
+            "UNKNOWN_DOCUMENT_TYPE",
+        ]
+    ):
         quality_status = "invalid"
     elif any(
         code in reason_codes
-        for code in ["MISSING_TRANSACTION_DATE", "UNKNOWN_DIRECTION", "LOW_CONFIDENCE_RECORD", "LOW_CONFIDENCE_AMOUNT"]
+        for code in [
+            "MISSING_TRANSACTION_DATE",
+            "UNKNOWN_DIRECTION",
+            "LOW_CONFIDENCE_RECORD",
+            "LOW_CONFIDENCE_AMOUNT",
+            "LOW_CONFIDENCE_DOCUMENT_TYPE",
+            "UNKNOWN_TRANSACTION_TYPE",
+            "LOW_CONFIDENCE_TRANSACTION_TYPE",
+            "UNKNOWN_SPENDING_CATEGORY",
+            "LOW_CONFIDENCE_SPENDING_CATEGORY",
+            "AMBIGUOUS_DOCUMENT_TYPE",
+            "AMBIGUOUS_TRANSACTION_TYPE",
+            "AMBIGUOUS_SPENDING_CATEGORY",
+            "AI_CLASSIFICATION_REVIEW_REQUIRED",
+            "RULE_AI_TRANSACTION_TYPE_CONFLICT",
+            "RULE_AI_SPENDING_CATEGORY_CONFLICT",
+            "PENDING_RECOGNITION_LABEL_SUGGESTION",
+            "UNAPPROVED_RECOGNITION_LABEL",
+            "REJECTED_RECOGNITION_LABEL_SUGGESTION",
+        ]
     ):
         quality_status = "warning"
     elif "NON_TRANSACTION_SECTION" in reason_codes:
@@ -284,6 +317,34 @@ def _normalize_transaction_candidate(
         confidence=round(candidate.confidence, 3),
         quality_status=quality_status,
         reason_codes=reason_codes,
+        transaction_type=candidate.transaction_type.strip().lower() or "unknown",
+        transaction_subtype=candidate.transaction_subtype.strip().lower() or "unknown",
+        transaction_type_confidence=round(candidate.transaction_type_confidence, 3),
+        transaction_type_status=candidate.transaction_type_status.strip().lower() or "unknown",
+        transaction_type_reason_codes=list(candidate.transaction_type_reason_codes),
+        transaction_type_scores=dict(candidate.transaction_type_scores),
+        spending_category=candidate.spending_category.strip().lower() or "uncategorized",
+        spending_subcategory=candidate.spending_subcategory.strip().lower() or "unknown",
+        spending_category_confidence=round(candidate.spending_category_confidence, 3),
+        spending_category_status=candidate.spending_category_status.strip().lower() or "unknown",
+        spending_category_reason_codes=list(candidate.spending_category_reason_codes),
+        spending_category_scores=dict(candidate.spending_category_scores),
+        classification_source=candidate.classification_source.strip().lower() or "unknown",
+        ai_model_name=candidate.ai_model_name,
+        ai_model_version=candidate.ai_model_version,
+        ai_confidence=round(candidate.ai_confidence, 3) if candidate.ai_confidence is not None else None,
+        classification_review_required=candidate.classification_review_required,
+        classification_review_reason_codes=list(candidate.classification_review_reason_codes),
+        recognition_suggestion_id=candidate.recognition_suggestion_id,
+        recognition_suggestion_status=(candidate.recognition_suggestion_status or "none").strip().lower(),
+        suggested_transaction_type=_optional_lower(candidate.suggested_transaction_type),
+        suggested_transaction_subtype=_optional_lower(candidate.suggested_transaction_subtype),
+        suggested_spending_category=_optional_lower(candidate.suggested_spending_category),
+        suggested_spending_subcategory=_optional_lower(candidate.suggested_spending_subcategory),
+        suggestion_confidence=round(candidate.suggestion_confidence, 3) if candidate.suggestion_confidence is not None else None,
+        suggestion_reason_codes=list(candidate.suggestion_reason_codes),
+        suggestion_source=_optional_lower(candidate.suggestion_source),
+        suggestion_evidence_ref=candidate.suggestion_evidence_ref,
     )
 
 
@@ -523,6 +584,177 @@ def _low_confidence_amount(candidate, min_confidence: float) -> bool:
     return candidate.source.ocr_confidence < min_confidence
 
 
+def _required_save_field_reason_codes(
+    request: DataValidationRequest,
+    candidate,
+    min_confidence: float,
+    findings: list[ValidationFinding],
+) -> list[str]:
+    reason_codes: list[str] = []
+    record_id = f"record_{candidate.candidate_id}"
+    document_type = (request.document_type or "unknown").strip().lower()
+    document_status = (request.document_type_status or "unknown").strip().lower()
+
+    if document_type == "unknown":
+        reason_codes.append("UNKNOWN_DOCUMENT_TYPE")
+        findings.append(
+            ValidationFinding(
+                code="UNKNOWN_DOCUMENT_TYPE",
+                severity="error",
+                message="Document type is required before this transaction can be saved.",
+                record_id=record_id,
+            )
+        )
+    elif document_status == "ambiguous":
+        reason_codes.append("AMBIGUOUS_DOCUMENT_TYPE")
+        findings.append(
+            ValidationFinding(
+                code="AMBIGUOUS_DOCUMENT_TYPE",
+                severity="warning",
+                message="Document type classification has ambiguous signals and should be reviewed.",
+                record_id=record_id,
+            )
+        )
+    elif request.document_type_confidence is not None and request.document_type_confidence < min_confidence:
+        reason_codes.append("LOW_CONFIDENCE_DOCUMENT_TYPE")
+        findings.append(
+            ValidationFinding(
+                code="LOW_CONFIDENCE_DOCUMENT_TYPE",
+                severity="warning",
+                message="Document type classification confidence is below the configured threshold.",
+                record_id=record_id,
+            )
+        )
+
+    return reason_codes
+
+
+def _classification_review_reason_codes(candidate, min_confidence: float, findings: list[ValidationFinding]) -> list[str]:
+    reason_codes: list[str] = []
+    record_id = f"record_{candidate.candidate_id}"
+    transaction_status = (candidate.transaction_type_status or "unknown").lower()
+    category_status = (candidate.spending_category_status or "unknown").lower()
+    transaction_type = (candidate.transaction_type or "unknown").lower()
+    spending_category = (candidate.spending_category or "uncategorized").lower()
+
+    if transaction_type == "unknown" or transaction_status == "unknown":
+        reason_codes.append("UNKNOWN_TRANSACTION_TYPE")
+        findings.append(
+            ValidationFinding(
+                code="UNKNOWN_TRANSACTION_TYPE",
+                severity="warning",
+                message="Transaction type classification could not be determined.",
+                record_id=record_id,
+            )
+        )
+    elif transaction_status == "ambiguous":
+        reason_codes.append("AMBIGUOUS_TRANSACTION_TYPE")
+        findings.append(
+            ValidationFinding(
+                code="AMBIGUOUS_TRANSACTION_TYPE",
+                severity="warning",
+                message="Transaction type classification has ambiguous signals.",
+                record_id=record_id,
+            )
+        )
+    elif candidate.transaction_type_confidence < min_confidence:
+        reason_codes.append("LOW_CONFIDENCE_TRANSACTION_TYPE")
+        findings.append(
+            ValidationFinding(
+                code="LOW_CONFIDENCE_TRANSACTION_TYPE",
+                severity="warning",
+                message="Transaction type classification confidence is below the configured threshold.",
+                record_id=record_id,
+            )
+        )
+
+    if spending_category == "uncategorized" or category_status == "unknown":
+        reason_codes.append("UNKNOWN_SPENDING_CATEGORY")
+        findings.append(
+            ValidationFinding(
+                code="UNKNOWN_SPENDING_CATEGORY",
+                severity="warning",
+                message="Spending category classification could not be determined.",
+                record_id=record_id,
+            )
+        )
+    elif category_status == "ambiguous":
+        reason_codes.append("AMBIGUOUS_SPENDING_CATEGORY")
+        findings.append(
+            ValidationFinding(
+                code="AMBIGUOUS_SPENDING_CATEGORY",
+                severity="warning",
+                message="Spending category classification has ambiguous signals.",
+                record_id=record_id,
+            )
+        )
+    elif candidate.spending_category_confidence < min_confidence:
+        reason_codes.append("LOW_CONFIDENCE_SPENDING_CATEGORY")
+        findings.append(
+            ValidationFinding(
+                code="LOW_CONFIDENCE_SPENDING_CATEGORY",
+                severity="warning",
+                message="Spending category classification confidence is below the configured threshold.",
+                record_id=record_id,
+            )
+        )
+
+    if candidate.classification_review_required:
+        review_codes = list(candidate.classification_review_reason_codes) or ["AI_CLASSIFICATION_REVIEW_REQUIRED"]
+        for review_code in review_codes:
+            if review_code not in reason_codes:
+                reason_codes.append(review_code)
+        findings.append(
+            ValidationFinding(
+                code="AI_CLASSIFICATION_REVIEW_REQUIRED",
+                severity="warning",
+                message="AI-assisted transaction classification requires review.",
+                record_id=record_id,
+            )
+        )
+
+    suggestion_status = (candidate.recognition_suggestion_status or "none").lower()
+    if suggestion_status in {"rejected", "invalid"}:
+        reason_codes.append("REJECTED_RECOGNITION_LABEL_SUGGESTION")
+        findings.append(
+            ValidationFinding(
+                code="REJECTED_RECOGNITION_LABEL_SUGGESTION",
+                severity="warning",
+                message="A proposed transaction or spending label was rejected or marked unusable.",
+                record_id=record_id,
+            )
+        )
+    elif suggestion_status in {"unapproved", "outside_vocabulary"}:
+        reason_codes.append("UNAPPROVED_RECOGNITION_LABEL")
+        findings.append(
+            ValidationFinding(
+                code="UNAPPROVED_RECOGNITION_LABEL",
+                severity="warning",
+                message="A transaction or spending label is outside the approved recognition settings.",
+                record_id=record_id,
+            )
+        )
+    elif candidate.recognition_suggestion_id or suggestion_status in {"pending", "proposed"}:
+        reason_codes.append("PENDING_RECOGNITION_LABEL_SUGGESTION")
+        findings.append(
+            ValidationFinding(
+                code="PENDING_RECOGNITION_LABEL_SUGGESTION",
+                severity="warning",
+                message="A proposed transaction or spending label is waiting for administrator review.",
+                record_id=record_id,
+            )
+        )
+
+    return reason_codes
+
+
+def _optional_lower(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
 def _apply_ocr_review_gates(records: list[NormalizedTransactionRecord], findings: list[ValidationFinding]) -> None:
     for record in records:
         if OCR_REPAIR_REASON_CODES.intersection(record.reason_codes):
@@ -719,6 +951,16 @@ def _result(
         parse_id=request.parse_id,
         document=request.document,
         document_type=request.document_type,
+        document_recognition_suggestion_id=request.document_recognition_suggestion_id,
+        document_recognition_suggestion_status=(request.document_recognition_suggestion_status or "none").strip().lower(),
+        suggested_document_type=_optional_lower(request.suggested_document_type),
+        suggested_document_subtype=_optional_lower(request.suggested_document_subtype),
+        document_suggestion_confidence=round(request.document_suggestion_confidence, 3)
+        if request.document_suggestion_confidence is not None
+        else None,
+        document_suggestion_reason_codes=list(request.document_suggestion_reason_codes),
+        document_suggestion_source=_optional_lower(request.document_suggestion_source),
+        document_suggestion_evidence_ref=request.document_suggestion_evidence_ref,
         normalized_records=records,
         financial_fields=fields,
         section_candidates=request.section_candidates,

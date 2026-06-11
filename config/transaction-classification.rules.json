@@ -1,0 +1,84 @@
+{
+  "rules": [
+    {
+      "transaction_type": "purchase",
+      "transaction_subtype": "eftpos_payment",
+      "reason_code": "EFTPOS_PURCHASE_SIGNALS",
+      "required_any": ["eftpos", "purchase", "approved", "card purchase"],
+      "signals": ["merchant", "card", "terminal", "receipt", "total", "sale", "visa", "mastercard"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "purchase",
+      "transaction_subtype": "merchant_purchase",
+      "reason_code": "MERCHANT_PURCHASE_SIGNALS",
+      "required_any": ["purchase", "merchant", "store", "shop", "restaurant", "cafe"],
+      "signals": ["transaction_table", "debit", "total", "receipt", "invoice", "paid", "amount"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "payment",
+      "transaction_subtype": "credit_card_payment",
+      "reason_code": "CREDIT_CARD_PAYMENT_SIGNALS",
+      "required_any": ["payment", "paid thru", "thank you", "amount due"],
+      "signals": ["credit card", "statement", "payment due", "minimum payment", "online banking", "credit"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "payment",
+      "transaction_subtype": "invoice_payment",
+      "reason_code": "INVOICE_PAYMENT_SIGNALS",
+      "required_any": ["invoice", "paid", "payment history", "amount due"],
+      "signals": ["invoice no", "owing", "service fee", "eftpos", "payment", "total"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "transfer",
+      "transaction_subtype": "bank_transfer",
+      "reason_code": "BANK_TRANSFER_SIGNALS",
+      "required_any": ["transfer", "transfer to", "transfer from", "confirmation no", "transfer amount"],
+      "signals": ["bank", "account", "reference", "sent via", "payment", "confirmation"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "refund",
+      "transaction_subtype": "reversal",
+      "reason_code": "REFUND_REVERSAL_SIGNALS",
+      "required_any": ["refund", "reversal", "cashback", "credit"],
+      "signals": ["merchant", "program", "returned", "credit", "statement"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "fee",
+      "transaction_subtype": "service_fee",
+      "reason_code": "FEE_SIGNALS",
+      "required_any": ["fee", "service fee", "late payment", "bank fee", "charge"],
+      "signals": ["statement", "invoice", "bank", "monthly", "service charge"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "interest",
+      "transaction_subtype": "finance_charge",
+      "reason_code": "INTEREST_FINANCE_CHARGE_SIGNALS",
+      "required_any": ["interest", "finance charge", "monthly interest"],
+      "signals": ["statement", "cash advance", "purchase", "rate", "charge"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "installment_amortization",
+      "transaction_subtype": "credit_card_installment",
+      "reason_code": "INSTALLMENT_AMORTIZATION_SIGNALS",
+      "required_any": ["installment", "amortization", "01/12", "02/12", "1 of"],
+      "signals": ["statement", "purchase", "term", "balance", "principal"],
+      "minimum_score": 0.35
+    },
+    {
+      "transaction_type": "tax",
+      "transaction_subtype": "gst_tax",
+      "reason_code": "TAX_SIGNALS",
+      "required_any": ["gst", "tax", "withholding"],
+      "signals": ["includes gst", "total gst", "tax invoice", "sales tax"],
+      "minimum_score": 0.35
+    }
+  ]
+}

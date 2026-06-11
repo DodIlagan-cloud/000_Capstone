@@ -12,7 +12,13 @@ APPSETTINGS_FILE = STATS_WEB_ROOT / "appsettings.json"
 PROGRAM_FILE = STATS_WEB_ROOT / "Program.cs"
 UPLOAD_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "upload.js"
 DOCUMENTS_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "documents.js"
+APP_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "app.js"
+CLASSIFICATIONS_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "classifications.js"
+ACCESS_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "access.js"
+REPORTING_JS_FILE = STATS_WEB_ROOT / "wwwroot" / "js" / "reporting.js"
 DOCUMENTS_PAGE_FILE = STATS_WEB_ROOT / "Pages" / "Documents.cshtml"
+CLASSIFICATIONS_PAGE_FILE = STATS_WEB_ROOT / "Pages" / "Admin" / "Classifications.cshtml"
+CLASSIFICATIONS_MODEL_FILE = STATS_WEB_ROOT / "Pages" / "Admin" / "Classifications.cshtml.cs"
 RUNTIME_CONFIG_FILE = REPO_ROOT / "config" / "stats.runtime.json"
 
 
@@ -43,6 +49,7 @@ def test_stats_web_uses_same_origin_proxy_for_browser_downstream_calls():
     downstream = appsettings["StatsWeb"]["Downstream"]
 
     assert appsettings["StatsApi"]["BaseUrl"] == ""
+    assert appsettings["StatsWeb"]["InternalApiKey"] == ""
     assert downstream["FileValidationBaseUrl"] == ""
     assert downstream["FileIngestionBaseUrl"] == ""
     assert downstream["DocumentParsingBaseUrl"] == ""
@@ -59,6 +66,7 @@ def test_stats_web_uses_same_origin_proxy_for_browser_downstream_calls():
 def test_stats_web_program_allows_container_environment_overrides():
     """Ensure the container can override downstream URLs through environment variables."""
     program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+    classifications_model_source = CLASSIFICATIONS_MODEL_FILE.read_text(encoding="utf-8")
 
     assert "StatsCentralRuntime.Load" in program_source
     assert "STATS_RUNTIME_CONFIG" in program_source
@@ -71,6 +79,8 @@ def test_stats_web_program_allows_container_environment_overrides():
     assert "StatsWeb:Downstream:TransactionExtractionBaseUrl" in program_source
     assert "StatsWeb:Downstream:DataValidationBaseUrl" in program_source
     assert "StatsWeb:Downstream:StatsDataBaseUrl" in program_source
+    assert "STATS_INTERNAL_API_KEY" in program_source
+    assert "X-Stats-Internal-Key" in classifications_model_source
 
 
 def test_stats_web_wires_central_logging_and_correlation():
@@ -171,9 +181,24 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert "Duplicate save blocked" in upload_source
     assert "Transaction already saved" in upload_source
     assert "downstreamErrorMessage" in upload_source
+    assert "ingestionFailureMessage" in upload_source
+    assert "Document upload stopped at ingestion. Status:" in upload_source
+    assert "finding.message" in upload_source
     assert "resetUploadPage" in upload_source
     assert "Document processing could not be started." in upload_source
     assert "Transactions saved. Choose another file to continue." in upload_source
+    assert "transactionTypeOptions" in upload_source
+    assert "transactionSubtypeOptions" in upload_source
+    assert "spendingCategoryOptions" in upload_source
+    assert "spendingSubcategoryOptions" in upload_source
+    assert "[\"transaction_type\", \"Transaction type\", \"select\", transactionTypeOptions]" in upload_source
+    assert "[\"transaction_subtype\", \"Transaction subtype\", \"select\", transactionSubtypeOptions]" in upload_source
+    assert "[\"spending_category\", \"Spending category\", \"select\", spendingCategoryOptions]" in upload_source
+    assert "[\"spending_subcategory\", \"Spending subcategory\", \"select\", spendingSubcategoryOptions]" in upload_source
+    assert 'category: record.spending_category && record.spending_category !== "uncategorized"' in upload_source
+    assert "review-item-header" in upload_source
+    assert "review-details review-details-transaction" in upload_source
+    assert "[\"Direction\", titleCaseLabel(record.direction || \"unknown\")]" in upload_source
 
 
 def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
@@ -240,4 +265,169 @@ def test_documents_page_lists_and_removes_stats_data_records():
     assert 'fetch(documentsApiUrl("/api/v1/documents?limit=25")' in documents_source
     assert 'method: "DELETE"' in documents_source
     assert "/api/v1/documents/${encodeURIComponent(documentRecord.document_id)}" in documents_source
-    assert "window.confirm" in documents_source
+    assert "showRemoveConfirmation" in documents_source
+    assert 'confirmButton.textContent = "Confirm"' in documents_source
+    assert 'cancelButton.textContent = "Cancel"' in documents_source
+
+
+def test_classification_admin_page_uses_product_language_and_management_sections():
+    page_source = CLASSIFICATIONS_PAGE_FILE.read_text(encoding="utf-8")
+    model_source = CLASSIFICATIONS_MODEL_FILE.read_text(encoding="utf-8")
+    script_source = CLASSIFICATIONS_JS_FILE.read_text(encoding="utf-8")
+    app_source = APP_JS_FILE.read_text(encoding="utf-8")
+
+    assert '@page' in page_source
+    assert 'href="/Admin/Classifications"' in page_source
+    assert "Document types" in page_source
+    assert "Transaction labels" in page_source
+    assert "Items to review" in page_source
+    assert "How Stats recognizes documents" in page_source
+    assert "How to use this page" in page_source
+    assert "<details class=\"classification-help\">" in page_source
+    assert '<div class="classification-stack">' in page_source
+    assert 'data-classification-section="document-rules"' in page_source
+    assert "Rules Stats uses for documents" in page_source
+    assert "Text Stats looks for" in page_source
+    assert "Manage transaction labels" in page_source
+    assert "Manage spending labels" in page_source
+    assert 'asp-page-handler="SaveDocumentLabel"' in page_source
+    assert 'asp-page-handler="SaveTransactionLabel"' in page_source
+    assert 'asp-page-handler="SaveSpendingLabel"' in page_source
+    assert 'asp-page-handler="DeleteDocumentLabel"' in page_source
+    assert 'asp-page-handler="DeleteDocumentRule"' in page_source
+    assert 'asp-page-handler="DeleteTransactionLabel"' in page_source
+    assert 'asp-page-handler="DeleteSpendingLabel"' in page_source
+    assert "Delete this document type?" in page_source
+    assert "Delete this recognition rule?" in page_source
+    assert "Delete this transaction label?" in page_source
+    assert "Delete this spending label?" in page_source
+    assert "New document type" in page_source
+    assert "New transaction type" in page_source
+    assert "New spending category" in page_source
+    assert "Allowed document examples" in page_source
+    assert "Allowed subtypes" in page_source
+    assert "Allowed subcategories" in page_source
+    assert "classification-management\" open" not in page_source
+    assert 'data-async-classification-form data-classification-section="document"' in page_source
+    assert 'data-async-classification-form data-classification-section="transaction"' in page_source
+    assert 'data-async-classification-form data-classification-section="spending"' in page_source
+    assert "Score" not in page_source
+    assert "low-confidence" not in page_source.lower()
+    assert "M5 Document Parsing" not in page_source
+    assert "M7 Transaction Extraction" not in page_source
+    assert "M11 boundary" not in page_source
+    assert "Read-only" not in page_source
+    assert "AI help" not in page_source
+    assert "<dt>Provider</dt>" not in page_source
+    assert "<dt>Model</dt>" not in page_source
+    assert "<dt>Version</dt>" not in page_source
+    assert "document-classification.vocabulary.json" in model_source
+    assert "document-classification.rules.json" in model_source
+    assert "transaction-classification.vocabulary.json" in model_source
+    assert "spending-category.rules.json" in model_source
+    assert "OnPostSaveDocumentLabelAsync" in model_source
+    assert "OnPostDeleteDocumentLabelAsync" in model_source
+    assert "OnPostDeleteDocumentRuleAsync" in model_source
+    assert "OnPostDeleteTransactionLabelAsync" in model_source
+    assert "OnPostDeleteSpendingLabelAsync" in model_source
+    assert "SaveDocumentLabel(" in model_source
+    assert "DeleteDocumentLabel(" in model_source
+    assert "DeleteTransactionLabel(" in model_source
+    assert "DeleteSpendingLabel(" in model_source
+    assert "The Unknown fallback label cannot be deleted." in model_source
+    assert "CLASSIFICATION_AI_ENABLED" not in model_source
+    assert "CLASSIFICATION_AI_MODEL_VERSION" not in model_source
+    assert "Stats Web /Admin/Classifications" not in model_source
+    assert "user.role !== \"admin\"" in script_source
+    assert "Administrator access is required." in script_source
+    assert "data-classification-tab" in script_source
+    assert "saveClassificationForm" in script_source
+    assert "refreshWorkbench" in script_source
+    assert "\"X-Stats-Async-Save\": \"true\"" in script_source
+    assert "event.preventDefault()" in script_source
+    assert "window.confirm(form.dataset.confirmMessage)" in script_source
+    assert "read-only classification" not in script_source
+    assert "data-admin-link" in app_source
+    assert "user.role !== \"admin\"" in app_source
+
+
+def test_admin_navigation_is_client_revealed_after_identity_check():
+    page_files = [
+        STATS_WEB_ROOT / "Pages" / "Index.cshtml",
+        STATS_WEB_ROOT / "Pages" / "Upload.cshtml",
+        STATS_WEB_ROOT / "Pages" / "Documents.cshtml",
+        STATS_WEB_ROOT / "Pages" / "Reports.cshtml",
+        STATS_WEB_ROOT / "Pages" / "EmailSetup.cshtml",
+    ]
+    model_files = [
+        STATS_WEB_ROOT / "Pages" / "Index.cshtml.cs",
+        STATS_WEB_ROOT / "Pages" / "Upload.cshtml.cs",
+        STATS_WEB_ROOT / "Pages" / "Documents.cshtml.cs",
+        STATS_WEB_ROOT / "Pages" / "Reports.cshtml.cs",
+        STATS_WEB_ROOT / "Pages" / "EmailSetup.cshtml.cs",
+    ]
+
+    for page_file in page_files:
+        source = page_file.read_text(encoding="utf-8")
+        if page_file.name != "Index.cshtml":
+            assert "@if (Model.IsAdmin)" not in source
+        assert 'data-admin-link href="/Users" hidden>Manage users' in source
+        assert 'data-admin-link href="/Admin/Classifications" hidden>Recognition settings' in source
+        assert "Recognition settings" in source
+
+    for model_file in model_files:
+        source = model_file.read_text(encoding="utf-8")
+        assert "StatsUserContextService" in source
+        assert "IsAdmin" in source
+        assert "IsAdminAsync(HttpContext)" in source
+
+
+def test_access_helper_mirrors_session_token_for_server_form_posts():
+    access_source = ACCESS_JS_FILE.read_text(encoding="utf-8")
+    page_sources = [
+        (STATS_WEB_ROOT / "Pages" / "Login.cshtml").read_text(encoding="utf-8"),
+        (STATS_WEB_ROOT / "Pages" / "Index.cshtml").read_text(encoding="utf-8"),
+        (STATS_WEB_ROOT / "Pages" / "Upload.cshtml").read_text(encoding="utf-8"),
+        (STATS_WEB_ROOT / "Pages" / "Documents.cshtml").read_text(encoding="utf-8"),
+        (STATS_WEB_ROOT / "Pages" / "Reports.cshtml").read_text(encoding="utf-8"),
+        (STATS_WEB_ROOT / "Pages" / "EmailSetup.cshtml").read_text(encoding="utf-8"),
+        (STATS_WEB_ROOT / "Pages" / "Users.cshtml").read_text(encoding="utf-8"),
+        CLASSIFICATIONS_PAGE_FILE.read_text(encoding="utf-8"),
+    ]
+
+    assert "tokenCookieName: \"stats_access_token\"" in access_source
+    assert "setTokenCookie(token)" in access_source
+    assert "cookieToken()" in access_source
+    assert "sessionStorage.setItem(this.tokenKey, cookieToken)" in access_source
+    assert "this.setTokenCookie(token);" in access_source
+    for source in page_sources:
+        assert 'src="/js/access.js" defer asp-append-version="true"' in source
+
+
+def test_reporting_js_does_not_show_raw_powerbi_error_details():
+    reporting_source = REPORTING_JS_FILE.read_text(encoding="utf-8")
+
+    assert "safeReportingErrorMessage" in reporting_source
+    assert 'setReportingStatus("unavailable", safeReportingErrorMessage())' in reporting_source
+    assert 'setReportingStatus("unavailable", message)' not in reporting_source
+
+
+def test_reporting_endpoints_require_server_side_user_context():
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert "StatsReportingKpis.GetKpisAsync" in program_source
+    assert "StatsReportingEmbedConfig.GetEmbedConfigAsync" in program_source
+    assert "StatsUserContextService userContext" in program_source
+    assert "await userContext.GetCurrentUserAsync(context)" in program_source
+    assert "return Results.Unauthorized();" in program_source
+    assert "return Results.StatusCode(StatusCodes.Status403Forbidden);" in program_source
+    assert "or JsonException" in program_source
+
+
+def test_home_financial_kpis_are_admin_only():
+    page_source = (STATS_WEB_ROOT / "Pages" / "Index.cshtml").read_text(encoding="utf-8")
+
+    assert "@if (Model.IsAdmin)" in page_source
+    assert page_source.index("@if (Model.IsAdmin)") < page_source.index("data-kpi-card")
+    assert "data-kpi-card" in page_source
+    assert 'id="reporting-currency"' in page_source

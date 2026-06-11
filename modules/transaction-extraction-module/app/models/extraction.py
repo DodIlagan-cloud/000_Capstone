@@ -58,6 +58,14 @@ class ParsedClassification(BaseModel):
     confidence: Optional[float] = None
     status: Optional[str] = None
     reason_codes: list[str] = Field(default_factory=list)
+    recognition_suggestion_id: Optional[str] = None
+    recognition_suggestion_status: str = "none"
+    suggested_document_type: Optional[str] = None
+    suggested_document_subtype: Optional[str] = None
+    suggestion_confidence: Optional[float] = None
+    suggestion_reason_codes: list[str] = Field(default_factory=list)
+    suggestion_source: Optional[str] = None
+    suggestion_evidence_ref: Optional[str] = None
 
 
 class ParsedQuality(BaseModel):
@@ -118,6 +126,34 @@ class TransactionCandidate(BaseModel):
     source: SourceReference
     confidence: float
     reason_codes: list[str] = Field(default_factory=list)
+    transaction_type: str = "unknown"
+    transaction_subtype: str = "unknown"
+    transaction_type_confidence: float = 0.0
+    transaction_type_status: str = "unknown"
+    transaction_type_reason_codes: list[str] = Field(default_factory=list)
+    transaction_type_scores: dict[str, float] = Field(default_factory=dict)
+    spending_category: str = "uncategorized"
+    spending_subcategory: str = "unknown"
+    spending_category_confidence: float = 0.0
+    spending_category_status: str = "unknown"
+    spending_category_reason_codes: list[str] = Field(default_factory=list)
+    spending_category_scores: dict[str, float] = Field(default_factory=dict)
+    classification_source: str = "unknown"
+    ai_model_name: Optional[str] = None
+    ai_model_version: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    classification_review_required: bool = False
+    classification_review_reason_codes: list[str] = Field(default_factory=list)
+    recognition_suggestion_id: Optional[str] = None
+    recognition_suggestion_status: str = "none"
+    suggested_transaction_type: Optional[str] = None
+    suggested_transaction_subtype: Optional[str] = None
+    suggested_spending_category: Optional[str] = None
+    suggested_spending_subcategory: Optional[str] = None
+    suggestion_confidence: Optional[float] = None
+    suggestion_reason_codes: list[str] = Field(default_factory=list)
+    suggestion_source: Optional[str] = None
+    suggestion_evidence_ref: Optional[str] = None
 
 
 class FinancialFieldCandidate(BaseModel):
@@ -262,6 +298,7 @@ class TransactionExtractionResult(BaseModel):
     parse_id: Optional[str] = None
     document: Optional[SourceDocument] = None
     document_type: str
+    classification: Optional[ParsedClassification] = None
     transaction_candidates: list[TransactionCandidate] = Field(default_factory=list)
     financial_field_candidates: list[FinancialFieldCandidate] = Field(default_factory=list)
     section_candidates: list[SectionCandidate] = Field(default_factory=list)

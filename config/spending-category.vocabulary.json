@@ -1,0 +1,36 @@
+{
+  "spending_categories": [
+    "medical",
+    "pharmacy",
+    "groceries",
+    "utilities",
+    "transport",
+    "housing",
+    "insurance",
+    "banking_fees",
+    "interest",
+    "transfers",
+    "shopping",
+    "food_dining",
+    "income",
+    "tax",
+    "uncategorized"
+  ],
+  "spending_subcategories": {
+    "medical": ["clinic", "hospital", "laboratory", "diagnostics", "unknown"],
+    "pharmacy": ["prescription", "chemist", "pharmacy_retail", "unknown"],
+    "groceries": ["supermarket", "fresh_food", "market", "unknown"],
+    "utilities": ["electricity", "water", "gas", "telecommunications", "internet", "unknown"],
+    "transport": ["fuel", "public_transport", "parking", "rideshare", "unknown"],
+    "housing": ["rent", "mortgage", "property", "unknown"],
+    "insurance": ["premium", "policy_payment", "unknown"],
+    "banking_fees": ["service_fee", "late_payment_fee", "bank_charge", "unknown"],
+    "interest": ["finance_charge", "loan_interest", "unknown"],
+    "transfers": ["bank_transfer", "internal_transfer", "external_transfer", "unknown"],
+    "shopping": ["retail", "general_merchandise", "hardware", "unknown"],
+    "food_dining": ["restaurant", "cafe", "fast_food", "unknown"],
+    "income": ["salary", "refund_income", "deposit", "unknown"],
+    "tax": ["gst", "sales_tax", "withholding_tax", "unknown"],
+    "uncategorized": ["unknown"]
+  }
+}

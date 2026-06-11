@@ -10,11 +10,17 @@ from fastapi.testclient import TestClient
 import pytest
 
 MODULE_ROOT = Path(__file__).resolve().parents[3] / "modules" / "document-parsing-module"
-for module_name in list(sys.modules):
-    if module_name == "app" or module_name.startswith("app."):
-        del sys.modules[module_name]
-if str(MODULE_ROOT) not in sys.path:
-    sys.path.insert(0, str(MODULE_ROOT))
+def _activate_module_root() -> None:
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            del sys.modules[module_name]
+    module_root_path = str(MODULE_ROOT)
+    if module_root_path in sys.path:
+        sys.path.remove(module_root_path)
+    sys.path.insert(0, module_root_path)
+
+
+_activate_module_root()
 
 from app.main import app
 

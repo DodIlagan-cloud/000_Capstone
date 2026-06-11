@@ -5,7 +5,7 @@ const landingWorkspace = document.querySelector("#landing-workspace");
 const currentUserName = document.querySelector("#current-user-name");
 const currentUserEmail = document.querySelector("#current-user-email");
 const currentUserRole = document.querySelector("#current-user-role");
-const manageUsersLink = document.querySelector("#manage-users-link");
+const adminLinks = document.querySelectorAll("[data-admin-link]");
 const logoutButton = document.querySelector("#logout-button");
 
 function setAppMessage(message, tone = "error") {
@@ -40,7 +40,9 @@ async function loadLandingPage() {
       currentUserRole.textContent = user.role;
     }
     // M2 End
-    manageUsersLink.hidden = user.role !== "admin";
+    adminLinks.forEach((link) => {
+      link.hidden = user.role !== "admin";
+    });
     landingWorkspace.hidden = false;
     setAppMessage("Access granted.", "success");
   } catch (error) {

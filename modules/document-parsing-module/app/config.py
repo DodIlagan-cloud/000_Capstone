@@ -73,8 +73,12 @@ class Settings:
     ocr_psm_values: List[int]
     ocr_retry_orientations: bool
     ocr_pdf_fast_psm_values: List[int]
+    ocr_image_fast_psm_values: List[int]
     ocr_fast_min_quality_score: float
     ocr_fast_min_text_length: int
+    ocr_image_fast_min_quality_score: float
+    ocr_image_fast_min_text_length: int
+    ocr_image_fast_min_confidence: float
     ocr_pdf_render_scale: float
     ocr_min_confidence: float
     ocr_min_quality_score: float
@@ -82,8 +86,20 @@ class Settings:
     supported_document_types: List[str]
     document_classification_vocabulary_path: Path
     document_classification_rules_path: Path
+    recognition_settings_url: str
+    recognition_settings_internal_key: str
+    recognition_settings_cache_seconds: int
     classification_confidence_threshold: float
     classification_allow_unknown: bool
+    classification_ai_enabled: bool
+    classification_ai_provider: str
+    classification_ai_endpoint: str
+    classification_ai_api_key_env: str
+    classification_ai_model: str
+    classification_ai_model_version: str
+    classification_ai_min_confidence: float
+    classification_ai_trigger_threshold: float
+    classification_ai_max_chars: int
     extraction_timeout_seconds: int
     max_page_count: int
     min_text_length: int
@@ -122,8 +138,12 @@ class Settings:
         self.ocr_psm_values = self._parse_csv_int_values(config_values.get("OCR_PSM_VALUES", "6,11,4"))
         self.ocr_retry_orientations = _parse_bool(config_values.get("OCR_RETRY_ORIENTATIONS"), True)
         self.ocr_pdf_fast_psm_values = self._parse_csv_int_values(config_values.get("OCR_PDF_FAST_PSM_VALUES", "6,4"))
+        self.ocr_image_fast_psm_values = self._parse_csv_int_values(config_values.get("OCR_IMAGE_FAST_PSM_VALUES", "6,11"))
         self.ocr_fast_min_quality_score = _parse_float(config_values.get("OCR_FAST_MIN_QUALITY_SCORE"), 0.55)
         self.ocr_fast_min_text_length = _parse_int(config_values.get("OCR_FAST_MIN_TEXT_LENGTH"), 120)
+        self.ocr_image_fast_min_quality_score = _parse_float(config_values.get("OCR_IMAGE_FAST_MIN_QUALITY_SCORE"), 0.62)
+        self.ocr_image_fast_min_text_length = _parse_int(config_values.get("OCR_IMAGE_FAST_MIN_TEXT_LENGTH"), 80)
+        self.ocr_image_fast_min_confidence = _parse_float(config_values.get("OCR_IMAGE_FAST_MIN_CONFIDENCE"), 50.0)
         self.ocr_pdf_render_scale = _parse_float(config_values.get("OCR_PDF_RENDER_SCALE"), 2.0)
         self.ocr_min_confidence = _parse_float(config_values.get("OCR_MIN_CONFIDENCE"), 35.0)
         self.ocr_min_quality_score = _parse_float(config_values.get("OCR_MIN_QUALITY_SCORE"), 0.35)
@@ -138,6 +158,15 @@ class Settings:
         self.document_classification_rules_path = self._resolve_stats_path(
             config_values.get("DOCUMENT_CLASSIFICATION_RULES_PATH", "config/document-classification.rules.json")
         )
+        self.recognition_settings_url = config_values.get(
+            "RECOGNITION_SETTINGS_URL",
+            "http://localhost:8018/api/v1/admin/recognition-settings/active",
+        ).strip()
+        self.recognition_settings_internal_key = config_values.get("STATS_INTERNAL_API_KEY", "").strip()
+        self.recognition_settings_cache_seconds = _parse_int(
+            config_values.get("RECOGNITION_SETTINGS_CACHE_SECONDS"),
+            15,
+        )
         self.classification_confidence_threshold = _parse_float(
             _config_value(config_values, "CLASSIFICATION_CONFIDENCE_THRESHOLD"),
             0.70,
@@ -146,6 +175,15 @@ class Settings:
             _config_value(config_values, "CLASSIFICATION_ALLOW_UNKNOWN"),
             True,
         )
+        self.classification_ai_enabled = _parse_bool(config_values.get("CLASSIFICATION_AI_ENABLED"), False)
+        self.classification_ai_provider = config_values.get("CLASSIFICATION_AI_PROVIDER", "none").strip().lower()
+        self.classification_ai_endpoint = config_values.get("CLASSIFICATION_AI_ENDPOINT", "").strip()
+        self.classification_ai_api_key_env = config_values.get("CLASSIFICATION_AI_API_KEY_ENV", "OPENAI_API_KEY").strip()
+        self.classification_ai_model = config_values.get("CLASSIFICATION_AI_MODEL", "").strip()
+        self.classification_ai_model_version = config_values.get("CLASSIFICATION_AI_MODEL_VERSION", "").strip()
+        self.classification_ai_min_confidence = _parse_float(config_values.get("CLASSIFICATION_AI_MIN_CONFIDENCE"), 0.76)
+        self.classification_ai_trigger_threshold = _parse_float(config_values.get("CLASSIFICATION_AI_TRIGGER_THRESHOLD"), 0.70)
+        self.classification_ai_max_chars = _parse_int(config_values.get("CLASSIFICATION_AI_MAX_CHARS"), 3000)
         self.extraction_timeout_seconds = _parse_int(
             _config_value(config_values, "EXTRACTION_TIMEOUT_SECONDS"),
             30,

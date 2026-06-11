@@ -5,11 +5,13 @@ M9 End"""
 from __future__ import annotations
 
 import logging
+import hmac
+import os
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from stats_data.database import open_azure_sql_connection
@@ -20,6 +22,14 @@ from stats_data.processing_jobs import (
     get_processing_job,
     list_processing_steps,
     update_processing_job,
+)
+from stats_data.recognition_settings import (
+    active_recognition_settings,
+    delete_label,
+    delete_rule,
+    review_suggestion,
+    save_label,
+    save_rule,
 )
 from stats_data.validation_persistence import (
     delete_uploaded_document_records,
@@ -178,7 +188,97 @@ class UploadedDocumentsResponse(BaseModel):
     documents: list[UploadedDocumentSummaryResponse]
 
 
+class RecognitionSuggestionResponse(BaseModel):
+    suggestion_id: str
+    source_module: str
+    suggestion_status: str
+    document_id: str | None = None
+    transaction_id: str | None = None
+    source_candidate_id: str | None = None
+    current_document_type: str | None = None
+    current_document_subtype: str | None = None
+    current_transaction_type: str | None = None
+    current_transaction_subtype: str | None = None
+    current_spending_category: str | None = None
+    current_spending_subcategory: str | None = None
+    suggested_document_type: str | None = None
+    suggested_document_subtype: str | None = None
+    suggested_transaction_type: str | None = None
+    suggested_transaction_subtype: str | None = None
+    suggested_spending_category: str | None = None
+    suggested_spending_subcategory: str | None = None
+    suggestion_confidence: float | None = None
+    suggestion_source: str | None = None
+    suggestion_evidence_ref: str | None = None
+    created_at_utc: str | None = None
+    reviewed_at_utc: str | None = None
+    review_action: str | None = None
+
+
+class RecognitionSuggestionsResponse(BaseModel):
+    suggestions: list[RecognitionSuggestionResponse]
+
+
+class RecognitionSyncPreviewRequest(BaseModel):
+    label_field: str
+    old_value: str
+    new_value: str | None = None
+
+
+class RecognitionSyncPreviewResponse(BaseModel):
+    label_field: str
+    old_value: str
+    new_value: str | None = None
+    affected_row_count: int
+
+
+class RecognitionLabelSaveRequest(BaseModel):
+    scope: str
+    original_label: str | None = None
+    label: str
+    values: list[str] = Field(default_factory=list)
+
+
+class RecognitionLabelDeleteRequest(BaseModel):
+    scope: str
+    label: str
+
+
+class RecognitionRuleSaveRequest(BaseModel):
+    scope: str
+    original_reason_code: str | None = None
+    target_label: str
+    target_subtype: str
+    reason_code: str
+    required_any: list[str] = Field(default_factory=list)
+    signals: list[str] = Field(default_factory=list)
+    minimum_score: float = 0.35
+
+
+class RecognitionRuleDeleteRequest(BaseModel):
+    scope: str
+    reason_code: str
+
+
+class RecognitionSuggestionReviewRequest(BaseModel):
+    action: str
+    admin_user_id: str | None = None
+    review_note: str | None = None
+
+
 app = FastAPI(title="Stats Data API", version="1.0.0")
+INTERNAL_ADMIN_HEADER = "X-Stats-Internal-Key"
+
+
+def _require_internal_admin_key(
+    x_stats_internal_key: str | None = Header(default=None, alias=INTERNAL_ADMIN_HEADER),
+) -> bool:
+    expected = os.environ.get("STATS_INTERNAL_API_KEY", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Stats internal API key is not configured.")
+    if not x_stats_internal_key or not hmac.compare_digest(x_stats_internal_key, expected):
+        raise HTTPException(status_code=403, detail="Stats internal API key is required.")
+    return True
 
 
 @app.get("/health")
@@ -453,6 +553,358 @@ def recent_uploaded_documents(limit: int = 25) -> UploadedDocumentsResponse:
     return UploadedDocumentsResponse(documents=[UploadedDocumentSummaryResponse(**document.__dict__) for document in documents])
 
 
+@app.get("/api/v1/admin/recognition-settings/suggestions", response_model=RecognitionSuggestionsResponse)
+def recognition_label_suggestions(
+    status: str = "pending",
+    limit: int = 50,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> RecognitionSuggestionsResponse:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            cursor = connection.cursor()
+            cursor.execute(
+                """
+SELECT TOP (?) suggestion_id, source_module, suggestion_status, document_id, transaction_id,
+       source_candidate_id, current_document_type, current_document_subtype,
+       current_transaction_type, current_transaction_subtype,
+       current_spending_category, current_spending_subcategory, suggested_transaction_type,
+       suggested_transaction_subtype, suggested_spending_category, suggested_spending_subcategory,
+       suggested_document_type, suggested_document_subtype,
+       suggestion_confidence, suggestion_source, suggestion_evidence_ref, created_at_utc,
+       reviewed_at_utc, review_action
+FROM dbo.recognition_label_suggestions
+WHERE (? = 'all' OR suggestion_status = ?)
+ORDER BY created_at_utc DESC;
+""",
+                max(1, min(limit, 200)),
+                status,
+                status,
+            )
+            suggestions = [_row_dict(cursor, row) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition label suggestions could not be loaded.") from exc
+
+    return RecognitionSuggestionsResponse(
+        suggestions=[RecognitionSuggestionResponse(**suggestion) for suggestion in suggestions]
+    )
+
+
+@app.get("/api/v1/admin/recognition-settings/active")
+def recognition_settings_active(
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, Any]:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            return active_recognition_settings(connection)
+        finally:
+            connection.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Active recognition settings could not be loaded.") from exc
+
+
+@app.patch("/api/v1/admin/recognition-settings/suggestions/{suggestion_id}")
+def recognition_suggestion_review(
+    suggestion_id: str,
+    request: RecognitionSuggestionReviewRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, Any]:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            return review_suggestion(
+                connection,
+                suggestion_id=suggestion_id,
+                action=request.action,
+                admin_user_id=request.admin_user_id,
+                review_note=request.review_note,
+            )
+        finally:
+            connection.close()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition suggestion could not be reviewed.") from exc
+
+
+@app.post("/api/v1/admin/recognition-settings/labels")
+def recognition_label_save(
+    request: RecognitionLabelSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            save_label(
+                connection,
+                scope=request.scope,
+                original_label=request.original_label or "",
+                label=request.label,
+                values=request.values,
+            )
+        finally:
+            connection.close()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition label could not be saved.") from exc
+
+    return {"status": "saved"}
+
+
+@app.post("/api/v1/admin/recognition-settings/document-labels")
+@app.patch("/api/v1/admin/recognition-settings/document-labels")
+def recognition_document_label_save(
+    request: RecognitionLabelSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "document"
+    return recognition_label_save(request, True)
+
+
+@app.post("/api/v1/admin/recognition-settings/transaction-labels")
+@app.patch("/api/v1/admin/recognition-settings/transaction-labels")
+def recognition_transaction_label_save(
+    request: RecognitionLabelSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "transaction"
+    return recognition_label_save(request, True)
+
+
+@app.post("/api/v1/admin/recognition-settings/spending-labels")
+@app.patch("/api/v1/admin/recognition-settings/spending-labels")
+def recognition_spending_label_save(
+    request: RecognitionLabelSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "spending"
+    return recognition_label_save(request, True)
+
+
+@app.delete("/api/v1/admin/recognition-settings/labels")
+def recognition_label_delete(
+    request: RecognitionLabelDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            delete_label(connection, scope=request.scope, label=request.label)
+        finally:
+            connection.close()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition label could not be deleted.") from exc
+
+    return {"status": "deleted"}
+
+
+@app.delete("/api/v1/admin/recognition-settings/document-labels")
+def recognition_document_label_delete(
+    request: RecognitionLabelDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "document"
+    return recognition_label_delete(request, True)
+
+
+@app.delete("/api/v1/admin/recognition-settings/transaction-labels")
+def recognition_transaction_label_delete(
+    request: RecognitionLabelDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "transaction"
+    return recognition_label_delete(request, True)
+
+
+@app.delete("/api/v1/admin/recognition-settings/spending-labels")
+def recognition_spending_label_delete(
+    request: RecognitionLabelDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "spending"
+    return recognition_label_delete(request, True)
+
+
+@app.post("/api/v1/admin/recognition-settings/rules")
+def recognition_rule_save(
+    request: RecognitionRuleSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            save_rule(
+                connection,
+                scope=request.scope,
+                original_reason_code=request.original_reason_code or "",
+                target_label=request.target_label,
+                target_subtype=request.target_subtype,
+                reason_code=request.reason_code,
+                required_any=request.required_any,
+                signals=request.signals,
+                minimum_score=request.minimum_score,
+            )
+        finally:
+            connection.close()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition rule could not be saved.") from exc
+
+    return {"status": "saved"}
+
+
+@app.post("/api/v1/admin/recognition-settings/document-rules")
+@app.patch("/api/v1/admin/recognition-settings/document-rules")
+def recognition_document_rule_save(
+    request: RecognitionRuleSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "document"
+    return recognition_rule_save(request, True)
+
+
+@app.post("/api/v1/admin/recognition-settings/transaction-rules")
+@app.patch("/api/v1/admin/recognition-settings/transaction-rules")
+def recognition_transaction_rule_save(
+    request: RecognitionRuleSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "transaction"
+    return recognition_rule_save(request, True)
+
+
+@app.post("/api/v1/admin/recognition-settings/spending-rules")
+@app.patch("/api/v1/admin/recognition-settings/spending-rules")
+def recognition_spending_rule_save(
+    request: RecognitionRuleSaveRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "spending"
+    return recognition_rule_save(request, True)
+
+
+@app.delete("/api/v1/admin/recognition-settings/rules")
+def recognition_rule_delete(
+    request: RecognitionRuleDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            delete_rule(connection, scope=request.scope, reason_code=request.reason_code)
+        finally:
+            connection.close()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition rule could not be deleted.") from exc
+
+    return {"status": "deleted"}
+
+
+@app.delete("/api/v1/admin/recognition-settings/document-rules")
+def recognition_document_rule_delete(
+    request: RecognitionRuleDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "document"
+    return recognition_rule_delete(request, True)
+
+
+@app.delete("/api/v1/admin/recognition-settings/transaction-rules")
+def recognition_transaction_rule_delete(
+    request: RecognitionRuleDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "transaction"
+    return recognition_rule_delete(request, True)
+
+
+@app.delete("/api/v1/admin/recognition-settings/spending-rules")
+def recognition_spending_rule_delete(
+    request: RecognitionRuleDeleteRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> dict[str, str]:
+    request.scope = "spending"
+    return recognition_rule_delete(request, True)
+
+
+@app.post("/api/v1/admin/recognition-settings/sync-preview", response_model=RecognitionSyncPreviewResponse)
+def recognition_label_sync_preview(
+    request: RecognitionSyncPreviewRequest,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> RecognitionSyncPreviewResponse:
+    allowed_fields = {
+        "transaction_type",
+        "transaction_subtype",
+        "spending_category",
+        "spending_subcategory",
+    }
+    if request.label_field not in allowed_fields:
+        raise HTTPException(status_code=400, detail="Unsupported recognition label field.")
+
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            cursor = connection.cursor()
+            cursor.execute(
+                f"SELECT COUNT(1) AS affected_row_count FROM dbo.transactions WHERE {request.label_field} = ?;",
+                request.old_value,
+            )
+            row = cursor.fetchone()
+            affected_count = int(row[0] if row else 0)
+        finally:
+            connection.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Recognition label sync preview failed.") from exc
+
+    return RecognitionSyncPreviewResponse(
+        label_field=request.label_field,
+        old_value=request.old_value,
+        new_value=request.new_value,
+        affected_row_count=affected_count,
+    )
+
+
 @app.delete("/api/v1/documents/{document_id}", response_model=DeleteUploadedDocumentResponse)
 def delete_uploaded_document(document_id: str) -> DeleteUploadedDocumentResponse:
     try:
@@ -522,3 +974,15 @@ def _append_api_step(
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _row_dict(cursor: Any, row: Any) -> dict[str, Any]:
+    columns = [column[0] for column in cursor.description]
+    values = {}
+    for index, column in enumerate(columns):
+        value = row[index]
+        if isinstance(value, datetime):
+            values[column] = value.isoformat().replace("+00:00", "Z")
+        else:
+            values[column] = value
+    return values

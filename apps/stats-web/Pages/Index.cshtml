@@ -9,8 +9,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stats App</title>
     <link rel="stylesheet" href="/css/access.css" />
-    <script src="/js/access.js" defer></script>
-    <script src="/js/app.js" defer></script>
+    <script src="/js/access.js" defer asp-append-version="true"></script>
+    <script src="/js/app.js" defer asp-append-version="true"></script>
+    <script src="/js/reporting.js" defer asp-append-version="true"></script>
   </head>
   <body
     data-api-base-url="@Model.ApiBaseUrl"
@@ -26,15 +27,16 @@
           @* M2 End *@
         </div>
         <nav class="header-actions" aria-label="Account actions">
-          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <a id="manage-users-link" data-admin-link href="/Users" hidden>Manage users</a>
+          <a id="manage-classifications-link" data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
           <button id="logout-button" type="button">Sign out</button>
         </nav>
       </header>
 
       <p id="app-message" class="page-message" role="status" aria-live="polite">Checking access.</p>
 
-      <section id="landing-workspace" class="landing-workspace" hidden>
-        <section class="summary-panel" aria-labelledby="welcome-title">
+      <section id="landing-workspace" class="landing-workspace dashboard-workspace" hidden>
+        <section class="summary-panel dashboard-user-banner" aria-labelledby="welcome-title">
           <p class="session-label">Authenticated access</p>
           <h2 id="welcome-title">Welcome, <span id="current-user-name"></span></h2>
           <dl class="session-facts">
@@ -49,13 +51,16 @@
           </dl>
         </section>
 
-        @* M2 - Stats Web Shell Start *@
-        @* Makes the authenticated workspace a dashboard-first shell with ingestion actions. *@
+        @* Makes the authenticated workspace a financial dashboard shell. *@
         <section class="module-panel shell-overview" aria-label="Dashboard">
-          <div>
-            <p class="session-label">Dashboard</p>
-            <h2>Financial workspace</h2>
-            <p class="panel-copy">This dashboard shell is ready for document intake, email ingestion setup, and reporting once the later processing and persistence modules are connected.</p>
+          <div class="dashboard-heading">
+            <div class="dashboard-title-row">
+              <div>
+                <p class="session-label">Dashboard</p>
+                <h2>Financial dashboard</h2>
+                <p class="panel-copy">Financial KPIs from curated Stats data.</p>
+              </div>
+            </div>
           </div>
 
           <nav class="shell-nav" aria-label="Stats workspace navigation">
@@ -64,32 +69,107 @@
             <a href="/EmailSetup">Email ingestion setup</a>
             <a href="/Documents">Documents</a>
             <a href="/Reports">Reports</a>
+            <a data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
           </nav>
 
-          <div class="module-grid" aria-label="Dashboard readiness">
-            <article class="module-card">
-              <p class="session-label">Documents</p>
-              <h3>0</h3>
-              <p>No persisted workflow records yet.</p>
-            </article>
-            <article class="module-card">
-              <p class="session-label">Transactions</p>
-              <h3>0</h3>
-              <p>No validated transaction data yet.</p>
-            </article>
-            <article class="module-card">
-              <p class="session-label">Warnings</p>
-              <h3>0</h3>
-              <p>No data-quality report yet.</p>
-            </article>
-          </div>
+          @if (Model.IsAdmin)
+          {
+            <section class="dashboard-control-bar" aria-label="Dashboard controls">
+              <div>
+                <span class="control-label">Last updated</span>
+                <strong id="reporting-last-updated">@(Model.ReportingConfigured ? "Waiting for analytics refresh" : "Not connected")</strong>
+              </div>
+              <label class="currency-control">
+                <span class="control-label">Currency</span>
+                <select id="reporting-currency" aria-label="Dashboard reporting currency">
+                  <option selected>NZD</option>
+                  <option>PHP</option>
+                  <option>AUD</option>
+                  <option>USD</option>
+                </select>
+              </label>
+              <div>
+                <span class="control-label">Rate basis</span>
+                <strong id="reporting-rate-basis">Transaction date</strong>
+              </div>
+            </section>
 
-          <div class="next-actions" aria-label="Ingestion setup actions">
+            @if (!Model.ReportingConfigured)
+            {
+              <div id="reporting-message" class="empty-state powerbi-state" role="status">
+                Analytics reporting is not connected yet. Stats can still show document provenance, upload status, review queues, and evidence workflow.
+              </div>
+            }
+            else
+            {
+              <div id="reporting-message" class="empty-state powerbi-state" role="status" hidden></div>
+            }
+
+            <section class="dashboard-insight-layout" aria-label="Financial KPI dashboard">
+              <div class="dashboard-primary-kpis" aria-label="Primary financial KPI cards">
+                <article class="kpi-card primary-kpi" data-kpi-card="last_month_expenses">
+                  <div class="kpi-card-header">
+                    <p class="session-label">Last month expenses</p>
+                  </div>
+                  <h3 data-kpi-value>Waiting</h3>
+                  <p data-kpi-detail>Total debit spending for the previous calendar month.</p>
+                </article>
+                <article class="kpi-card primary-kpi" data-kpi-card="this_month_running">
+                  <div class="kpi-card-header">
+                    <p class="session-label">This month running</p>
+                  </div>
+                  <h3 data-kpi-value>Waiting</h3>
+                  <p data-kpi-detail>Month-to-date expense total in the selected currency.</p>
+                </article>
+                <article class="kpi-card primary-kpi emphasis-kpi" data-kpi-card="top_contributor">
+                  <div class="kpi-card-header">
+                    <p class="session-label">Top contributor</p>
+                  </div>
+                  <h3 data-kpi-value>Waiting</h3>
+                  <p data-kpi-detail>Merchant, counterparty, or category driving current expenses.</p>
+                </article>
+              </div>
+
+              <div class="dashboard-lower-grid">
+                <section class="monthly-history-panel" aria-labelledby="monthly-history-title">
+                  <div class="monthly-history-heading">
+                    <div>
+                      <p class="session-label">Monthly history</p>
+                      <h3 id="monthly-history-title">Total expenses</h3>
+                    </div>
+                    <span id="monthly-history-currency">NZD</span>
+                  </div>
+                  <div id="monthly-expense-history" class="monthly-history-chart" role="img" aria-label="Monthly total expense history">
+                    <p class="panel-copy">Waiting for monthly expense history.</p>
+                  </div>
+                </section>
+
+                <div class="dashboard-secondary-kpis" aria-label="Supporting financial KPI cards">
+                  <article class="kpi-card compact-kpi" data-kpi-card="expense_trend">
+                    <div class="kpi-card-header">
+                      <p class="session-label">Change vs prior month</p>
+                    </div>
+                    <h3 data-kpi-value>Waiting</h3>
+                    <p data-kpi-detail>This month spending minus the previous month.</p>
+                  </article>
+                  <article class="kpi-card compact-kpi" data-kpi-card="notable_expenses">
+                    <div class="kpi-card-header">
+                      <p class="session-label">Notable expenses</p>
+                    </div>
+                    <h3 data-kpi-value>Waiting</h3>
+                    <p data-kpi-detail>Recent high-value or unusual expense movements.</p>
+                  </article>
+                </div>
+              </div>
+            </section>
+          }
+
+          <div class="next-actions" aria-label="Workspace actions">
             <a class="primary-action" href="/Upload">Upload documents</a>
-            <a href="/EmailSetup">Set up email ingestion</a>
+            <a href="/Documents">View source documents</a>
+            <a href="/Reports">Open reports</a>
           </div>
         </section>
-        @* M2 End *@
       </section>
     </main>
   </body>

@@ -1,6 +1,7 @@
 // M1 - User Access Management Start
 // Starts the Module 1 ASP.NET Core web frontend and exposes the Python API base URL to Razor pages.
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -15,6 +16,7 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(centralRuntime);
 builder.Services.AddSingleton(loggingOptions);
+builder.Services.AddScoped<StatsUserContextService>();
 if (centralRuntime.CorsAllowedOrigins.Count > 0)
 {
     builder.Services.AddCors(options =>
@@ -57,6 +59,11 @@ builder.Services.AddSingleton(
         StatsDataBaseUrl: builder.Configuration["StatsWeb:Proxy:StatsDataBaseUrl"] ?? centralRuntime.ModuleUrl("STATS_DATA_PORT")
     )
 );
+builder.Services.AddSingleton(
+    new StatsInternalApiOptions(
+        InternalApiKey: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:InternalApiKey", "STATS_INTERNAL_API_KEY")
+    )
+);
 // M13 End
 // M2 - Stats Web Shell Start
 // Exposes shell feature flags and deferred downstream module targets through configuration.
@@ -74,9 +81,14 @@ builder.Services.AddSingleton(
         EmailIngestionBaseUrl: builder.Configuration["StatsWeb:Downstream:EmailIngestionBaseUrl"] ?? string.Empty,
         StatsDataBaseUrl: builder.Configuration["StatsWeb:Downstream:StatsDataBaseUrl"] ?? string.Empty,
         ReportingEmbedConfigUrl: builder.Configuration["StatsWeb:Downstream:ReportingEmbedConfigUrl"] ?? string.Empty,
-        PowerBiTenantId: builder.Configuration["StatsWeb:PowerBi:TenantId"] ?? string.Empty,
-        PowerBiWorkspaceId: builder.Configuration["StatsWeb:PowerBi:WorkspaceId"] ?? string.Empty,
-        PowerBiReportId: builder.Configuration["StatsWeb:PowerBi:DashboardReportId"] ?? string.Empty,
+        PowerBiTenantId: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:TenantId", "StatsWeb__PowerBi__TenantId"),
+        PowerBiClientId: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:ClientId", "StatsWeb__PowerBi__ClientId"),
+        PowerBiClientSecret: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:ClientSecret", "StatsWeb__PowerBi__ClientSecret"),
+        PowerBiWorkspaceId: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:WorkspaceId", "StatsWeb__PowerBi__WorkspaceId"),
+        PowerBiReportId: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:DashboardReportId", "StatsWeb__PowerBi__DashboardReportId"),
+        PowerBiDatasetId: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:DatasetId", "StatsWeb__PowerBi__DatasetId"),
+        PowerBiHomeDashboardPageName: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:HomeDashboardPageName", "StatsWeb__PowerBi__HomeDashboardPageName"),
+        PowerBiApiBaseUrl: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:ApiBaseUrl", "StatsWeb__PowerBi__ApiBaseUrl", "https://api.powerbi.com/v1.0/myorg"),
         FabricCapacityName: builder.Configuration["StatsWeb:Fabric:CapacityName"] ?? string.Empty,
         FabricWorkspaceName: builder.Configuration["StatsWeb:Fabric:WorkspaceName"] ?? string.Empty,
         AzureEnvironment: builder.Configuration["StatsWeb:Azure:Environment"] ?? "local",
@@ -121,6 +133,15 @@ app.MapGet(
     StatsUploadProcessingJobs.GetUploadProcessingJobAsync
 );
 // M9 End
+// Returns safe Power BI embed configuration state before the generic module proxy handles API traffic.
+app.MapGet(
+    "/api/v1/reporting/embed-config",
+    StatsReportingEmbedConfig.GetEmbedConfigAsync
+);
+app.MapGet(
+    "/api/v1/reporting/kpis",
+    StatsReportingKpis.GetKpisAsync
+);
 // M13 - Containerization Start
 // Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
 app.MapMethods(
@@ -138,6 +159,91 @@ app.Run();
 
 public sealed record StatsApiOptions(string BaseUrl);
 
+public sealed record StatsCurrentUser(string Email, string Role, bool MustChangePassword)
+{
+    public bool IsAdmin => string.Equals(Role, "admin", StringComparison.OrdinalIgnoreCase) && !MustChangePassword;
+}
+
+public sealed class StatsUserContextService(IHttpClientFactory httpClientFactory, StatsWebProxyOptions proxyOptions)
+{
+    public const string AccessTokenCookieName = "stats_access_token";
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public async Task<StatsCurrentUser?> GetCurrentUserAsync(HttpContext context)
+    {
+        var token = AccessToken(context);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{proxyOptions.IdentityBaseUrl.TrimEnd('/')}/api/v1/auth/me");
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            using var response = await client.SendAsync(request, context.RequestAborted);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(context.RequestAborted);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: context.RequestAborted);
+            var root = document.RootElement;
+            return new StatsCurrentUser(
+                Email: Text(root, "email"),
+                Role: Text(root, "role"),
+                MustChangePassword: Bool(root, "must_change_password")
+            );
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+                or TaskCanceledException
+                or OperationCanceledException
+                or JsonException
+        )
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> IsAdminAsync(HttpContext context)
+    {
+        var user = await GetCurrentUserAsync(context);
+        return user?.IsAdmin == true;
+    }
+
+    private static string? AccessToken(HttpContext context)
+    {
+        if (context.Request.Cookies.TryGetValue(AccessTokenCookieName, out var cookieToken)
+            && !string.IsNullOrWhiteSpace(cookieToken))
+        {
+            return cookieToken;
+        }
+
+        if (context.Request.Headers.TryGetValue("Authorization", out var authorization)
+            && authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return authorization.ToString()["Bearer ".Length..].Trim();
+        }
+
+        return null;
+    }
+
+    private static string Text(JsonElement source, string propertyName)
+    {
+        return source.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    private static bool Bool(JsonElement source, string propertyName)
+    {
+        return source.TryGetProperty(propertyName, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False && value.GetBoolean();
+    }
+}
+
 public sealed record StatsLoggingOptions(
     bool IncludeCorrelationId,
     bool RedactSensitiveValues,
@@ -154,6 +260,8 @@ public sealed record StatsWebProxyOptions(
     string DataValidationBaseUrl,
     string StatsDataBaseUrl
 );
+
+public sealed record StatsInternalApiOptions(string InternalApiKey);
 // M13 End
 // M2 - Stats Web Shell Start
 // Defines optional local process orchestration for standalone module APIs.
@@ -353,16 +461,705 @@ public sealed record StatsWebShellOptions(
     string StatsDataBaseUrl,
     string ReportingEmbedConfigUrl,
     string PowerBiTenantId,
+    string PowerBiClientId,
+    string PowerBiClientSecret,
     string PowerBiWorkspaceId,
     string PowerBiReportId,
+    string PowerBiDatasetId,
+    string PowerBiHomeDashboardPageName,
+    string PowerBiApiBaseUrl,
     string FabricCapacityName,
     string FabricWorkspaceName,
     string AzureEnvironment,
     string KeyVaultUri,
     bool UseManagedIdentity
-);
+)
+{
+    public bool ExternalReportingEmbedConfigured => !string.IsNullOrWhiteSpace(ReportingEmbedConfigUrl);
+
+    public bool DirectPowerBiEmbedConfigured =>
+        !string.IsNullOrWhiteSpace(PowerBiTenantId)
+        && !string.IsNullOrWhiteSpace(PowerBiClientId)
+        && !string.IsNullOrWhiteSpace(PowerBiClientSecret)
+        && !string.IsNullOrWhiteSpace(PowerBiWorkspaceId)
+        && !string.IsNullOrWhiteSpace(PowerBiReportId);
+
+    public bool ReportingEmbedConfigured => ExternalReportingEmbedConfigured || DirectPowerBiEmbedConfigured;
+}
 // M2 End
 // M1 End
+
+public static class StatsConfigurationValue
+{
+    public static string Read(IConfiguration configuration, string key, string environmentVariable, string fallback = "")
+    {
+        var configured = configuration[key];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        var environmentValue = Environment.GetEnvironmentVariable(environmentVariable);
+        return string.IsNullOrWhiteSpace(environmentValue) ? fallback : environmentValue;
+    }
+}
+
+// Queries Power BI semantic-model read data for native Home KPI cards.
+public static class StatsReportingKpis
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string PowerBiScope = "https://analysis.windows.net/powerbi/api/.default";
+
+    public static async Task<IResult> GetKpisAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebShellOptions shellOptions,
+        StatsUserContextService userContext,
+        ILoggerFactory loggerFactory
+    )
+    {
+        var selectedCurrency = NormalizeCurrency(context.Request.Query["currency"].ToString());
+        var user = await userContext.GetCurrentUserAsync(context);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!user.IsAdmin)
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        if (!shellOptions.DirectPowerBiEmbedConfigured || string.IsNullOrWhiteSpace(shellOptions.PowerBiDatasetId))
+        {
+            return Results.Ok(NotConfigured(selectedCurrency));
+        }
+
+        var logger = loggerFactory.CreateLogger("StatsReportingKpis");
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var accessToken = await GetPowerBiAccessTokenAsync(client, shellOptions, context.RequestAborted);
+            var payload = await ExecuteKpiQueryAsync(client, shellOptions, selectedCurrency, accessToken, context.RequestAborted);
+            return Results.Ok(ToKpiPayload(payload, selectedCurrency));
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+                or TaskCanceledException
+                or OperationCanceledException
+                or InvalidOperationException
+                or JsonException
+        )
+        {
+            logger.LogWarning(exception, "Power BI KPI query could not be completed.");
+            return Results.Json(
+                new
+                {
+                    status = "unavailable",
+                    message = "Financial KPI cards are temporarily unavailable.",
+                    selected_currency = selectedCurrency,
+                    rate_basis = "transaction_date",
+                    cards = Array.Empty<object>()
+                },
+                statusCode: StatusCodes.Status502BadGateway
+            );
+        }
+    }
+
+    private static async Task<string> GetPowerBiAccessTokenAsync(
+        HttpClient client,
+        StatsWebShellOptions shellOptions,
+        CancellationToken cancellationToken
+    )
+    {
+        var tokenEndpoint = $"https://login.microsoftonline.com/{WebUtility.UrlEncode(shellOptions.PowerBiTenantId)}/oauth2/v2.0/token";
+        using var content = new FormUrlEncodedContent(
+        [
+            new KeyValuePair<string, string>("grant_type", "client_credentials"),
+            new KeyValuePair<string, string>("client_id", shellOptions.PowerBiClientId),
+            new KeyValuePair<string, string>("client_secret", shellOptions.PowerBiClientSecret),
+            new KeyValuePair<string, string>("scope", PowerBiScope),
+        ]);
+        using var response = await client.PostAsync(tokenEndpoint, content, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions, cancellationToken);
+        return TextAt(payload, "access_token")
+            ?? throw new InvalidOperationException("Microsoft identity endpoint did not return an access token.");
+    }
+
+    private static async Task<JsonObject> ExecuteKpiQueryAsync(
+        HttpClient client,
+        StatsWebShellOptions shellOptions,
+        string selectedCurrency,
+        string accessToken,
+        CancellationToken cancellationToken
+    )
+    {
+        var apiBaseUrl = shellOptions.PowerBiApiBaseUrl.TrimEnd('/');
+        var url = $"{apiBaseUrl}/groups/{WebUtility.UrlEncode(shellOptions.PowerBiWorkspaceId)}/datasets/{WebUtility.UrlEncode(shellOptions.PowerBiDatasetId)}/executeQueries";
+        var dax = BuildKpiDax(selectedCurrency);
+        var payload = new JsonObject
+        {
+            ["queries"] = new JsonArray(new JsonObject { ["query"] = dax }),
+            ["serializerSettings"] = new JsonObject { ["includeNulls"] = true }
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions)
+        };
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accessToken}");
+        using var response = await client.SendAsync(request, cancellationToken);
+        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"Power BI executeQueries returned {(int)response.StatusCode}: {responseText}");
+        }
+
+        return JsonNode.Parse(responseText)?.AsObject()
+            ?? throw new InvalidOperationException("Power BI executeQueries returned an empty response.");
+    }
+
+    private static string BuildKpiDax(string selectedCurrency)
+    {
+        var currency = selectedCurrency.Replace("\"", "\"\"", StringComparison.Ordinal);
+        return $$"""
+EVALUATE
+VAR SelectedCurrency = "{{currency}}"
+VAR CurrentMonthStart = DATE(YEAR(TODAY()), MONTH(TODAY()), 1)
+VAR LastMonthStart = EDATE(CurrentMonthStart, -1)
+VAR PreviousMonthStart = EDATE(CurrentMonthStart, -2)
+VAR CurrentMonthExpenses =
+    COALESCE(
+        CALCULATE(
+            SUM('Monthly Expenses'[expense_total]),
+            'Monthly Expenses'[currency] = SelectedCurrency,
+            'Monthly Expenses'[month_start_date] = CurrentMonthStart
+        ),
+        0
+    )
+VAR LastMonthExpenses =
+    COALESCE(
+        CALCULATE(
+            SUM('Monthly Expenses'[expense_total]),
+            'Monthly Expenses'[currency] = SelectedCurrency,
+            'Monthly Expenses'[month_start_date] = LastMonthStart
+        ),
+        0
+    )
+VAR PreviousMonthExpenses =
+    COALESCE(
+        CALCULATE(
+            SUM('Monthly Expenses'[expense_total]),
+            'Monthly Expenses'[currency] = SelectedCurrency,
+            'Monthly Expenses'[month_start_date] = PreviousMonthStart
+        ),
+        0
+    )
+VAR CurrentTopContributor =
+    TOPN(
+        1,
+        FILTER(
+            'Top Expense Contributors',
+            'Top Expense Contributors'[currency] = SelectedCurrency
+                && 'Top Expense Contributors'[month_start_date] = CurrentMonthStart
+        ),
+        'Top Expense Contributors'[expense_total],
+        DESC
+    )
+VAR NotableExpense =
+    TOPN(
+        1,
+        FILTER(
+            'Recent Notable Expenses',
+            'Recent Notable Expenses'[currency] = SelectedCurrency
+        ),
+        'Recent Notable Expenses'[transaction_date],
+        DESC,
+        'Recent Notable Expenses'[expense_amount],
+        DESC
+    )
+VAR MonthlyHistoryRows =
+    TOPN(
+        6,
+        FILTER(
+            'Monthly Expenses',
+            'Monthly Expenses'[currency] = SelectedCurrency
+                && 'Monthly Expenses'[month_start_date] <= CurrentMonthStart
+        ),
+        'Monthly Expenses'[month_start_date],
+        DESC
+    )
+RETURN
+ROW(
+    "last_month_expenses", LastMonthExpenses,
+    "this_month_expenses", CurrentMonthExpenses,
+    "expense_trend_delta", CurrentMonthExpenses - PreviousMonthExpenses,
+    "top_contributor_name", MAXX(CurrentTopContributor, 'Top Expense Contributors'[expense_contributor]),
+    "top_contributor_amount", COALESCE(MAXX(CurrentTopContributor, 'Top Expense Contributors'[expense_total]), 0),
+    "notable_expense_description", MAXX(NotableExpense, 'Recent Notable Expenses'[description]),
+    "notable_expense_amount", COALESCE(MAXX(NotableExpense, 'Recent Notable Expenses'[expense_amount]), 0),
+    "monthly_history", CONCATENATEX(
+        MonthlyHistoryRows,
+        FORMAT('Monthly Expenses'[month_start_date], "yyyy-MM") & ":" & FORMAT('Monthly Expenses'[expense_total], "0.####"),
+        "|",
+        'Monthly Expenses'[month_start_date],
+        ASC
+    )
+)
+""";
+    }
+
+    private static object ToKpiPayload(JsonObject payload, string selectedCurrency)
+    {
+        var row = payload["results"]?[0]?["tables"]?[0]?["rows"]?[0]?.AsObject()
+            ?? throw new InvalidOperationException("Power BI KPI query did not return a result row.");
+
+        var cards = new[]
+        {
+            Card("last_month_expenses", "Last month expenses", MoneyAt(row, "last_month_expenses"), "Total debit spending for the previous calendar month."),
+            Card("this_month_running", "This month running", MoneyAt(row, "this_month_expenses"), "Month-to-date expense total in the selected currency."),
+            Card("top_contributor", "Top contributor", MoneyAt(row, "top_contributor_amount"), TextAt(row, "top_contributor_name") ?? "No contributor for the current month."),
+            Card("expense_trend", "Change vs prior month", MoneyAt(row, "expense_trend_delta"), "This month spending minus the previous month; positive means spending is higher."),
+            Card("notable_expenses", "Notable expenses", MoneyAt(row, "notable_expense_amount"), TextAt(row, "notable_expense_description") ?? "No recent notable expense.")
+        };
+
+        return new
+        {
+            status = "configured",
+            message = "Financial KPIs loaded from the analytics layer.",
+            selected_currency = selectedCurrency,
+            rate_basis = "transaction_date",
+            last_refreshed_at_utc = (string?)null,
+            cards,
+            monthly_history = ParseMonthlyHistory(TextAt(row, "monthly_history"))
+        };
+    }
+
+    private static object Card(string id, string title, decimal? amount, string detail)
+    {
+        return new { id, title, amount, detail };
+    }
+
+    private static object[] ParseMonthlyHistory(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        return value
+            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(entry =>
+            {
+                var parts = entry.Split(':', 2, StringSplitOptions.TrimEntries);
+                var month = parts.Length > 0 ? parts[0] : string.Empty;
+                var amount = parts.Length > 1 && decimal.TryParse(parts[1], NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+                    ? parsed
+                    : 0m;
+                return new { month, amount };
+            })
+            .ToArray<object>();
+    }
+
+    private static object NotConfigured(string selectedCurrency)
+    {
+        return new
+        {
+            status = "not_configured",
+            message = "Financial KPI analytics are not connected yet.",
+            selected_currency = selectedCurrency,
+            rate_basis = "transaction_date",
+            cards = Array.Empty<object>()
+        };
+    }
+
+    private static decimal? MoneyAt(JsonObject payload, string propertyName)
+    {
+        var value = payload.FirstOrDefault(property => property.Key.EndsWith($"[{propertyName}]", StringComparison.OrdinalIgnoreCase)).Value
+            ?? payload[propertyName];
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (value is JsonValue jsonValue && jsonValue.TryGetValue<decimal>(out var decimalValue))
+        {
+            return decimalValue;
+        }
+
+        return decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static string? TextAt(JsonObject? payload, params string[] propertyNames)
+    {
+        if (payload is null)
+        {
+            return null;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            if (payload[propertyName]?.GetValue<string>() is { Length: > 0 } exactValue)
+            {
+                return exactValue;
+            }
+
+            var matchingProperty = payload.FirstOrDefault(property => property.Key.EndsWith($"[{propertyName}]", StringComparison.OrdinalIgnoreCase));
+            if (matchingProperty.Value?.GetValue<string>() is { Length: > 0 } bracketedValue)
+            {
+                return bracketedValue;
+            }
+        }
+
+        return null;
+    }
+
+    private static string NormalizeCurrency(string value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? "NZD" : value.Trim().ToUpperInvariant();
+        return normalized.Length == 3 && normalized.All(char.IsAsciiLetter)
+            ? normalized
+            : "NZD";
+    }
+}
+
+// Fetches and sanitizes the reporting embed contract without exposing cloud secrets to the browser.
+public static class StatsReportingEmbedConfig
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string PowerBiScope = "https://analysis.windows.net/powerbi/api/.default";
+
+    public static async Task<IResult> GetEmbedConfigAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebShellOptions shellOptions,
+        StatsUserContextService userContext,
+        ILoggerFactory loggerFactory
+    )
+    {
+        var selectedCurrency = NormalizeCurrency(context.Request.Query["currency"].ToString());
+        var selectedSurface = NormalizeSurface(context.Request.Query["surface"].ToString());
+        if (await userContext.GetCurrentUserAsync(context) is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (shellOptions.ExternalReportingEmbedConfigured)
+        {
+            var externalResult = await GetExternalEmbedConfigAsync(
+                context,
+                httpClientFactory,
+                shellOptions,
+                loggerFactory,
+                selectedCurrency,
+                selectedSurface
+            );
+            if (!shellOptions.DirectPowerBiEmbedConfigured || !IsNotConfiguredResult(externalResult))
+            {
+                return externalResult;
+            }
+        }
+
+        if (shellOptions.DirectPowerBiEmbedConfigured)
+        {
+            return await GetDirectPowerBiEmbedConfigAsync(
+                context,
+                httpClientFactory,
+                shellOptions,
+                loggerFactory,
+                selectedCurrency,
+                selectedSurface
+            );
+        }
+
+        return Results.Ok(NotConfigured(selectedCurrency));
+    }
+
+    private static async Task<IResult> GetExternalEmbedConfigAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebShellOptions shellOptions,
+        ILoggerFactory loggerFactory,
+        string selectedCurrency,
+        string selectedSurface
+    )
+    {
+        if (string.IsNullOrWhiteSpace(shellOptions.ReportingEmbedConfigUrl))
+        {
+            return Results.Ok(NotConfigured(selectedCurrency));
+        }
+
+        var logger = loggerFactory.CreateLogger("StatsReportingEmbedConfig");
+        var targetUrl = BuildTargetUrl(shellOptions.ReportingEmbedConfigUrl, selectedCurrency, selectedSurface);
+        using var request = new HttpRequestMessage(HttpMethod.Get, targetUrl);
+        if (context.Request.Headers.TryGetValue("Authorization", out var authorizationHeader))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", authorizationHeader.ToArray());
+        }
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+            using var response = await client.SendAsync(request, context.RequestAborted);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Reporting embed config endpoint returned {StatusCode}.",
+                    (int)response.StatusCode
+                );
+                return Results.Json(
+                    new
+                    {
+                        status = "unavailable",
+                        message = "Power BI reporting is temporarily unavailable.",
+                        selected_currency = selectedCurrency,
+                        rate_basis = "transaction_date"
+                    },
+                    statusCode: StatusCodes.Status502BadGateway
+                );
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions, context.RequestAborted);
+            return Results.Ok(SanitizePayload(payload, selectedCurrency, selectedSurface));
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+                or TaskCanceledException
+                or OperationCanceledException
+                or JsonException
+        )
+        {
+            logger.LogWarning(exception, "Reporting embed config endpoint could not be reached.");
+            return Results.Json(
+                new
+                {
+                    status = "unavailable",
+                    message = "Power BI reporting is temporarily unavailable.",
+                    selected_currency = selectedCurrency,
+                    rate_basis = "transaction_date"
+                },
+                statusCode: StatusCodes.Status502BadGateway
+            );
+        }
+    }
+
+    private static async Task<IResult> GetDirectPowerBiEmbedConfigAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebShellOptions shellOptions,
+        ILoggerFactory loggerFactory,
+        string selectedCurrency,
+        string selectedSurface
+    )
+    {
+        var logger = loggerFactory.CreateLogger("StatsReportingEmbedConfig");
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var accessToken = await GetPowerBiAccessTokenAsync(client, shellOptions, context.RequestAborted);
+            var report = await GetPowerBiReportAsync(client, shellOptions, accessToken, context.RequestAborted);
+            var embedToken = await GeneratePowerBiEmbedTokenAsync(client, shellOptions, report, accessToken, context.RequestAborted);
+
+            var datasetId = TextAt(report, "datasetId") ?? shellOptions.PowerBiDatasetId;
+            return Results.Ok(new JsonObject
+            {
+                ["status"] = "configured",
+                ["message"] = "Power BI reporting is connected.",
+                ["embed_url"] = TextAt(report, "embedUrl"),
+                ["report_id"] = TextAt(report, "id") ?? shellOptions.PowerBiReportId,
+                ["dataset_id"] = datasetId,
+                ["access_token"] = TextAt(embedToken, "token"),
+                ["token_expires_at_utc"] = TextAt(embedToken, "expiration"),
+                ["last_refreshed_at_utc"] = null,
+                ["selected_currency"] = selectedCurrency,
+                ["surface"] = selectedSurface,
+                ["rate_basis"] = "transaction_date",
+                ["default_page_name"] = DefaultPageNameForSurface(shellOptions, selectedSurface),
+                ["pages"] = new JsonArray()
+            });
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+                or TaskCanceledException
+                or OperationCanceledException
+                or InvalidOperationException
+                or JsonException
+        )
+        {
+            logger.LogWarning(exception, "Power BI embed config could not be generated.");
+            return Results.Json(
+                new
+                {
+                    status = "unavailable",
+                    message = "Power BI reporting is temporarily unavailable.",
+                    selected_currency = selectedCurrency,
+                    rate_basis = "transaction_date"
+                },
+                statusCode: StatusCodes.Status502BadGateway
+            );
+        }
+    }
+
+    private static bool IsNotConfiguredResult(IResult result)
+    {
+        if (result is not IValueHttpResult valueResult)
+        {
+            return false;
+        }
+
+        var statusProperty = valueResult.Value?.GetType().GetProperty("status");
+        return string.Equals(statusProperty?.GetValue(valueResult.Value)?.ToString(), "not_configured", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string> GetPowerBiAccessTokenAsync(
+        HttpClient client,
+        StatsWebShellOptions shellOptions,
+        CancellationToken cancellationToken
+    )
+    {
+        var tokenEndpoint = $"https://login.microsoftonline.com/{WebUtility.UrlEncode(shellOptions.PowerBiTenantId)}/oauth2/v2.0/token";
+        using var content = new FormUrlEncodedContent(
+        [
+            new KeyValuePair<string, string>("grant_type", "client_credentials"),
+            new KeyValuePair<string, string>("client_id", shellOptions.PowerBiClientId),
+            new KeyValuePair<string, string>("client_secret", shellOptions.PowerBiClientSecret),
+            new KeyValuePair<string, string>("scope", PowerBiScope),
+        ]);
+        using var response = await client.PostAsync(tokenEndpoint, content, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions, cancellationToken);
+        return TextAt(payload, "access_token")
+            ?? throw new InvalidOperationException("Microsoft identity endpoint did not return an access token.");
+    }
+
+    private static async Task<JsonObject> GetPowerBiReportAsync(
+        HttpClient client,
+        StatsWebShellOptions shellOptions,
+        string accessToken,
+        CancellationToken cancellationToken
+    )
+    {
+        var apiBaseUrl = shellOptions.PowerBiApiBaseUrl.TrimEnd('/');
+        var url = $"{apiBaseUrl}/groups/{WebUtility.UrlEncode(shellOptions.PowerBiWorkspaceId)}/reports/{WebUtility.UrlEncode(shellOptions.PowerBiReportId)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accessToken}");
+        using var response = await client.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Power BI report lookup returned an empty response.");
+    }
+
+    private static async Task<JsonObject> GeneratePowerBiEmbedTokenAsync(
+        HttpClient client,
+        StatsWebShellOptions shellOptions,
+        JsonObject report,
+        string accessToken,
+        CancellationToken cancellationToken
+    )
+    {
+        var apiBaseUrl = shellOptions.PowerBiApiBaseUrl.TrimEnd('/');
+        var url = $"{apiBaseUrl}/groups/{WebUtility.UrlEncode(shellOptions.PowerBiWorkspaceId)}/reports/{WebUtility.UrlEncode(shellOptions.PowerBiReportId)}/GenerateToken";
+        var payload = new JsonObject { ["accessLevel"] = "View" };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions)
+        };
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accessToken}");
+        using var response = await client.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JsonObject>(JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Power BI token generation returned an empty response.");
+    }
+
+    private static object NotConfigured(string selectedCurrency)
+    {
+        return new
+        {
+            status = "not_configured",
+            message = "Power BI reporting is not connected yet.",
+            selected_currency = selectedCurrency,
+            rate_basis = "transaction_date"
+        };
+    }
+
+    private static JsonObject SanitizePayload(JsonObject? payload, string selectedCurrency, string selectedSurface)
+    {
+        var result = new JsonObject
+        {
+            ["status"] = "configured",
+            ["message"] = TextAt(payload, "message") ?? "Power BI reporting is connected.",
+            ["embed_url"] = TextAt(payload, "embed_url", "embedUrl"),
+            ["report_id"] = TextAt(payload, "report_id", "reportId"),
+            ["dataset_id"] = TextAt(payload, "dataset_id", "datasetId"),
+            ["access_token"] = TextAt(payload, "access_token", "accessToken"),
+            ["token_expires_at_utc"] = TextAt(payload, "token_expires_at_utc", "tokenExpiresAtUtc", "expiration"),
+            ["last_refreshed_at_utc"] = TextAt(payload, "last_refreshed_at_utc", "lastRefreshedAtUtc"),
+            ["selected_currency"] = TextAt(payload, "selected_currency", "selectedCurrency") ?? selectedCurrency,
+            ["surface"] = TextAt(payload, "surface") ?? selectedSurface,
+            ["rate_basis"] = TextAt(payload, "rate_basis", "rateBasis") ?? "transaction_date",
+            ["default_page_name"] = TextAt(payload, "default_page_name", "defaultPageName")
+        };
+
+        var pages = payload?["pages"]?.DeepClone();
+        if (pages is not null)
+        {
+            result["pages"] = pages;
+        }
+
+        return result;
+    }
+
+    private static string BuildTargetUrl(string configuredUrl, string selectedCurrency, string selectedSurface)
+    {
+        var separator = configuredUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{configuredUrl}{separator}currency={WebUtility.UrlEncode(selectedCurrency)}&surface={WebUtility.UrlEncode(selectedSurface)}";
+    }
+
+    private static string NormalizeCurrency(string value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? "NZD" : value.Trim().ToUpperInvariant();
+        return normalized.Length == 3 && normalized.All(char.IsAsciiLetter)
+            ? normalized
+            : "NZD";
+    }
+
+    private static string NormalizeSurface(string value)
+    {
+        return string.Equals(value, "home", StringComparison.OrdinalIgnoreCase) ? "home" : "reports";
+    }
+
+    private static string? DefaultPageNameForSurface(StatsWebShellOptions shellOptions, string selectedSurface)
+    {
+        return selectedSurface == "home" && !string.IsNullOrWhiteSpace(shellOptions.PowerBiHomeDashboardPageName)
+            ? shellOptions.PowerBiHomeDashboardPageName
+            : null;
+    }
+
+    private static string? TextAt(JsonObject? json, params string[] keys)
+    {
+        if (json is null)
+        {
+            return null;
+        }
+
+        foreach (var key in keys)
+        {
+            if (json.TryGetPropertyValue(key, out var value) && value is not null)
+            {
+                return value.GetValueKind() == JsonValueKind.String
+                    ? value.GetValue<string>()
+                    : value.ToJsonString(JsonOptions);
+            }
+        }
+
+        return null;
+    }
+}
 
 // M13 - Containerization Start
 // Minimal reverse proxy for browser-originating API calls through the single Stats Web container port.
@@ -851,12 +1648,24 @@ public static class StatsUploadProcessingJobs
 
     private static JsonObject BuildValidationRequest(JsonObject extractionResult)
     {
+        var classification = extractionResult["classification"] as JsonObject ?? new JsonObject();
         return new JsonObject
         {
             ["extraction_id"] = extractionResult["extraction_id"]?.DeepClone(),
             ["parse_id"] = extractionResult["parse_id"]?.DeepClone(),
             ["document"] = extractionResult["document"]?.DeepClone(),
             ["document_type"] = extractionResult["document_type"]?.DeepClone(),
+            ["document_type_confidence"] = classification["confidence"]?.DeepClone(),
+            ["document_type_status"] = classification["status"]?.DeepClone(),
+            ["document_type_reason_codes"] = classification["reason_codes"]?.DeepClone() ?? new JsonArray(),
+            ["document_recognition_suggestion_id"] = classification["recognition_suggestion_id"]?.DeepClone(),
+            ["document_recognition_suggestion_status"] = classification["recognition_suggestion_status"]?.DeepClone() ?? "none",
+            ["suggested_document_type"] = classification["suggested_document_type"]?.DeepClone(),
+            ["suggested_document_subtype"] = classification["suggested_document_subtype"]?.DeepClone(),
+            ["document_suggestion_confidence"] = classification["suggestion_confidence"]?.DeepClone(),
+            ["document_suggestion_reason_codes"] = classification["suggestion_reason_codes"]?.DeepClone() ?? new JsonArray(),
+            ["document_suggestion_source"] = classification["suggestion_source"]?.DeepClone(),
+            ["document_suggestion_evidence_ref"] = classification["suggestion_evidence_ref"]?.DeepClone(),
             ["transaction_candidates"] = extractionResult["transaction_candidates"]?.DeepClone() ?? new JsonArray(),
             ["financial_field_candidates"] = extractionResult["financial_field_candidates"]?.DeepClone() ?? new JsonArray(),
             ["section_candidates"] = extractionResult["section_candidates"]?.DeepClone() ?? new JsonArray(),

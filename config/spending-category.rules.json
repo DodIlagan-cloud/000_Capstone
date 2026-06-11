@@ -1,0 +1,92 @@
+{
+  "rules": [
+    {
+      "spending_category": "medical",
+      "spending_subcategory": "diagnostics",
+      "reason_code": "MEDICAL_SERVICE_SIGNALS",
+      "required_any": ["medical", "clinic", "hospital", "doctor", "laboratory", "lab", "pathology", "diagnostic", "patient", "nhi"],
+      "signals": ["test", "service fee", "invoice", "lab", "health", "consultation"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "pharmacy",
+      "spending_subcategory": "prescription",
+      "reason_code": "PHARMACY_SIGNALS",
+      "required_any": ["pharmacy", "chemist", "prescription", "rx"],
+      "signals": ["medicine", "drug", "health", "retail", "receipt"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "groceries",
+      "spending_subcategory": "supermarket",
+      "reason_code": "GROCERY_SIGNALS",
+      "required_any": ["grocery", "supermarket", "fresh", "market"],
+      "signals": ["food", "produce", "receipt", "tax invoice", "total"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "utilities",
+      "spending_subcategory": "telecommunications",
+      "reason_code": "UTILITY_SIGNALS",
+      "required_any": ["utility", "electricity", "water", "gas", "internet", "phone", "telecom"],
+      "signals": ["bill", "billing period", "meter", "usage", "amount due"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "transport",
+      "spending_subcategory": "public_transport",
+      "reason_code": "TRANSPORT_SIGNALS",
+      "required_any": ["fuel", "petrol", "transport", "station", "parking", "taxi", "train", "bus", "hop"],
+      "signals": ["sale", "card", "terminal", "ticket", "fare"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "banking_fees",
+      "spending_subcategory": "service_fee",
+      "reason_code": "BANKING_FEE_SIGNALS",
+      "required_any": ["transaction_type:fee", "late payment", "bank fee", "bank charge", "service charge"],
+      "signals": ["statement", "monthly", "bank", "payment"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "interest",
+      "spending_subcategory": "finance_charge",
+      "reason_code": "INTEREST_CATEGORY_SIGNALS",
+      "required_any": ["interest", "finance charge", "monthly interest"],
+      "signals": ["statement", "cash advance", "rate", "charge"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "transfers",
+      "spending_subcategory": "bank_transfer",
+      "reason_code": "TRANSFER_CATEGORY_SIGNALS",
+      "required_any": ["transaction_type:transfer", "transfer to", "transfer from", "transfer amount"],
+      "signals": ["bank", "account", "reference", "confirmation"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "food_dining",
+      "spending_subcategory": "restaurant",
+      "reason_code": "FOOD_DINING_SIGNALS",
+      "required_any": ["restaurant", "cafe", "coffee", "dining", "food"],
+      "signals": ["receipt", "merchant", "total", "purchase"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "shopping",
+      "spending_subcategory": "retail",
+      "reason_code": "SHOPPING_SIGNALS",
+      "required_any": ["store", "shop", "retail", "mall", "hardware", "bunnings", "kmart", "bags"],
+      "signals": ["receipt", "purchase", "item", "total", "merchant"],
+      "minimum_score": 0.35
+    },
+    {
+      "spending_category": "tax",
+      "spending_subcategory": "gst",
+      "reason_code": "TAX_CATEGORY_SIGNALS",
+      "required_any": ["transaction_type:tax", "withholding tax", "sales tax"],
+      "signals": ["tax invoice", "total gst", "includes gst"],
+      "minimum_score": 0.35
+    }
+  ]
+}

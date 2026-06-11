@@ -24,6 +24,10 @@ from stats_data.validation_persistence import (
 )
 
 
+INTERNAL_API_KEY = "unit-test-internal-key"
+INTERNAL_API_HEADERS = {"X-Stats-Internal-Key": INTERNAL_API_KEY}
+
+
 _fixture_module_path = Path(__file__).with_name("test_validation_persistence.py")
 _fixture_spec = importlib.util.spec_from_file_location("stats_data_validation_fixture_helpers", _fixture_module_path)
 _fixture_module = importlib.util.module_from_spec(_fixture_spec)
@@ -461,3 +465,137 @@ def test_delete_uploaded_document_returns_not_found_when_document_is_absent(monk
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Document was not found."
+
+
+def test_active_recognition_settings_returns_m9_payload(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    class FakeConnection:
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr("stats_data.api.open_azure_sql_connection", lambda: FakeConnection())
+    monkeypatch.setattr(
+        "stats_data.api.active_recognition_settings",
+        lambda connection: {
+            "document_vocabulary": {"document_types": ["receipt", "unknown"]},
+            "document_rules": {"rules": []},
+            "transaction_vocabulary": {"transaction_types": ["purchase", "unknown"]},
+            "transaction_rules": {"rules": []},
+            "spending_vocabulary": {"spending_categories": ["uncategorized"]},
+            "spending_rules": {"rules": []},
+        },
+    )
+
+    response = TestClient(app).get(
+        "/api/v1/admin/recognition-settings/active",
+        headers=INTERNAL_API_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["document_vocabulary"]["document_types"] == ["receipt", "unknown"]
+    assert captured["closed"] is True
+
+
+def test_active_recognition_settings_requires_internal_key(monkeypatch):
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    response = TestClient(app).get("/api/v1/admin/recognition-settings/active")
+
+    assert response.status_code == 403
+
+
+def test_admin_recognition_mutation_requires_internal_key(monkeypatch):
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    response = TestClient(app).post(
+        "/api/v1/admin/recognition-settings/document-labels",
+        json={"scope": "ignored", "label": "receipt", "values": ["tax_receipt"]},
+    )
+
+    assert response.status_code == 403
+
+
+def test_spec_named_recognition_label_and_rule_endpoints_set_scope(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    class FakeConnection:
+        def close(self):
+            captured["closed"] = captured.get("closed", 0) + 1
+
+    monkeypatch.setattr("stats_data.api.open_azure_sql_connection", lambda: FakeConnection())
+
+    def fake_save_label(connection, **kwargs):
+        captured["label"] = kwargs
+
+    def fake_save_rule(connection, **kwargs):
+        captured["rule"] = kwargs
+
+    monkeypatch.setattr("stats_data.api.save_label", fake_save_label)
+    monkeypatch.setattr("stats_data.api.save_rule", fake_save_rule)
+    client = TestClient(app)
+
+    label_response = client.post(
+        "/api/v1/admin/recognition-settings/document-labels",
+        json={"scope": "ignored", "label": "receipt", "values": ["tax_receipt"]},
+        headers=INTERNAL_API_HEADERS,
+    )
+    rule_response = client.post(
+        "/api/v1/admin/recognition-settings/document-rules",
+        json={
+            "scope": "ignored",
+            "target_label": "receipt",
+            "target_subtype": "tax_receipt",
+            "reason_code": "RECEIPT_RULE",
+            "required_any": ["receipt"],
+            "signals": ["total"],
+            "minimum_score": 0.35,
+        },
+        headers=INTERNAL_API_HEADERS,
+    )
+
+    assert label_response.status_code == 200
+    assert rule_response.status_code == 200
+    assert captured["label"]["scope"] == "document"
+    assert captured["rule"]["scope"] == "document"
+    assert captured["closed"] == 2
+
+
+def test_recognition_suggestion_review_endpoint_invokes_m9_review(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    class FakeConnection:
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr("stats_data.api.open_azure_sql_connection", lambda: FakeConnection())
+
+    def fake_review(connection, **kwargs):
+        captured["review"] = kwargs
+        return {
+            "status": "approved",
+            "suggestion_id": kwargs["suggestion_id"],
+            "updated_transactions": 2,
+        }
+
+    monkeypatch.setattr("stats_data.api.review_suggestion", fake_review)
+
+    response = TestClient(app).patch(
+        "/api/v1/admin/recognition-settings/suggestions/suggestion_123",
+        json={
+            "action": "approve",
+            "admin_user_id": "admin@example.com",
+            "review_note": "Approved during evidence test.",
+        },
+        headers=INTERNAL_API_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+    assert response.json()["updated_transactions"] == 2
+    assert captured["review"]["suggestion_id"] == "suggestion_123"
+    assert captured["review"]["action"] == "approve"
+    assert captured["closed"] is True

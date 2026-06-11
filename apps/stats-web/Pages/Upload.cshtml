@@ -9,8 +9,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stats Upload Documents</title>
     <link rel="stylesheet" href="/css/access.css" asp-append-version="true" />
-    <script src="/js/access.js" defer></script>
-    <script src="/js/app.js" defer></script>
+    <script src="/js/access.js" defer asp-append-version="true"></script>
+    <script src="/js/app.js" defer asp-append-version="true"></script>
     <script src="/js/upload.js" defer asp-append-version="true"></script>
   </head>
   <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-file-validation-base-url="@Model.FileValidationBaseUrl" data-file-ingestion-base-url="@Model.FileIngestionBaseUrl" data-document-parsing-base-url="@Model.DocumentParsingBaseUrl" data-transaction-extraction-base-url="@Model.TransactionExtractionBaseUrl" data-data-validation-base-url="@Model.DataValidationBaseUrl" data-stats-data-base-url="@Model.StatsDataBaseUrl" data-shell-area="upload">
@@ -21,7 +21,8 @@
           <h1>Upload documents</h1>
         </div>
         <nav class="header-actions" aria-label="Account actions">
-          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <a id="manage-users-link" data-admin-link href="/Users" hidden>Manage users</a>
+          <a id="manage-classifications-link" data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
           <button id="logout-button" type="button">Sign out</button>
         </nav>
       </header>
@@ -35,6 +36,7 @@
           <a href="/EmailSetup">Email ingestion setup</a>
           <a href="/Documents">Documents</a>
           <a href="/Reports">Reports</a>
+          <a data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
         </nav>
 
         <section class="shell-panel" aria-labelledby="upload-title">

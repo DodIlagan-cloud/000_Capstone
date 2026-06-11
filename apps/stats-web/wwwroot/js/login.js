@@ -37,7 +37,7 @@ async function continueFromSession() {
     }
     window.location.assign("/");
   } catch (error) {
-    sessionStorage.removeItem(window.statsAccess.tokenKey);
+    window.statsAccess.clearToken();
     setMessage(loginMessage, error.message || "Sign in again.");
   }
 }
@@ -64,7 +64,7 @@ loginForm.addEventListener("submit", async (event) => {
     }
 
     const tokenResponse = await response.json();
-    sessionStorage.setItem(window.statsAccess.tokenKey, tokenResponse.access_token);
+    window.statsAccess.setToken(tokenResponse.access_token);
     const user = await window.statsAccess.currentUser();
     loginForm.reset();
 
@@ -75,7 +75,7 @@ loginForm.addEventListener("submit", async (event) => {
 
     window.location.assign("/");
   } catch (error) {
-    sessionStorage.removeItem(window.statsAccess.tokenKey);
+    window.statsAccess.clearToken();
     setMessage(loginMessage, error.message || "Sign in failed.");
   } finally {
     loginSubmit.disabled = false;

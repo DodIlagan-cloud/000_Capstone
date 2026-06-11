@@ -81,7 +81,17 @@ def test_build_validation_persistence_plan_uses_real_document_pipeline_output():
         transaction = _only(plan, "transactions")
         assert transaction["normalized_description"]
         assert transaction["duplicate_key"]
-        assert transaction["source_candidate_id"] == result["normalized_records"][0]["record_id"]
+        assert transaction["source_candidate_id"] == result["normalized_records"][0]["source_candidate_id"]
+        assert transaction["transaction_type"] == result["normalized_records"][0].get("transaction_type", "unknown")
+        assert transaction["transaction_subtype"] == result["normalized_records"][0].get("transaction_subtype", "unknown")
+        assert transaction["spending_category"] == result["normalized_records"][0].get("spending_category", "uncategorized")
+        assert transaction["spending_subcategory"] == result["normalized_records"][0].get("spending_subcategory", "unknown")
+        assert "classification_review_reason_codes_json" in transaction
+        assert "recognition_suggestion_id" in transaction
+        assert "recognition_suggestion_status" in transaction
+        assert "suggested_transaction_type" in transaction
+        assert "suggested_spending_category" in transaction
+        assert "suggestion_reason_codes_json" in transaction
 
     if result["document_financial_summary"]:
         statement_summary = _only(plan, "statement_summaries")
@@ -90,6 +100,75 @@ def test_build_validation_persistence_plan_uses_real_document_pipeline_output():
         assert document_financial_summary["document_id"] == plan.document_id
         assert statement_summary["quality_status"] in {"valid", "warning", "invalid"}
         assert document_financial_summary["quality_status"] in {"valid", "warning", "invalid"}
+
+
+def test_build_validation_persistence_plan_persists_recognition_suggestion_row():
+    result, _fixture_file = _actual_validation_result()
+    record = result["normalized_records"][0]
+    record.update(
+        {
+            "recognition_suggestion_id": "suggestion_test_123",
+            "recognition_suggestion_status": "pending",
+            "transaction_type": "unknown",
+            "transaction_subtype": "unknown",
+            "spending_category": "uncategorized",
+            "spending_subcategory": "unknown",
+            "suggested_transaction_type": "membership_topup",
+            "suggested_transaction_subtype": "transport_card_topup",
+            "suggested_spending_category": "public_transport",
+            "suggested_spending_subcategory": "stored_value_topup",
+            "suggestion_confidence": 0.91,
+            "suggestion_reason_codes": ["AI_RECOGNITION_LABEL_SUGGESTION"],
+            "suggestion_source": "ai",
+            "suggestion_evidence_ref": "candidate:txn_0001",
+        }
+    )
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    suggestion = _only(plan, "recognition_label_suggestions")
+
+    assert suggestion["suggestion_id"] == "suggestion_test_123"
+    assert suggestion["source_module"] == "M7"
+    assert suggestion["suggestion_status"] == "pending"
+    assert suggestion["current_transaction_type"] == "unknown"
+    assert suggestion["suggested_transaction_type"] == "membership_topup"
+    assert suggestion["suggested_spending_category"] == "public_transport"
+    assert suggestion["suggestion_source"] == "ai"
+
+
+def test_build_validation_persistence_plan_persists_document_recognition_suggestion_row():
+    result, _fixture_file = _actual_validation_result()
+    result.update(
+        {
+            "document_type": "unknown",
+            "document_recognition_suggestion_id": "doc_suggestion_test_123",
+            "document_recognition_suggestion_status": "pending",
+            "suggested_document_type": "receipt",
+            "suggested_document_subtype": "tax_receipt",
+            "document_suggestion_confidence": 0.91,
+            "document_suggestion_reason_codes": ["AI_SUGGESTED_INACTIVE_DOCUMENT_LABEL"],
+            "document_suggestion_source": "m5_ai_document_classification",
+            "document_suggestion_evidence_ref": "m5:redacted_classification_prompt",
+        }
+    )
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    document = _only(plan, "stats_documents")
+    suggestion = next(
+        operation.values
+        for operation in plan.operations
+        if operation.table == "recognition_label_suggestions" and operation.values["source_module"] == "M5"
+    )
+
+    assert document["document_type"] == "unknown"
+    assert document["recognition_suggestion_id"] == "doc_suggestion_test_123"
+    assert document["recognition_suggestion_status"] == "pending"
+    assert document["suggested_document_type"] == "receipt"
+    assert suggestion["suggestion_id"] == "doc_suggestion_test_123"
+    assert suggestion["source_module"] == "M5"
+    assert suggestion["current_document_type"] == "unknown"
+    assert suggestion["suggested_document_type"] == "receipt"
+    assert suggestion["suggested_document_subtype"] == "tax_receipt"
 
 
 def test_build_validation_persistence_plan_is_deterministic_for_real_validation_output():
@@ -144,7 +223,7 @@ def test_persist_validation_result_writes_real_fixture_to_configured_azure_sql()
             _apply_migration(cursor, migration_file)
             connection.commit()
 
-        temp_dir = REPO_ROOT / "test-results" / "m9-live-handoff"
+        temp_dir = REPO_ROOT / "tests" / "results" / "m9-live-handoff"
         plan = persist_validation_result_with_temp_handoff(
             connection,
             result,
@@ -190,6 +269,11 @@ def test_delete_uploaded_document_records_removes_child_rows_before_document():
     assert result.validation_result_id == "validation_result_1"
     assert result.deleted_counts["stats_documents"] == 1
     assert result.deleted_counts["validation_results"] == 1
+    assert result.deleted_counts["duplicate_check_results"] == 1
+    assert result.deleted_counts["duplicate_check_batches"] == 1
+    assert delete_tables.index("duplicate_check_results") < delete_tables.index("transactions")
+    assert delete_tables.index("duplicate_check_results") < delete_tables.index("duplicate_check_batches")
+    assert delete_tables.index("duplicate_check_batches") < delete_tables.index("stats_documents")
     assert delete_tables.index("review_items") < delete_tables.index("transactions")
     assert delete_tables.index("findings") < delete_tables.index("transactions")
     assert delete_tables.index("transactions") < delete_tables.index("transaction_batches")

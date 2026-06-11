@@ -9,8 +9,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stats Documents</title>
     <link rel="stylesheet" href="/css/access.css" />
-    <script src="/js/access.js" defer></script>
-    <script src="/js/app.js" defer></script>
+    <script src="/js/access.js" defer asp-append-version="true"></script>
+    <script src="/js/app.js" defer asp-append-version="true"></script>
     <script src="/js/documents.js" defer asp-append-version="true"></script>
   </head>
   <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-stats-data-base-url="@Model.StatsDataBaseUrl" data-shell-area="documents">
@@ -21,7 +21,8 @@
           <h1>Documents</h1>
         </div>
         <nav class="header-actions" aria-label="Account actions">
-          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <a id="manage-users-link" data-admin-link href="/Users" hidden>Manage users</a>
+          <a id="manage-classifications-link" data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
           <button id="logout-button" type="button">Sign out</button>
         </nav>
       </header>
@@ -35,13 +36,42 @@
           <a href="/EmailSetup">Email ingestion setup</a>
           <a href="/Documents" aria-current="page">Documents</a>
           <a href="/Reports">Reports</a>
+          <a data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
         </nav>
 
         <section class="shell-panel" aria-labelledby="documents-title">
           <p class="session-label">Document status</p>
-          <h2 id="documents-title">Recent documents</h2>
-          <p class="panel-copy">Review recent persisted uploads and remove records that were saved from a file.</p>
+          <h2 id="documents-title">Document provenance</h2>
+          <p class="panel-copy">Review where saved financial data came from, how much data each source represents, and which records still need review.</p>
           <p id="documents-state" class="deferred-state" role="status" aria-live="polite">Loading documents.</p>
+          <section class="provenance-summary" aria-label="Document provenance summary">
+            <article>
+              <span>Saved documents</span>
+              <strong id="documents-total-count">0</strong>
+            </article>
+            <article>
+              <span>Transaction rows</span>
+              <strong id="documents-transaction-count">0</strong>
+            </article>
+            <article>
+              <span>Review items</span>
+              <strong id="documents-review-count">0</strong>
+            </article>
+          </section>
+          <section class="provenance-breakdown" aria-label="Document source summary">
+            <div>
+              <p class="session-label">Types</p>
+              <ul id="documents-type-summary" class="summary-list"></ul>
+            </div>
+            <div>
+              <p class="session-label">Sources</p>
+              <ul id="documents-source-summary" class="summary-list"></ul>
+            </div>
+            <div>
+              <p class="session-label">Status</p>
+              <ul id="documents-status-summary" class="summary-list"></ul>
+            </div>
+          </section>
           <div id="documents-empty" class="empty-state" hidden>No saved documents yet.</div>
           <div id="documents-table-wrap" class="table-wrap" hidden>
             <table>

@@ -58,6 +58,34 @@ class TransactionCandidateInput(BaseModel):
     source: Optional[SourceReference] = None
     confidence: float = 0.0
     reason_codes: list[str] = Field(default_factory=list)
+    transaction_type: str = "unknown"
+    transaction_subtype: str = "unknown"
+    transaction_type_confidence: float = 0.0
+    transaction_type_status: str = "unknown"
+    transaction_type_reason_codes: list[str] = Field(default_factory=list)
+    transaction_type_scores: dict[str, float] = Field(default_factory=dict)
+    spending_category: str = "uncategorized"
+    spending_subcategory: str = "unknown"
+    spending_category_confidence: float = 0.0
+    spending_category_status: str = "unknown"
+    spending_category_reason_codes: list[str] = Field(default_factory=list)
+    spending_category_scores: dict[str, float] = Field(default_factory=dict)
+    classification_source: str = "unknown"
+    ai_model_name: Optional[str] = None
+    ai_model_version: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    classification_review_required: bool = False
+    classification_review_reason_codes: list[str] = Field(default_factory=list)
+    recognition_suggestion_id: Optional[str] = None
+    recognition_suggestion_status: str = "none"
+    suggested_transaction_type: Optional[str] = None
+    suggested_transaction_subtype: Optional[str] = None
+    suggested_spending_category: Optional[str] = None
+    suggested_spending_subcategory: Optional[str] = None
+    suggestion_confidence: Optional[float] = None
+    suggestion_reason_codes: list[str] = Field(default_factory=list)
+    suggestion_source: Optional[str] = None
+    suggestion_evidence_ref: Optional[str] = None
 
 
 class FinancialFieldCandidateInput(BaseModel):
@@ -152,6 +180,17 @@ class DataValidationRequest(BaseModel):
     parse_id: Optional[str] = None
     document: Optional[SourceDocument] = None
     document_type: str = "unknown"
+    document_type_confidence: Optional[float] = None
+    document_type_status: str = "unknown"
+    document_type_reason_codes: list[str] = Field(default_factory=list)
+    document_recognition_suggestion_id: Optional[str] = None
+    document_recognition_suggestion_status: str = "none"
+    suggested_document_type: Optional[str] = None
+    suggested_document_subtype: Optional[str] = None
+    document_suggestion_confidence: Optional[float] = None
+    document_suggestion_reason_codes: list[str] = Field(default_factory=list)
+    document_suggestion_source: Optional[str] = None
+    document_suggestion_evidence_ref: Optional[str] = None
     transaction_candidates: list[TransactionCandidateInput] = Field(default_factory=list)
     financial_field_candidates: list[FinancialFieldCandidateInput] = Field(default_factory=list)
     section_candidates: list[SectionCandidateInput] = Field(default_factory=list)
@@ -179,6 +218,34 @@ class NormalizedTransactionRecord(BaseModel):
     quality_status: str
     reason_codes: list[str] = Field(default_factory=list)
     duplicate_of: Optional[str] = None
+    transaction_type: str = "unknown"
+    transaction_subtype: str = "unknown"
+    transaction_type_confidence: float = 0.0
+    transaction_type_status: str = "unknown"
+    transaction_type_reason_codes: list[str] = Field(default_factory=list)
+    transaction_type_scores: dict[str, float] = Field(default_factory=dict)
+    spending_category: str = "uncategorized"
+    spending_subcategory: str = "unknown"
+    spending_category_confidence: float = 0.0
+    spending_category_status: str = "unknown"
+    spending_category_reason_codes: list[str] = Field(default_factory=list)
+    spending_category_scores: dict[str, float] = Field(default_factory=dict)
+    classification_source: str = "unknown"
+    ai_model_name: Optional[str] = None
+    ai_model_version: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    classification_review_required: bool = False
+    classification_review_reason_codes: list[str] = Field(default_factory=list)
+    recognition_suggestion_id: Optional[str] = None
+    recognition_suggestion_status: str = "none"
+    suggested_transaction_type: Optional[str] = None
+    suggested_transaction_subtype: Optional[str] = None
+    suggested_spending_category: Optional[str] = None
+    suggested_spending_subcategory: Optional[str] = None
+    suggestion_confidence: Optional[float] = None
+    suggestion_reason_codes: list[str] = Field(default_factory=list)
+    suggestion_source: Optional[str] = None
+    suggestion_evidence_ref: Optional[str] = None
 
 
 class NormalizedFinancialField(BaseModel):
@@ -298,6 +365,14 @@ class DataValidationResult(BaseModel):
     parse_id: Optional[str] = None
     document: Optional[SourceDocument] = None
     document_type: str
+    document_recognition_suggestion_id: Optional[str] = None
+    document_recognition_suggestion_status: str = "none"
+    suggested_document_type: Optional[str] = None
+    suggested_document_subtype: Optional[str] = None
+    document_suggestion_confidence: Optional[float] = None
+    document_suggestion_reason_codes: list[str] = Field(default_factory=list)
+    document_suggestion_source: Optional[str] = None
+    document_suggestion_evidence_ref: Optional[str] = None
     normalized_records: list[NormalizedTransactionRecord] = Field(default_factory=list)
     financial_fields: list[NormalizedFinancialField] = Field(default_factory=list)
     section_candidates: list[SectionCandidateInput] = Field(default_factory=list)

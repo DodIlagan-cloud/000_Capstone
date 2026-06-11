@@ -1,7 +1,6 @@
 @page
 @model ReportsModel
-@* M2 - Stats Web Shell Start *@
-@* Provides the authenticated reports shell before report generation exists. *@
+@* Provides the authenticated analytics report host shell. *@
 <!doctype html>
 <html lang="en">
   <head>
@@ -9,8 +8,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stats Reports</title>
     <link rel="stylesheet" href="/css/access.css" />
-    <script src="/js/access.js" defer></script>
-    <script src="/js/app.js" defer></script>
+    <script src="/js/access.js" defer asp-append-version="true"></script>
+    <script src="/js/app.js" defer asp-append-version="true"></script>
+    <script src="/js/powerbi.min.js" defer asp-append-version="true"></script>
+    <script src="/js/reporting.js" defer asp-append-version="true"></script>
   </head>
   <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="reports">
     <main class="app-shell">
@@ -20,7 +21,8 @@
           <h1>Reports</h1>
         </div>
         <nav class="header-actions" aria-label="Account actions">
-          <a id="manage-users-link" href="/Users" hidden>Manage users</a>
+          <a id="manage-users-link" data-admin-link href="/Users" hidden>Manage users</a>
+          <a id="manage-classifications-link" data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
           <button id="logout-button" type="button">Sign out</button>
         </nav>
       </header>
@@ -34,16 +36,88 @@
           <a href="/EmailSetup">Email ingestion setup</a>
           <a href="/Documents">Documents</a>
           <a href="/Reports" aria-current="page">Reports</a>
+          <a data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
         </nav>
 
-        <section class="shell-panel" aria-labelledby="reports-title">
-          <p class="session-label">Reports</p>
-          <h2 id="reports-title">Report area reserved</h2>
-          <p class="panel-copy">Exports and financial report views are deferred until the reporting module defines persisted query and output requirements.</p>
-          <div class="empty-state">Waiting for M11 Stats Dashboard and Reporting.</div>
+        <section class="shell-panel reports-workbench" aria-labelledby="reports-title">
+          <div class="dashboard-title-row">
+            <div>
+              <p class="session-label">Analytics reports</p>
+              <h2 id="reports-title">Financial reports</h2>
+              <p class="panel-copy">Explore spending, transaction classification, source coverage, and data quality from curated financial records.</p>
+            </div>
+            <span id="reporting-status-pill" class="state-pill @(Model.ReportingConfigured ? "" : "pending")">
+              @(Model.ReportingConfigured ? "Embed configured" : "Not configured")
+            </span>
+          </div>
+
+          <section class="report-layout" aria-label="Analytics report area">
+            <div class="report-main">
+              <div id="reporting-embed-host" class="powerbi-embed-host" role="region" aria-label="Analytics report embed host">
+                @if (Model.ReportingConfigured)
+                {
+                  <p class="session-label">Embed host</p>
+                  <h3>Financial report will load here</h3>
+                  <p id="reporting-message" class="panel-copy">The browser should receive only a short-lived embed configuration from the approved backend endpoint.</p>
+                }
+                else
+                {
+                  <p class="session-label">Not connected</p>
+                  <h3>Report viewer is not connected yet</h3>
+                  <p id="reporting-message" class="panel-copy">Stats can still show document provenance, upload status, review queues, and evidence workflow while reporting configuration is pending.</p>
+                }
+              </div>
+
+              <section class="report-context-grid" aria-label="Selected report context">
+                <article>
+                  <p class="session-label">Selected report</p>
+                  <h3 id="selected-report-title">Financial overview</h3>
+                  <p id="selected-report-purpose" class="panel-copy">Answers how much was spent, how spending moved across recent months, and which records influence current expenses.</p>
+                </article>
+                <article>
+                  <p class="session-label">Data used</p>
+                  <h3 id="selected-report-data-title">Curated transactions</h3>
+                  <p id="selected-report-data" class="panel-copy">Uses saved transaction dates, debit amounts, category labels when available, and source document links from Stats Data.</p>
+                </article>
+                <article>
+                  <p class="session-label">Review before trusting</p>
+                  <h3 id="selected-report-review-title">Classification gaps</h3>
+                  <p id="selected-report-review" class="panel-copy">Check uncategorized transactions, low-confidence category suggestions, duplicate-looking rows, and validation warnings.</p>
+                </article>
+              </section>
+
+              <section class="report-source-summary" aria-label="Source data summary">
+                <div>
+                  <span>Source documents</span>
+                  <strong>Documents tab</strong>
+                  <p>Use the Documents page for document counts, source institutions, workflow status, and parsed row counts.</p>
+                </div>
+                <div>
+                  <span>Reporting records</span>
+                  <strong>Curated data</strong>
+                  <p>Only saved records from the Stats Data layer should be included in financial reporting.</p>
+                </div>
+                <div>
+                  <span>Trust context</span>
+                  <strong>Review queue</strong>
+                  <p>Review-required items and validation findings explain where a report total may need caution.</p>
+                </div>
+              </section>
+            </div>
+            <aside class="report-sidebar" aria-label="Report pages">
+              <p class="session-label">Report pages</p>
+              <div class="report-page-list" role="list">
+                <button type="button" class="report-page-button" data-report-page="financial-overview" aria-pressed="true">Financial overview</button>
+                <button type="button" class="report-page-button" data-report-page="spending-categories" aria-pressed="false">Spending categories</button>
+                <button type="button" class="report-page-button" data-report-page="transaction-classification" aria-pressed="false">Transaction classification</button>
+                <button type="button" class="report-page-button" data-report-page="source-document-coverage" aria-pressed="false">Source document coverage</button>
+                <button type="button" class="report-page-button" data-report-page="data-quality-confidence" aria-pressed="false">Data quality and confidence</button>
+                <button type="button" class="report-page-button" data-report-page="review-exceptions" aria-pressed="false">Review and exceptions</button>
+              </div>
+            </aside>
+          </section>
         </section>
       </section>
     </main>
   </body>
 </html>
-@* M2 End *@

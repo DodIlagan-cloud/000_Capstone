@@ -1,0 +1,419 @@
+@page
+@model Stats.Web.Pages.Admin.ClassificationsModel
+@* Provides an admin-only view of how Stats recognizes documents and transactions. *@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stats Recognition Settings</title>
+    <link rel="stylesheet" href="/css/access.css" />
+    <script src="/js/access.js" defer asp-append-version="true"></script>
+    <script src="/js/classifications.js" defer asp-append-version="true"></script>
+  </head>
+  <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="classifications">
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="product-name">Stats</p>
+          <h1>Recognition settings</h1>
+        </div>
+        <nav class="header-actions" aria-label="Recognition settings actions">
+          <a href="/">Main app</a>
+          <a href="/Users">Manage users</a>
+          <button id="logout-button" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <p id="classification-access-message" class="page-message" role="status" aria-live="polite">Checking administrator access.</p>
+
+      <section id="classification-workspace" class="shell-workspace" hidden>
+        <nav class="shell-nav" aria-label="Stats workspace navigation">
+          <a href="/">Home</a>
+          <a href="/Upload">Upload documents</a>
+          <a href="/EmailSetup">Email ingestion setup</a>
+          <a href="/Documents">Documents</a>
+          <a href="/Reports">Reports</a>
+          <a href="/Admin/Classifications" aria-current="page">Recognition settings</a>
+        </nav>
+
+        <section class="shell-panel classification-workbench" aria-labelledby="classification-title">
+          <div class="dashboard-title-row">
+            <div>
+              <p class="session-label">Admin settings</p>
+              <h2 id="classification-title">How Stats recognizes documents</h2>
+              <p class="panel-copy">Use this page to see what Stats can recognize after upload and what text it looks for when deciding how a document should be handled.</p>
+            </div>
+          </div>
+
+          <div class="classification-tabs" role="tablist" aria-label="Recognition settings sections">
+            <button id="document-rules-tab" type="button" role="tab" aria-controls="document-rules-panel" aria-selected="true" data-classification-tab="document-rules">Document types</button>
+            <button id="transaction-rules-tab" type="button" role="tab" aria-controls="transaction-rules-panel" aria-selected="false" data-classification-tab="transaction-rules">Transaction labels</button>
+            <button id="review-candidates-tab" type="button" role="tab" aria-controls="review-candidates-panel" aria-selected="false" data-classification-tab="review-candidates">Items to review</button>
+          </div>
+          <p id="classification-save-message" class="page-message" role="status" aria-live="polite"></p>
+
+          <section id="document-rules-panel" class="classification-tab-panel" role="tabpanel" aria-labelledby="document-rules-tab" data-classification-panel="document-rules">
+            <details class="classification-help">
+              <summary>How to use this page</summary>
+              <p>Stats checks uploaded files automatically. Use these settings to understand which document and transaction labels can be assigned, and which text examples help Stats recognize a document. If a document is unclear, it is shown for review before transactions are saved.</p>
+              <p>Private details are removed before assisted recognition is used.</p>
+            </details>
+
+            @if (!string.IsNullOrWhiteSpace(Model.ConfigurationWarning))
+            {
+              <p class="empty-state">@Model.ConfigurationWarning</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.SaveMessage))
+            {
+              <p class="page-message" data-tone="success">@Model.SaveMessage</p>
+            }
+
+            <div class="classification-stack">
+              <details class="classification-management" data-classification-section="document">
+                <summary>Document types</summary>
+                <section aria-labelledby="document-types-heading">
+                  <h3 id="document-types-heading">Document types Stats can recognize</h3>
+                  <div class="table-wrap">
+                    <table class="management-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Document type</th>
+                          <th scope="col">Allowed examples</th>
+                          <th scope="col">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @foreach (var entry in Model.DocumentVocabulary)
+                        {
+                          var documentFormId = $"document-label-{entry.DocumentType.Replace(" ", "-", StringComparison.OrdinalIgnoreCase)}";
+                          var documentDeleteFormId = $"{documentFormId}-delete";
+                          <tr>
+                            <td>
+                              <form id="@documentFormId" method="post" asp-page-handler="SaveDocumentLabel" data-async-classification-form data-classification-section="document"></form>
+                              <form id="@documentDeleteFormId" method="post" asp-page-handler="DeleteDocumentLabel" data-async-classification-form data-classification-section="document" data-confirm-message="Delete this document type?"></form>
+                              <input form="@documentFormId" type="hidden" name="originalLabel" value="@entry.DocumentType" />
+                              <input form="@documentDeleteFormId" type="hidden" name="label" value="@entry.DocumentType" />
+                              <input form="@documentFormId" name="label" value="@entry.DocumentType" aria-label="Document type" required />
+                            </td>
+                            <td>
+                              <textarea form="@documentFormId" name="values" rows="2" aria-label="Allowed document examples">@string.Join(", ", entry.Subtypes)</textarea>
+                            </td>
+                            <td>
+                              <div class="row-actions">
+                                <button form="@documentFormId" type="submit">Save</button>
+                                <button form="@documentDeleteFormId" type="submit" class="secondary-action" disabled="@(string.Equals(entry.DocumentType, "Unknown", StringComparison.OrdinalIgnoreCase))">Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        }
+                        <tr>
+                          <td>
+                            <form id="document-label-new" method="post" asp-page-handler="SaveDocumentLabel" data-async-classification-form data-classification-section="document"></form>
+                            <input form="document-label-new" type="hidden" name="originalLabel" value="" />
+                            <input form="document-label-new" name="label" aria-label="New document type" placeholder="New document type" required />
+                          </td>
+                          <td>
+                            <textarea form="document-label-new" name="values" rows="2" aria-label="New document examples" placeholder="Example, unknown">unknown</textarea>
+                          </td>
+                          <td>
+                            <div class="row-actions">
+                              <button form="document-label-new" type="submit">Add</button>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </details>
+
+              <details class="classification-management" data-classification-section="document-rules">
+                <summary>Recognition rules</summary>
+                <section aria-labelledby="document-rules-heading">
+                  <h3 id="document-rules-heading">Rules Stats uses for documents</h3>
+                  <div class="table-wrap">
+                    <table class="management-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Recognizes as</th>
+                          <th scope="col">Example type</th>
+                          <th scope="col">Text Stats looks for</th>
+                          <th scope="col">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @foreach (var rule in Model.DocumentRules)
+                        {
+                          var ruleFormId = $"document-rule-{rule.ReasonCode.Replace("_", "-", StringComparison.OrdinalIgnoreCase)}";
+                          var ruleDeleteFormId = $"document-rule-{rule.ReasonCode.Replace("_", "-", StringComparison.OrdinalIgnoreCase)}-delete";
+                          <tr>
+                            <td>
+                              <form id="@ruleFormId" method="post" asp-page-handler="SaveDocumentRule" data-async-classification-form data-classification-section="document-rules"></form>
+                              <form id="@ruleDeleteFormId" method="post" asp-page-handler="DeleteDocumentRule" data-async-classification-form data-classification-section="document-rules" data-confirm-message="Delete this recognition rule?"></form>
+                              <input form="@ruleFormId" type="hidden" name="originalReasonCode" value="@rule.ReasonCode" />
+                              <input form="@ruleDeleteFormId" type="hidden" name="reasonCode" value="@rule.ReasonCode" />
+                              <input form="@ruleFormId" name="targetLabel" value="@rule.DocumentType" aria-label="Rule document type" required />
+                            </td>
+                            <td>
+                              <input form="@ruleFormId" name="targetSubtype" value="@rule.DocumentSubtype" aria-label="Rule document subtype" required />
+                            </td>
+                            <td>
+                              <input form="@ruleFormId" name="reasonCode" value="@rule.ReasonCode" aria-label="Rule reason" required />
+                              <textarea form="@ruleFormId" name="requiredAny" rows="2" aria-label="Required text">@string.Join(", ", rule.RequiredAny)</textarea>
+                              <textarea form="@ruleFormId" name="signals" rows="2" aria-label="Supporting text">@string.Join(", ", rule.Signals)</textarea>
+                              <input form="@ruleFormId" name="minimumscore" type="number" min="0" max="1" step="0.01" value="@rule.MinimumMatchStrength" aria-label="Minimum match strength" />
+                            </td>
+                            <td>
+                              <div class="rule-action-row">
+                                <button form="@ruleFormId" type="submit">Save</button>
+                                <button form="@ruleDeleteFormId" type="submit" class="secondary-action">Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        }
+                        <tr>
+                          <td>
+                            <form id="document-rule-new" method="post" asp-page-handler="SaveDocumentRule" data-async-classification-form data-classification-section="document-rules"></form>
+                            <input form="document-rule-new" type="hidden" name="originalReasonCode" value="" />
+                            <input form="document-rule-new" name="targetLabel" aria-label="New rule document type" placeholder="Document type" required />
+                          </td>
+                          <td>
+                            <input form="document-rule-new" name="targetSubtype" aria-label="New rule subtype" placeholder="Subtype" value="unknown" required />
+                          </td>
+                          <td>
+                            <input form="document-rule-new" name="reasonCode" aria-label="New rule reason" placeholder="RULE_REASON" required />
+                            <textarea form="document-rule-new" name="requiredAny" rows="2" aria-label="New required text" placeholder="Text Stats must see"></textarea>
+                            <textarea form="document-rule-new" name="signals" rows="2" aria-label="New supporting text" placeholder="Other helpful text"></textarea>
+                            <input form="document-rule-new" name="minimumscore" type="number" min="0" max="1" step="0.01" value="0.35" aria-label="New minimum match strength" />
+                          </td>
+                          <td>
+                            <div class="row-actions">
+                              <button form="document-rule-new" type="submit">Add</button>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </details>
+            </div>
+          </section>
+
+          <section id="transaction-rules-panel" class="classification-tab-panel" role="tabpanel" aria-labelledby="transaction-rules-tab" data-classification-panel="transaction-rules" hidden>
+            <details class="classification-help">
+              <summary>How to use transaction and spending labels</summary>
+              <p>These labels appear on the Upload documents review screen. Correct them before saving so reports can group transactions by type and spending category.</p>
+            </details>
+
+            <details class="classification-management" data-classification-section="transaction">
+              <summary>Transaction labels</summary>
+              <section aria-labelledby="transaction-types-heading">
+                <div class="management-heading">
+                  <div>
+                    <h3 id="transaction-types-heading">Manage transaction labels</h3>
+                    <p class="panel-copy">Edit the movement labels users can choose during transaction review.</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table class="management-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Transaction type</th>
+                        <th scope="col">Allowed subtypes</th>
+                        <th scope="col">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @foreach (var entry in Model.TransactionLabels)
+                      {
+                        var transactionFormId = $"transaction-label-{entry.Label.Replace(" ", "-", StringComparison.OrdinalIgnoreCase)}";
+                        var transactionDeleteFormId = $"{transactionFormId}-delete";
+                        <tr>
+                          <td>
+                            <form id="@transactionFormId" method="post" asp-page-handler="SaveTransactionLabel" data-async-classification-form data-classification-section="transaction"></form>
+                            <form id="@transactionDeleteFormId" method="post" asp-page-handler="DeleteTransactionLabel" data-async-classification-form data-classification-section="transaction" data-confirm-message="Delete this transaction label?"></form>
+                            <input form="@transactionFormId" type="hidden" name="originalLabel" value="@entry.Label" />
+                            <input form="@transactionDeleteFormId" type="hidden" name="label" value="@entry.Label" />
+                            <input form="@transactionFormId" name="label" value="@entry.Label" aria-label="Transaction type" required />
+                          </td>
+                          <td>
+                            <textarea form="@transactionFormId" name="values" rows="2" aria-label="Allowed transaction subtypes">@string.Join(", ", entry.Values)</textarea>
+                          </td>
+                          <td>
+                            <div class="row-actions">
+                              <button form="@transactionFormId" type="submit">Save</button>
+                              <button form="@transactionDeleteFormId" type="submit" class="secondary-action" disabled="@(string.Equals(entry.Label, "Unknown", StringComparison.OrdinalIgnoreCase))">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      }
+                      <tr>
+                        <td>
+                          <form id="transaction-label-new" method="post" asp-page-handler="SaveTransactionLabel" data-async-classification-form data-classification-section="transaction"></form>
+                          <input form="transaction-label-new" type="hidden" name="originalLabel" value="" />
+                          <input form="transaction-label-new" name="label" aria-label="New transaction type" placeholder="New transaction type" required />
+                        </td>
+                        <td>
+                          <textarea form="transaction-label-new" name="values" rows="2" aria-label="New transaction subtypes" placeholder="Subtype, unknown">unknown</textarea>
+                        </td>
+                        <td>
+                          <div class="row-actions">
+                            <button form="transaction-label-new" type="submit">Add</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </details>
+
+            <details class="classification-management" data-classification-section="spending">
+              <summary>Spending labels</summary>
+              <section aria-labelledby="spending-types-heading">
+                <div class="management-heading">
+                  <div>
+                    <h3 id="spending-types-heading">Manage spending labels</h3>
+                    <p class="panel-copy">Edit reporting categories and subcategories used for spending analysis.</p>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table class="management-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Spending category</th>
+                        <th scope="col">Allowed subcategories</th>
+                        <th scope="col">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @foreach (var entry in Model.SpendingLabels)
+                      {
+                        var spendingFormId = $"spending-label-{entry.Label.Replace(" ", "-", StringComparison.OrdinalIgnoreCase)}";
+                        var spendingDeleteFormId = $"{spendingFormId}-delete";
+                        <tr>
+                          <td>
+                            <form id="@spendingFormId" method="post" asp-page-handler="SaveSpendingLabel" data-async-classification-form data-classification-section="spending"></form>
+                            <form id="@spendingDeleteFormId" method="post" asp-page-handler="DeleteSpendingLabel" data-async-classification-form data-classification-section="spending" data-confirm-message="Delete this spending label?"></form>
+                            <input form="@spendingFormId" type="hidden" name="originalLabel" value="@entry.Label" />
+                            <input form="@spendingDeleteFormId" type="hidden" name="label" value="@entry.Label" />
+                            <input form="@spendingFormId" name="label" value="@entry.Label" aria-label="Spending category" required />
+                          </td>
+                          <td>
+                            <textarea form="@spendingFormId" name="values" rows="2" aria-label="Allowed spending subcategories">@string.Join(", ", entry.Values)</textarea>
+                          </td>
+                          <td>
+                            <div class="row-actions">
+                              <button form="@spendingFormId" type="submit">Save</button>
+                              <button form="@spendingDeleteFormId" type="submit" class="secondary-action" disabled="@(string.Equals(entry.Label, "Uncategorized", StringComparison.OrdinalIgnoreCase))">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      }
+                      <tr>
+                        <td>
+                          <form id="spending-label-new" method="post" asp-page-handler="SaveSpendingLabel" data-async-classification-form data-classification-section="spending"></form>
+                          <input form="spending-label-new" type="hidden" name="originalLabel" value="" />
+                          <input form="spending-label-new" name="label" aria-label="New spending category" placeholder="New spending category" required />
+                        </td>
+                        <td>
+                          <textarea form="spending-label-new" name="values" rows="2" aria-label="New spending subcategories" placeholder="Subcategory, unknown">unknown</textarea>
+                        </td>
+                        <td>
+                          <div class="row-actions">
+                            <button form="spending-label-new" type="submit">Add</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </details>
+          </section>
+
+          <section id="review-candidates-panel" class="classification-tab-panel" role="tabpanel" aria-labelledby="review-candidates-tab" data-classification-panel="review-candidates" hidden>
+            <details class="classification-help">
+              <summary>How to use items to review</summary>
+              <p>Stats shows proposed transaction or spending labels here when assisted recognition finds something outside the approved settings. Approving adds the label to the approved settings and updates linked transactions that still use fallback values.</p>
+            </details>
+
+            <details class="classification-management">
+              <summary>Pending suggestions</summary>
+              @if (!Model.PendingSuggestions.Any())
+              {
+                <div class="empty-state">No recognition suggestions are waiting for review.</div>
+              }
+              else
+              {
+                <div class="table-wrap">
+                  <table class="management-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Current labels</th>
+                        <th scope="col">Suggested labels</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @foreach (var suggestion in Model.PendingSuggestions)
+                      {
+                        var approveFormId = $"suggestion-{suggestion.SuggestionId}-approve";
+                        var rejectFormId = $"suggestion-{suggestion.SuggestionId}-reject";
+                        <tr>
+                          <td>
+                            <form id="@approveFormId" method="post" asp-page-handler="ReviewSuggestion" data-async-classification-form data-classification-section="review-candidates"></form>
+                            <form id="@rejectFormId" method="post" asp-page-handler="ReviewSuggestion" data-async-classification-form data-classification-section="review-candidates" data-confirm-message="Reject this suggestion?"></form>
+                            <input form="@approveFormId" type="hidden" name="suggestionId" value="@suggestion.SuggestionId" />
+                            <input form="@approveFormId" type="hidden" name="action" value="approve" />
+                            <input form="@rejectFormId" type="hidden" name="suggestionId" value="@suggestion.SuggestionId" />
+                            <input form="@rejectFormId" type="hidden" name="action" value="reject" />
+                            <strong>Document</strong><br />
+                            @suggestion.CurrentDocumentType / @suggestion.CurrentDocumentSubtype<br />
+                            <strong>Transaction</strong><br />
+                            @suggestion.CurrentTransactionType / @suggestion.CurrentTransactionSubtype<br />
+                            <strong>Spending</strong><br />
+                            @suggestion.CurrentSpendingCategory / @suggestion.CurrentSpendingSubcategory
+                          </td>
+                          <td>
+                            <strong>Document</strong><br />
+                            @suggestion.SuggestedDocumentType / @suggestion.SuggestedDocumentSubtype<br />
+                            <strong>Transaction</strong><br />
+                            @suggestion.SuggestedTransactionType / @suggestion.SuggestedTransactionSubtype<br />
+                            <strong>Spending</strong><br />
+                            @suggestion.SuggestedSpendingCategory / @suggestion.SuggestedSpendingSubcategory
+                          </td>
+                          <td>
+                            @suggestion.SourceModule<br />
+                            @suggestion.SuggestionSource<br />
+                            @if (suggestion.SuggestionConfidence is not null)
+                            {
+                              <span>@suggestion.SuggestionConfidence.Value.ToString("0.00")</span><br />
+                            }
+                            <small>@suggestion.SuggestionEvidenceRef</small>
+                          </td>
+                          <td>
+                            <textarea form="@approveFormId" name="reviewNote" rows="2" aria-label="Approval note" placeholder="Optional note"></textarea>
+                            <textarea form="@rejectFormId" name="reviewNote" rows="2" aria-label="Rejection note" placeholder="Optional note"></textarea>
+                            <div class="row-actions">
+                              <button form="@approveFormId" type="submit">Approve</button>
+                              <button form="@rejectFormId" type="submit" class="secondary-action">Reject</button>
+                            </div>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </details>
+          </section>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+@* Recognition settings End *@

@@ -41,6 +41,7 @@ TABLE_PRIMARY_KEYS = {
     "review_items": "review_item_id",
     "duplicate_check_batches": "duplicate_check_id",
     "duplicate_check_results": "duplicate_check_result_id",
+    "recognition_label_suggestions": "suggestion_id",
 }
 
 
@@ -101,6 +102,7 @@ def build_validation_persistence_plan(
     result_id = _stable_id("validation", validation_id)
     document_id = _stable_id("document", validation_id, ingestion_id)
     batch_id = _stable_id("batch", validation_id)
+    document_suggestion_id = _document_suggestion_id(result, validation_id)
 
     operations = [
         _op(
@@ -154,6 +156,14 @@ def build_validation_persistence_plan(
                 "size_bytes": _int_or_none(document.get("size_bytes")),
                 "storage_reference": _text(storage_reference) or _text(document.get("storage_reference")) or "",
                 "document_type": document_type,
+                "recognition_suggestion_id": document_suggestion_id,
+                "recognition_suggestion_status": _text(result.get("document_recognition_suggestion_status")) or "none",
+                "suggested_document_type": _text(result.get("suggested_document_type")),
+                "suggested_document_subtype": _text(result.get("suggested_document_subtype")),
+                "document_suggestion_confidence": _confidence(result.get("document_suggestion_confidence")),
+                "document_suggestion_reason_codes_json": _json(result.get("document_suggestion_reason_codes") or []),
+                "document_suggestion_source": _text(result.get("document_suggestion_source")),
+                "document_suggestion_evidence_ref": _text(result.get("document_suggestion_evidence_ref")),
                 "source_institution": _first_entity_value(result, "institution"),
                 "status": _document_status(summary, result),
                 "ocr_quality_status": _document_quality_status(result),
@@ -196,10 +206,15 @@ def build_validation_persistence_plan(
         ),
     ]
 
+    if document_suggestion_id:
+        operations.append(_document_recognition_label_suggestion_op(result, document_id, validation_id, document_suggestion_id))
+
     for section in result.get("section_candidates") or []:
         operations.append(_document_section_op(section, document_id, validation_id))
     for record in result.get("normalized_records") or []:
         operations.append(_transaction_op(record, document_id, batch_id, owner_id, validation_id))
+        if _text(record.get("recognition_suggestion_id")):
+            operations.append(_recognition_label_suggestion_op(record, document_id, validation_id))
     for field in result.get("financial_fields") or []:
         operations.append(_financial_field_op(field, document_id, batch_id, validation_id))
     financial_summary = result.get("document_financial_summary") or {}
@@ -345,6 +360,33 @@ WHERE source_document_id = ?
             target_document_id,
             target_document_id,
             target_document_id,
+            target_document_id,
+        )
+        _execute_document_delete(
+            cursor,
+            deleted_counts,
+            "duplicate_check_results",
+            """
+DELETE FROM dbo.duplicate_check_results
+WHERE duplicate_check_id IN (
+        SELECT duplicate_check_id
+        FROM dbo.duplicate_check_batches
+        WHERE document_id = ?
+    )
+   OR document_id = ?
+   OR matched_document_id = ?
+   OR matched_transaction_id IN (SELECT transaction_id FROM dbo.transactions WHERE document_id = ?);
+""",
+            target_document_id,
+            target_document_id,
+            target_document_id,
+            target_document_id,
+        )
+        _execute_document_delete(
+            cursor,
+            deleted_counts,
+            "duplicate_check_batches",
+            "DELETE FROM dbo.duplicate_check_batches WHERE document_id = ?;",
             target_document_id,
         )
 
@@ -551,6 +593,26 @@ def _transaction_op(
             "currency": _currency(record.get("currency")),
             "direction": _text(record.get("direction")) or "unknown",
             "signed_amount": _money(record.get("signed_amount")),
+            "transaction_type": _text(record.get("transaction_type")) or "unknown",
+            "transaction_subtype": _text(record.get("transaction_subtype")) or "unknown",
+            "spending_category": _text(record.get("spending_category")) or "uncategorized",
+            "spending_subcategory": _text(record.get("spending_subcategory")) or "unknown",
+            "classification_source": _text(record.get("classification_source")) or "unknown",
+            "classification_review_required": 1 if record.get("classification_review_required") else 0,
+            "classification_review_reason_codes_json": _json(record.get("classification_review_reason_codes") or []),
+            "classification_ai_model_name": _text(record.get("ai_model_name")),
+            "classification_ai_model_version": _text(record.get("ai_model_version")),
+            "classification_ai_confidence": _confidence(record.get("ai_confidence")),
+            "recognition_suggestion_id": _text(record.get("recognition_suggestion_id")),
+            "recognition_suggestion_status": _text(record.get("recognition_suggestion_status")) or "none",
+            "suggested_transaction_type": _text(record.get("suggested_transaction_type")),
+            "suggested_transaction_subtype": _text(record.get("suggested_transaction_subtype")),
+            "suggested_spending_category": _text(record.get("suggested_spending_category")),
+            "suggested_spending_subcategory": _text(record.get("suggested_spending_subcategory")),
+            "suggestion_confidence": _confidence(record.get("suggestion_confidence")),
+            "suggestion_reason_codes_json": _json(record.get("suggestion_reason_codes") or []),
+            "suggestion_source": _text(record.get("suggestion_source")),
+            "suggestion_evidence_ref": _text(record.get("suggestion_evidence_ref")),
             "confidence": _confidence(record.get("confidence")),
             "quality_status": _text(record.get("quality_status")) or "warning",
             "review_required": 1 if _review_required(record) else 0,
@@ -564,6 +626,81 @@ def _transaction_op(
             "source_ocr_confidence": _confidence(source.get("ocr_confidence")),
             "source_extraction_confidence": _confidence(source.get("extraction_confidence")),
             "reason_codes_json": _json(record.get("reason_codes") or []),
+            "category": _text(record.get("category")) or _display_category(record.get("spending_category")),
+        },
+    )
+
+
+def _recognition_label_suggestion_op(record: dict[str, Any], document_id: str, validation_id: str) -> SqlOperation:
+    source = record.get("source") or {}
+    transaction_id = _stable_id("transaction", validation_id, record.get("record_id"))
+    suggestion_id = _text(record.get("recognition_suggestion_id")) or _stable_id(
+        "recognition-suggestion",
+        validation_id,
+        record.get("record_id"),
+    )
+    return _op(
+        "recognition_label_suggestions",
+        {
+            "suggestion_id": suggestion_id,
+            "source_module": "M7",
+            "suggestion_status": _text(record.get("recognition_suggestion_status")) or "pending",
+            "document_id": document_id,
+            "transaction_id": transaction_id,
+            "source_candidate_id": _text(record.get("source_candidate_id")) or _text(record.get("record_id")),
+            "current_document_type": None,
+            "current_document_subtype": None,
+            "current_transaction_type": _text(record.get("transaction_type")) or "unknown",
+            "current_transaction_subtype": _text(record.get("transaction_subtype")) or "unknown",
+            "current_spending_category": _text(record.get("spending_category")) or "uncategorized",
+            "current_spending_subcategory": _text(record.get("spending_subcategory")) or "unknown",
+            "suggested_document_type": None,
+            "suggested_document_subtype": None,
+            "suggested_transaction_type": _text(record.get("suggested_transaction_type")),
+            "suggested_transaction_subtype": _text(record.get("suggested_transaction_subtype")),
+            "suggested_spending_category": _text(record.get("suggested_spending_category")),
+            "suggested_spending_subcategory": _text(record.get("suggested_spending_subcategory")),
+            "suggestion_confidence": _confidence(record.get("suggestion_confidence")),
+            "suggestion_reason_codes_json": _json(record.get("suggestion_reason_codes") or []),
+            "suggestion_source": _text(record.get("suggestion_source")) or "ai",
+            "suggestion_evidence_ref": _text(record.get("suggestion_evidence_ref"))
+            or _text(source.get("source_text_redacted"))
+            or f"record:{record.get('record_id')}",
+        },
+    )
+
+
+def _document_recognition_label_suggestion_op(
+    result: dict[str, Any],
+    document_id: str,
+    validation_id: str,
+    suggestion_id: str,
+) -> SqlOperation:
+    return _op(
+        "recognition_label_suggestions",
+        {
+            "suggestion_id": suggestion_id,
+            "source_module": "M5",
+            "suggestion_status": _text(result.get("document_recognition_suggestion_status")) or "pending",
+            "document_id": document_id,
+            "transaction_id": None,
+            "source_candidate_id": _text(result.get("parse_id")) or validation_id,
+            "current_document_type": _text(result.get("document_type")) or "unknown",
+            "current_document_subtype": "unknown",
+            "current_transaction_type": None,
+            "current_transaction_subtype": None,
+            "current_spending_category": None,
+            "current_spending_subcategory": None,
+            "suggested_document_type": _text(result.get("suggested_document_type")),
+            "suggested_document_subtype": _text(result.get("suggested_document_subtype")) or "unknown",
+            "suggested_transaction_type": None,
+            "suggested_transaction_subtype": None,
+            "suggested_spending_category": None,
+            "suggested_spending_subcategory": None,
+            "suggestion_confidence": _confidence(result.get("document_suggestion_confidence")),
+            "suggestion_reason_codes_json": _json(result.get("document_suggestion_reason_codes") or []),
+            "suggestion_source": _text(result.get("document_suggestion_source")) or "m5_ai_document_classification",
+            "suggestion_evidence_ref": _text(result.get("document_suggestion_evidence_ref")) or "document:redacted_classification_prompt",
         },
     )
 
@@ -898,6 +1035,17 @@ def _op(table: str, values: dict[str, Any]) -> SqlOperation:
     return SqlOperation(table=table, key_column=key_column, values={key: value for key, value in values.items()})
 
 
+def _document_suggestion_id(result: dict[str, Any], validation_id: str) -> str | None:
+    if not _text(result.get("suggested_document_type")):
+        return None
+    return _text(result.get("document_recognition_suggestion_id")) or _stable_id(
+        "document-recognition-suggestion",
+        validation_id,
+        result.get("suggested_document_type"),
+        result.get("suggested_document_subtype"),
+    )
+
+
 def _source_columns(source: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_page_number": _int_or_none(source.get("page_number")),
@@ -1002,6 +1150,13 @@ def _json_default(value: Any) -> Any:
 
 def _currency(value: Any) -> str:
     return (_text(value) or DEFAULT_CURRENCY).upper()
+
+
+def _display_category(value: Any) -> str:
+    category = _text(value) or "uncategorized"
+    if category.lower() in {"uncategorized", "unknown"}:
+        return "Unknown"
+    return " ".join(part.capitalize() for part in re.split(r"[_\s]+", category) if part)
 
 
 def _date_or_none(value: Any) -> str | None:

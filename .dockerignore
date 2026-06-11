@@ -3,6 +3,7 @@
 **/__pycache__/
 **/.pytest_cache/
 .pytest_cache/
+.tmp/
 **/tests/results/
 .git/
 .qodo/
@@ -11,6 +12,7 @@ venv/
 env/
 docx_render_check/
 tests/results/
+tests/tmp/
 test-results/
 tests/input/*
 !tests/input/README.md

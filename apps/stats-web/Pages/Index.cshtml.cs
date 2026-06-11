@@ -4,7 +4,11 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Stats.Web.Pages;
 
-public class IndexModel(StatsApiOptions statsApiOptions, StatsWebShellOptions shellOptions) : PageModel
+public class IndexModel(
+    StatsApiOptions statsApiOptions,
+    StatsWebShellOptions shellOptions,
+    StatsUserContextService userContext
+) : PageModel
 {
     public string ApiBaseUrl { get; } = statsApiOptions.BaseUrl.TrimEnd('/');
 
@@ -13,6 +17,16 @@ public class IndexModel(StatsApiOptions statsApiOptions, StatsWebShellOptions sh
     public bool UploadShellEnabled { get; } = shellOptions.UploadShellEnabled;
 
     public bool DashboardShellEnabled { get; } = shellOptions.DashboardShellEnabled;
+
+    // Exposes safe Power BI configuration state for the dashboard shell without leaking secrets.
+    public bool ReportingConfigured { get; } = shellOptions.ReportingEmbedConfigured;
+
+    public bool IsAdmin { get; private set; }
     // M2 End
+
+    public async Task OnGetAsync()
+    {
+        IsAdmin = await userContext.IsAdminAsync(HttpContext);
+    }
 }
 // M1 End

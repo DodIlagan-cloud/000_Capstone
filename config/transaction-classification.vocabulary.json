@@ -1,0 +1,78 @@
+{
+  "transaction_types": [
+    "purchase",
+    "payment",
+    "transfer",
+    "refund",
+    "fee",
+    "interest",
+    "cash_advance",
+    "installment_amortization",
+    "adjustment",
+    "tax",
+    "unknown"
+  ],
+  "transaction_subtypes": {
+    "purchase": [
+      "card_purchase",
+      "eftpos_payment",
+      "merchant_purchase",
+      "cash_purchase",
+      "unknown"
+    ],
+    "payment": [
+      "credit_card_payment",
+      "invoice_payment",
+      "bill_payment",
+      "loan_payment",
+      "unknown"
+    ],
+    "transfer": [
+      "bank_transfer",
+      "internal_transfer",
+      "external_transfer",
+      "unknown"
+    ],
+    "refund": [
+      "merchant_refund",
+      "statement_credit",
+      "reversal",
+      "unknown"
+    ],
+    "fee": [
+      "late_payment_fee",
+      "service_fee",
+      "bank_fee",
+      "unknown"
+    ],
+    "interest": [
+      "finance_charge",
+      "cash_advance_interest",
+      "unknown"
+    ],
+    "cash_advance": [
+      "atm_cash_advance",
+      "counter_cash_advance",
+      "unknown"
+    ],
+    "installment_amortization": [
+      "credit_card_installment",
+      "loan_installment",
+      "unknown"
+    ],
+    "adjustment": [
+      "debit_adjustment",
+      "credit_adjustment",
+      "unknown"
+    ],
+    "tax": [
+      "gst_tax",
+      "sales_tax",
+      "withholding_tax",
+      "unknown"
+    ],
+    "unknown": [
+      "unknown"
+    ]
+  }
+}

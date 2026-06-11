@@ -97,6 +97,11 @@ class OcrAttempt:
     variant: str
     word_blocks: list[OcrWordBlock] = field(default_factory=list)
     attempt_count: int = 1
+    early_stopped: bool = False
+    early_stop_reason: Optional[str] = None
+    amount_coherence_score: float = 0.0
+    amount_coherence_status: str = "not_evaluated"
+    amount_conflict_reasons: tuple[str, ...] = ()
 
 
 def detect_mime_type(content: bytes, provided_content_type: Optional[str] = None) -> Optional[str]:
@@ -232,18 +237,74 @@ def _prepare_image_for_ocr(image: Image.Image) -> Image.Image:
 
 
 def _image_variants(image: Image.Image) -> list[tuple[str, Image.Image]]:
+    document_crop = _document_crop_variant(image)
     grayscale = ImageOps.grayscale(image)
     autocontrast = ImageOps.autocontrast(grayscale)
     high_contrast = ImageEnhance.Contrast(grayscale).enhance(1.8)
     sharpened_contrast = ImageEnhance.Sharpness(high_contrast).enhance(2.0)
     thresholded = autocontrast.point(lambda pixel: 255 if pixel > 170 else 0)
-    return [
+    variants = [
         ("normalized", image),
         ("grayscale_contrast", high_contrast),
         ("autocontrast", autocontrast),
         ("sharpened_contrast", sharpened_contrast),
         ("thresholded", thresholded),
     ]
+    if document_crop is not None:
+        crop_gray = ImageOps.grayscale(document_crop)
+        crop_autocontrast = ImageOps.autocontrast(crop_gray)
+        variants.insert(1, ("document_crop", document_crop))
+        variants.insert(2, ("document_crop_autocontrast", crop_autocontrast))
+    return variants
+
+
+def _document_crop_variant(image: Image.Image) -> Image.Image | None:
+    width, height = image.size
+    if width < 300 or height < 300:
+        return None
+
+    grayscale = ImageOps.grayscale(image)
+    thumbnail = ImageOps.autocontrast(grayscale.copy())
+    thumbnail.thumbnail((900, 900), Image.Resampling.LANCZOS)
+    thumb_width, thumb_height = thumbnail.size
+    pixels = thumbnail.load()
+    threshold = 182
+    xs: list[int] = []
+    ys: list[int] = []
+
+    for y in range(thumb_height):
+        for x in range(thumb_width):
+            if pixels[x, y] >= threshold:
+                xs.append(x)
+                ys.append(y)
+
+    if not xs or not ys:
+        return None
+
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    crop_width = right - left + 1
+    crop_height = bottom - top + 1
+    crop_area_ratio = (crop_width * crop_height) / max(thumb_width * thumb_height, 1)
+    if crop_area_ratio < 0.18 or crop_area_ratio > 0.96:
+        return None
+    if crop_width < thumb_width * 0.25 or crop_height < thumb_height * 0.25:
+        return None
+
+    scale_x = width / thumb_width
+    scale_y = height / thumb_height
+    pad_x = int(width * 0.025)
+    pad_y = int(height * 0.025)
+    box = (
+        max(0, int(left * scale_x) - pad_x),
+        max(0, int(top * scale_y) - pad_y),
+        min(width, int((right + 1) * scale_x) + pad_x),
+        min(height, int((bottom + 1) * scale_y) + pad_y),
+    )
+    cropped = image.crop(box)
+    if cropped.size == image.size:
+        return None
+    return cropped
 
 
 def _ocr_image_with_confidence(
@@ -354,13 +415,15 @@ def _ocr_best_image(image: Image.Image, language: str, page_number: int = 1, fas
 
     orientations = [0, 90, 180, 270] if settings.ocr_retry_orientations else [0]
     psm_values = list(dict.fromkeys([*(settings.ocr_psm_values or [6]), 3]))
+    fast_psm_values = list(dict.fromkeys(settings.ocr_image_fast_psm_values or [psm_values[0]]))
     return _ocr_attempt_profile(
         prepared_image,
         language,
         page_number,
         orientations=orientations,
-        psm_values=psm_values,
+        psm_values=list(dict.fromkeys([*fast_psm_values, *psm_values])),
         max_variants=None,
+        early_stop_checker=_ocr_attempt_meets_image_early_stop_threshold,
     )
 
 
@@ -371,6 +434,7 @@ def _ocr_attempt_profile(
     orientations: list[int],
     psm_values: list[int],
     max_variants: Optional[int],
+    early_stop_checker=None,
 ) -> OcrAttempt:
     best_attempt = OcrAttempt(
         text="",
@@ -407,8 +471,22 @@ def _ocr_attempt_profile(
                     variant=variant_name,
                     word_blocks=word_blocks,
                 )
+                coherence = _receipt_amount_coherence(text)
+                attempt = replace(
+                    attempt,
+                    amount_coherence_score=coherence["score"],
+                    amount_coherence_status=coherence["status"],
+                    amount_conflict_reasons=tuple(coherence["reasons"]),
+                )
                 if _ocr_attempt_is_better(attempt, best_attempt):
                     best_attempt = attempt
+                if early_stop_checker and early_stop_checker(attempt):
+                    return replace(
+                        attempt,
+                        attempt_count=attempt_count,
+                        early_stopped=True,
+                        early_stop_reason="STRONG_RECEIPT_AND_CLEAN_TOTAL",
+                    )
 
     return replace(best_attempt, attempt_count=attempt_count)
 
@@ -425,6 +503,22 @@ def _ocr_attempt_meets_fast_threshold(attempt: OcrAttempt) -> bool:
         or _financial_amount_token_score(attempt.text) > 0
         or _receipt_amount_evidence_score(attempt.text) > 0
     )
+
+
+def _ocr_attempt_meets_image_early_stop_threshold(attempt: OcrAttempt) -> bool:
+    text = attempt.text.strip()
+    if len(text) < settings.ocr_image_fast_min_text_length:
+        return False
+    if attempt.quality_score < settings.ocr_image_fast_min_quality_score:
+        return False
+    if attempt.mean_confidence is not None and attempt.mean_confidence < settings.ocr_image_fast_min_confidence:
+        return False
+    if _financial_amount_token_score(text) == 0:
+        return False
+    if _document_shape_signal_score(text) < 3:
+        return False
+    coherence = _receipt_amount_coherence(text)
+    return coherence["status"] == "clean" and coherence["score"] >= 3
 
 
 def _ocr_attempt_is_better(attempt: OcrAttempt, best_attempt: OcrAttempt) -> bool:
@@ -461,6 +555,73 @@ def _receipt_amount_evidence_score(text: str) -> int:
     score += min(len(re.findall(r"\b(?:total|purchase|approved|paid|amount)\b.{0,32}\d{1,4}(?:[.,]\d{2})\b", lowered)), 5)
     score += min(len(re.findall(r"\b\d{1,4}(?:[.,]\d{2})\b.{0,16}\b(?:total|purchase|approved|paid)\b", lowered)), 3)
     return score
+
+
+def _receipt_amount_coherence(text: str) -> dict[str, object]:
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    if not normalized:
+        return {"score": 0.0, "status": "missing", "reasons": ["NO_TEXT"]}
+
+    lowered = normalized.lower()
+    reasons: list[str] = []
+    final_label_pattern = r"(?:grand\s+total|total|eftpos|ef\s*tpos|complete|amount\s+due|due\s+amount|bank\s+card|debit\s+card|credit\s+card|purchase|paid)"
+    clean_labelled = re.findall(
+        rf"\b{final_label_pattern}\b.{{0,40}}?(?:NZD|NZ\$|\$|PHP|USD|AUD)?\s*\d{{1,4}}(?:,\d{{3}})*(?:\.\s?\d{{2}}|,\d{{2}})\b",
+        normalized,
+        re.IGNORECASE,
+    )
+    clean_amounts = {
+        round(float(match.group(0).replace(",", "").replace(" ", "")), 2)
+        for match in re.finditer(r"\b\d{1,3}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2})\b", normalized)
+    }
+    damaged_patterns = [
+        r"\bNZD\s*0?\d{2,4}\s*(?:[.,]\s*)?(?:O[0OF]?|[O0]F|G[O0]|[O0]{1,2})\b",
+        r"\b(?:total|eftpos|complete|amount\s+due|due\s+amount)\b.{0,40}\b(?:NZD|NZ\$|\$)?\s*0?\d{2,4}\s+\d{2}\b",
+        r"\b(?:total|eftpos|complete|amount\s+due|due\s+amount)\b.{0,40}\b(?:NZD|NZ\$|\$)?\s*\d{1,4}\s*[.,]\s*[A-Z]{1,3}\b",
+    ]
+    damaged_hits = [pattern for pattern in damaged_patterns if re.search(pattern, normalized, re.IGNORECASE)]
+    if damaged_hits:
+        reasons.append("DAMAGED_LABELLED_AMOUNT")
+
+    if clean_labelled:
+        reasons.append("CLEAN_LABELLED_AMOUNT")
+    if len(clean_amounts) >= 3:
+        reasons.append("MULTIPLE_AMOUNT_VALUES")
+
+    score = 0.0
+    score += min(len(clean_labelled), 3) * 2.0
+    score += min(_receipt_amount_evidence_score(normalized), 4) * 0.5
+    score += min(_document_shape_signal_score(normalized), 4) * 0.25
+    score -= min(len(damaged_hits), 2) * 1.5
+    if len(clean_amounts) >= 3 and damaged_hits:
+        score -= 1.0
+
+    if not clean_labelled:
+        status = "weak"
+        reasons.append("NO_CLEAN_LABELLED_AMOUNT")
+    elif damaged_hits or (len(clean_amounts) >= 3 and re.search(r"\b(?:total|eftpos|complete|due\s+amount|amount\s+due)\b", lowered)):
+        status = "conflicting"
+    else:
+        status = "clean"
+
+    return {"score": round(max(score, 0.0), 2), "status": status, "reasons": reasons}
+
+
+def _document_shape_signal_score(text: str) -> int:
+    normalized = re.sub(r"\s+", " ", text or "").strip().lower()
+    if not normalized:
+        return 0
+
+    signal_groups = [
+        r"\b(?:tax\s+invoice|receipt|invoice)\b",
+        r"\b(?:total|subtotal|amount\s+due|due\s+amount)\b",
+        r"\b(?:eftpos|ef\s*tpos|card|approved|purchase|paid)\b",
+        r"\b(?:gst|tax|include\s+tax|includes\s+gst)\b",
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b",
+        r"\b\d{1,2}:\d{2}(?::\d{2})?\b",
+        r"(?:NZD|NZ\$|\$|PHP|USD|AUD)\s*\d{1,4}(?:[.,]\s?\d{2})",
+    ]
+    return sum(1 for pattern in signal_groups if re.search(pattern, normalized, re.IGNORECASE))
 
 
 def _financial_amount_token_score(text: str) -> int:
@@ -502,9 +663,15 @@ def _ocr_quality_metadata(attempts: list[OcrAttempt]) -> dict[str, object]:
             "mean_confidence": None,
             "selected_orientation": None,
             "selected_psm": None,
+            "selected_variant": None,
             "attempt_count": 0,
             "alnum_ratio": None,
             "keyword_hits": 0,
+            "early_stopped": False,
+            "early_stop_reason": None,
+            "amount_coherence_score": None,
+            "amount_coherence_status": None,
+            "amount_conflict_reasons": [],
         }
 
     best_attempt = max(attempts, key=lambda attempt: attempt.quality_score)
@@ -513,9 +680,15 @@ def _ocr_quality_metadata(attempts: list[OcrAttempt]) -> dict[str, object]:
         "mean_confidence": round(best_attempt.mean_confidence, 2) if best_attempt.mean_confidence is not None else None,
         "selected_orientation": best_attempt.orientation,
         "selected_psm": best_attempt.psm,
+        "selected_variant": best_attempt.variant,
         "attempt_count": sum(attempt.attempt_count for attempt in attempts),
         "alnum_ratio": best_attempt.alnum_ratio,
         "keyword_hits": best_attempt.keyword_hits,
+        "early_stopped": best_attempt.early_stopped,
+        "early_stop_reason": best_attempt.early_stop_reason,
+        "amount_coherence_score": best_attempt.amount_coherence_score,
+        "amount_coherence_status": best_attempt.amount_coherence_status,
+        "amount_conflict_reasons": list(best_attempt.amount_conflict_reasons),
     }
 
 
@@ -735,6 +908,14 @@ def parse_document_content(
     )
     if classification.status == "unknown":
         findings.append(_finding("CLASSIFICATION_UNKNOWN", "Document could not be classified above the configured confidence threshold.", FindingSeverity.warning))
+        if "RECOGNITION_SETTINGS_UNAVAILABLE" in classification.reason_codes:
+            findings.append(
+                _finding(
+                    "RECOGNITION_SETTINGS_UNAVAILABLE",
+                    "Recognition settings could not be loaded from Stats Data, so document classification needs review.",
+                    FindingSeverity.warning,
+                )
+            )
     elif classification.status == "ambiguous":
         findings.append(_finding("CLASSIFICATION_AMBIGUOUS", "Multiple document classes were plausible.", FindingSeverity.warning))
     elif classification.status == "unsupported":
@@ -781,6 +962,7 @@ def parse_document_content(
         classification_confidence=classification.confidence,
         classification_reason_codes=classification.reason_codes,
         classification_status=classification.status,
+        classification_source=classification.classification_source,
     )
     extraction_reason_codes = _extraction_readiness_reason_codes(status, quality.text_length, transaction_signal_count, findings)
     parse_id = f"parse_{uuid.uuid4().hex[:16]}"
@@ -815,6 +997,12 @@ def parse_document_content(
             ocr_selected_orientation=ocr_quality.get("selected_orientation") if ocr_attempted else None,
             ocr_selected_psm=ocr_quality.get("selected_psm") if ocr_attempted else None,
             ocr_attempt_count=int(ocr_quality.get("attempt_count") or 0) if ocr_attempted else 0,
+            ocr_selected_variant=ocr_quality.get("selected_variant") if ocr_attempted else None,
+            ocr_early_stopped=bool(ocr_quality.get("early_stopped")) if ocr_attempted else False,
+            ocr_early_stop_reason=ocr_quality.get("early_stop_reason") if ocr_attempted else None,
+            amount_coherence_score=ocr_quality.get("amount_coherence_score") if ocr_attempted else None,
+            amount_coherence_status=ocr_quality.get("amount_coherence_status") if ocr_attempted else None,
+            amount_conflict_reasons=list(ocr_quality.get("amount_conflict_reasons") or []) if ocr_attempted else [],
         ),
         strategy=StrategyDecision(
             selected_strategy=selected_strategy,
