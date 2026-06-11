@@ -17,7 +17,15 @@ From M13 onward the Stats app is **container-first**. This boundary applies to a
 
 **Container evidence is the source of truth.**
 
+Acceptance and capstone evidence must be captured through an actual run of the Stats app the way a user normally interacts with it. For user-facing behavior, the primary proof is the browser journey through Stats Web, normally at `http://127.0.0.1:8080`, with screenshots that show the visible application state. API responses, database queries, Docker commands, and terminal output are supporting evidence that explain the flow; they do not replace the normal app interaction unless the user-facing path is blocked and the blocker is recorded clearly.
+
 Host commands are allowed only for editing files and inspecting code. Any test result used for module completion, regression, runtime validation, database validation, OCR validation, browser evidence, or capstone assessment evidence must run against the Docker stack.
+
+## Module Test Flow Planning
+
+Refine the intended module flow in `docs/module-test-flow-playbook.md` before running an evidence script. The playbook is a planning surface only; updating it does not mean tests were executed.
+
+For each module, record the intended fixtures, browser routes, API/container commands, database checks, expected pass/fail signals, cleanup expectations, and known blockers. Then run the matching script only when an evidence run is explicitly requested.
 
 ## Test Artefact Layout
 
@@ -74,7 +82,7 @@ All acceptance and evidence scripts use `tests\\input\\` as the required fixture
 | `M13-Containerization/` | M13 | M13-specific Docker acceptance evidence (OCR, container health) |
 | `M0-ArchitectureFoundation/` | M0 | Foundation architecture verification helpers |
 | `M1-IdentityAccessManagement/` | M1 | Historical/development helpers; official evidence must use Docker regression |
-| `M2-StatsWebShell/` | M2 | Historical/development helpers; official evidence must use Docker regression |
+| `M2-StatsWebShell/` | M2 | M2 targeted acceptance test-flow document plus historical/development helpers; official evidence must use Docker/runtime evidence |
 | `M3-M4-FileValidationIngestion/` | M3/M4 | Historical/development helpers; official evidence must use Docker regression |
 | `M5-DocumentParsing/` | M5 | Historical/development helpers; official evidence must use Docker regression |
 | `cross-module-regression/` | M1-M8 | Historical helper wrapper; official cross-module regression uses Docker |

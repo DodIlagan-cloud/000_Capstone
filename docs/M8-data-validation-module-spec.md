@@ -30,6 +30,8 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 - Provide a standalone FastAPI service for validating M7 candidates.
 - Accept M7-shaped transaction, financial field, section, entity, reference, and line-item candidates as JSON.
 - Normalize transaction dates, descriptions, currencies, directions, and signed amounts.
+- Preserve and validate M7 transaction type and spending category suggestions without performing classification itself.
+- Preserve recognition-label suggestion metadata from M7 so M9/Admin workflows can review possible new labels without requiring the upload user to be an administrator.
 - Accept optional posted/settled date text from M7 when statement-like tables provide both transaction and post dates.
 - Normalize document-level financial fields such as statement dates, due dates, totals, balances, invoice totals, paid/owing amounts, taxes, payment references, and masked account/card references where supplied by M7.
 - Preserve M7 source context so every validated value can be traced back to document, page, section, line, and redacted evidence snippet.
@@ -38,6 +40,8 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 - Flag ambiguous source context, missing section context, mismatched totals, missing references, and sensitive values that were not masked before validation.
 - Detect duplicate transaction records within the supplied validation batch using deterministic date, description, amount, currency, and direction keys.
 - Prepare dashboard-ready quality statuses for both transaction records and document-level financial facts.
+- Prepare MVP reporting fields by preserving transaction type, transaction subtype, spending category, spending subcategory, classification confidence, category confidence, classification source, and review-required state from M7.
+- Preserve pending suggestion identifiers, proposed label values, suggestion confidence, redacted evidence references, and review reason codes when M7 supplies them.
 - Preserve upstream M7 extracted table groups and reconciliation status for user review. M8 may add validation status/review columns, but it must not hide non-transaction extracted data.
 - Produce guided review output that prioritizes exceptions before full extracted data. M8 must create review items for repaired OCR rows, suspicious OCR text, reconciliation mismatches, duplicates, and incomplete or ambiguous records so Stats Web can show a small review queue instead of asking the user to inspect every row.
 - Keep database-backed duplicate checks out of M8; M9/M10 compare normalized records against stored documents and transactions through the M9 pre-save duplicate-check endpoint before persistence.
@@ -49,6 +53,8 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 ## Non-Goals
 
 - OCR, parsing, document classification, or transaction extraction.
+- Transaction type or spending category classification. M7 owns both, including optional AI-assisted fallback.
+- Approving, rejecting, renaming, merging, or persisting recognition-label suggestions. M9 and the admin recognition settings workflow own durable suggestion state, JSON updates, audit, and database synchronization.
 - Stats database writes, migrations, or persistence adapters.
 - Dashboard/report rendering.
 - Cross-document or database-backed historical reconciliation beyond supplied candidates.
@@ -69,6 +75,8 @@ M8 accepts the richer M7 extraction shape while keeping validation separate from
 | `reference_candidates` | Normalize invoice numbers, approval codes, confirmation numbers, document references, and masked account/card/customer references. |
 | `line_item_candidates` | Validate item/service rows when supplied and compare line totals against document totals where possible. |
 | `installment_candidates` | Normalize installment balance candidates from M7 and create review items using the same review-first pattern as transactions while keeping them separate from current transaction totals. |
+| Transaction classification fields | Preserve transaction type/subtype and spending category/subcategory suggestions, confidence, source, and reason codes from M7. |
+| Recognition-label suggestion fields | Preserve pending suggestion IDs, proposed transaction/spending labels, suggestion source, confidence, redacted evidence references, and approval status hints from M7 without approving or mutating configuration. |
 
 M8 should tolerate partial candidate groups. For example, a proof-of-payment image may contain no transaction table but still contain payment amount, confirmation number, counterparty, and payment channel candidates.
 
@@ -76,6 +84,58 @@ M8 should tolerate partial candidate groups. For example, a proof-of-payment ima
 
 Installment balance candidates are reviewable records, but they are not normal transactions. M8 must validate their description, amount, currency, and term/progress evidence where supplied, then surface review items when an installment candidate is incomplete, low-confidence, or ambiguous. Installment candidates must not change transaction debit/credit totals or statement reconciliation.
 <!-- M8 - Robust Candidate Input End -->
+
+## Recognition Label Validation And Suggestion Handoff
+
+M8 is the quality gate between M7 extraction/classification and M9 persistence. It must not classify transactions itself, but it must make classification quality visible and preserve enough metadata for the admin recognition workflow.
+
+Required behavior:
+
+1. Preserve M7-approved label fields on each normalized transaction record:
+   - `transaction_type`
+   - `transaction_subtype`
+   - `spending_category`
+   - `spending_subcategory`
+   - `classification_source`
+   - `classification_review_required`
+   - `classification_review_reason_codes`
+2. Preserve M7 suggestion handoff fields when present:
+   - `recognition_suggestion_id`
+   - `recognition_suggestion_status`
+   - `suggested_transaction_type`
+   - `suggested_transaction_subtype`
+   - `suggested_spending_category`
+   - `suggested_spending_subcategory`
+   - `suggestion_confidence`
+   - `suggestion_reason_codes`
+   - `suggestion_source`
+   - `suggestion_evidence_ref`
+<!-- M8 Document Suggestion Handoff Start - 2026-06-11 -->
+3. Preserve M5 document-label suggestion fields at the validation-result level when present:
+   - `document_recognition_suggestion_id`
+   - `document_recognition_suggestion_status`
+   - `suggested_document_type`
+   - `suggested_document_subtype`
+   - `document_suggestion_confidence`
+   - `document_suggestion_reason_codes`
+   - `document_suggestion_source`
+   - `document_suggestion_evidence_ref`
+<!-- M8 Document Suggestion Handoff End - 2026-06-11 -->
+4. Validate current labels against the approved vocabulary when the vocabulary is available to M8 through configuration or request metadata.
+5. Mark records for review when labels are missing, unknown, uncategorized, outside approved vocabulary, pending approval, rejected, ambiguous, or below the configured confidence threshold.
+6. Allow the upload workflow to continue when a suggestion is pending. The saved record should keep the safest approved current value, such as `unknown` or `uncategorized`, while M9 stores the suggestion for later admin review.
+7. Never write JSON configuration and never approve/reject suggestions. M8 only validates, flags, and passes data forward.
+
+M8 output to M9 must make the distinction clear:
+
+| Output Field Group | Meaning |
+| --- | --- |
+| Approved/current labels | The labels that may be saved on the transaction now. |
+| Suggested labels | Proposed future labels requiring admin approval. |
+| Review flags | Why the row needs user/admin review before reporting trust improves. |
+| Evidence references | Redacted context that helps an admin decide without exposing full OCR text. |
+
+This allows non-admin uploads to benefit from AI-assisted recognition while preserving admin governance over approved JSON and historical database synchronization.
 
 ## API Contract
 
@@ -116,6 +176,15 @@ M8 remains a synchronous reusable validation API. It does not write M9 timing re
 | `OCR_REPAIR_REVIEW` | Warning | M7 repaired OCR layout text and the row should be reviewed before final save. |
 | `SUSPICIOUS_OCR_TEXT` | Warning | A normalized description contains generic likely OCR damage such as empty text, a one-character leading token, or an OCR-substitution prefix that leaves the first word malformed. This must be treated as a review gate, not as an issuer- or merchant-specific correction, and must avoid flagging legitimate short alphanumeric merchant names such as `3M` or `4G` solely because the leading token is short. |
 | `DOCUMENT_RECONCILIATION_REVIEW` | Warning | M7/M8 reconciliation indicates extracted totals do not match the document summary. |
+| `UNKNOWN_TRANSACTION_TYPE` | Warning | M7 supplied no usable transaction movement type. |
+| `LOW_CONFIDENCE_TRANSACTION_TYPE` | Warning | M7 transaction type confidence is below the validation threshold. |
+| `AMBIGUOUS_TRANSACTION_TYPE` | Warning | M7 transaction type status or scores require review. |
+| `UNKNOWN_SPENDING_CATEGORY` | Warning | M7 supplied no usable MVP reporting category. |
+| `LOW_CONFIDENCE_SPENDING_CATEGORY` | Warning | M7 spending category confidence is below the validation threshold. |
+| `AMBIGUOUS_SPENDING_CATEGORY` | Warning | M7 spending category status or scores require review. |
+| `PENDING_RECOGNITION_LABEL_SUGGESTION` | Warning | M7 supplied a proposed transaction or spending label that has not been approved by an administrator. |
+| `UNAPPROVED_RECOGNITION_LABEL` | Warning | A transaction or spending label is outside the approved vocabulary known to M8. |
+| `REJECTED_RECOGNITION_LABEL_SUGGESTION` | Warning | A supplied label suggestion was already rejected or marked unusable upstream. |
 
 ## Guided Review Output
 
@@ -135,6 +204,7 @@ Stats Web should default to the `review_items` queue when it is non-empty, then 
 Stats Web review actions before M9 persistence are local to the current upload session:
 
 - `Edit` allows the user to correct transaction date, posted date, description, amount, currency, and direction for any transaction row shown in the Upload checkpoint, including rows M8 initially marked `Ready`.
+- `Edit` allows the user to correct transaction type, transaction subtype, spending category, and spending subcategory using approved dropdown values. User edits in the upload session are current-row corrections, not approval of new global labels.
 - `Accept` confirms that a reviewed transaction row should join the ready-to-save set for the current upload session.
 - A high-confidence or `Ready` row must still remain editable because OCR can miss or alter digits even when the row passes M8 validation rules.
 - The transaction-row `Edit` action must remain visible wherever transaction rows are shown. Hiding an already-reserved action column behind hover does not add user value in this checkpoint.
@@ -182,6 +252,8 @@ M8 has no durable file-storage responsibility. If future validation evidence or 
 - `/health` and `/api/v1/validations` are available.
 - M7-shaped extraction results can be submitted as JSON.
 - Normalized records include date, description, amount, currency, direction, signed amount, source, confidence, and quality status.
+- Normalized records preserve M7 transaction type, transaction subtype, spending category, spending subcategory, classification source, confidence, and category confidence.
+- Normalized records preserve M7 pending recognition-label suggestion metadata when supplied, while keeping approved/current labels separate from proposed labels.
 - Posted/settled date is preserved when M7 supplies it, but missing posted date alone does not block save readiness.
 - M7 section, entity, reference, and line-item candidates can be submitted without causing validation failures.
 - Document-level financial facts retain source section context and can be returned separately from transaction records.
@@ -189,6 +261,8 @@ M8 has no durable file-storage responsibility. If future validation evidence or 
 - Same-batch duplicate, incomplete, invalid, and low-confidence records return explicit findings.
 - Ambiguous section context, financial-field ambiguity, and total reconciliation warnings return explicit findings.
 - Transaction candidates sourced from non-transaction sections are marked for review instead of being treated as clean save-ready rows.
+- Unknown, ambiguous, or low-confidence transaction type and spending category suggestions are marked for review instead of being silently treated as clean MVP reporting categories.
+- Pending, rejected, or outside-vocabulary recognition-label suggestions are marked for review and passed through to M9 for admin governance.
 - Evaluation metadata is present and measurable.
 - Unit tests pass inside the M13 Stats runtime container through the official container runner.
 - M8 remains free of Stats persistence, database duplicate checks, and dashboard logic.
@@ -232,5 +306,44 @@ From M13 onward, M8 official verification must run through the Stats container r
 | Runtime packaging checks | Through Docker build/start of `stats-runtime` |
 
 Host-side commands are development diagnostics only and must not be recorded as M8 acceptance evidence.
+
+M8 tests should include:
+
+- Approved transaction/spending labels pass through without suggestion review.
+- Unknown or uncategorized labels create review items.
+- Pending suggestion metadata is preserved separately from approved/current labels.
+- Outside-vocabulary labels produce `UNAPPROVED_RECOGNITION_LABEL`.
+- Pending suggestions produce `PENDING_RECOGNITION_LABEL_SUGGESTION`.
+- M8 does not mutate JSON configuration or mark suggestions approved.
+- M9 save payloads include both current labels and suggestion metadata when present.
+
+<!-- M8 Test Flow Update - 2026-06-12 Start -->
+## Acceptance Test Flow Definition
+
+The current M8 acceptance test flow is defined in:
+
+```text
+tests/scripts/M8-DataValidation/M8-DataValidation-test-flow.md
+```
+
+That file is a planning and reviewer checklist only. Updating it does not mean the flow has been executed.
+
+All M8 acceptance evidence must be captured through an actual run of the Stats app using the normal browser workflow a user would follow. API, database, and terminal outputs are supporting evidence only; they may explain the result or document a blocker, but they must not be presented as a completed M8 user-flow pass on their own.
+
+The M8 flow must prove the full visible checkpoint from Upload through validation review before M9 persistence:
+
+- container runtime and `/health`
+- Login and authenticated `/Upload`
+- real `tests/input` transaction-bearing fixture
+- M5 parse/OCR and M7 extraction handoff reaching M8
+- M8 normalized transaction rows with date, posted date when supplied, description, amount, currency, direction, signed amount behavior, status, findings, and review items
+- review edit/accept behavior where supported by the UI
+- duplicate proof through the app's M9 pre-save flow when save is in scope, with M8 same-batch API output used only as supporting evidence or a documented blocker
+- `Save ready transactions` success, duplicate block, or precise not-ready message
+- `/Documents` and `/Reports` outcome only when saved records are expected
+- cleanup status for uploaded documents, saved records, processing jobs, blobs, and temporary files
+
+Official results still require an explicit evidence run through `stats-runtime`; host-only diagnostics do not satisfy M8 acceptance.
+<!-- M8 Test Flow Update - 2026-06-12 End -->
 
 <!-- M8 End -->

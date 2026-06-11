@@ -13,7 +13,7 @@ Current status: **contract and documentation added**. Live Azure deployment rema
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `docs/M14-cloud-readiness-module-spec.md` | Created / Updated | Defines M14 goals, non-goals, Azure Container Apps deployment shape, Azure SQL target, Fabric/Power BI analytics boundary, required cloud variables, secrets boundary, storage/database/monitoring boundaries, deployment procedure, testing, evidence, and acceptance criteria. |
+| `docs/M14-cloud-readiness-module-spec.md` | Created / Updated | Defines M14 goals, non-goals, Azure Container Apps deployment shape, Azure SQL target, Fabric/Power BI analytics boundary, required cloud variables, secrets boundary, storage/database/monitoring boundaries, deployment procedure, testing, evidence, and acceptance criteria. Updated on 2026-06-10 to define Azure SQL/M9 as the durable home for active recognition settings and to exclude mutable recognition JSON from the cloud image or Blob Storage. |
 | `docs/M14-cloud-readiness-file-inventory.md` | Created | This file. Tracks the M14 documentation and contract-test assets. |
 | `docs/M14-azure-development-continuation-plan.md` | Created | Practical phased plan for deploying to Azure and continuing development from Azure using Azure SQL, Blob Storage, Fabric, and Power BI. |
 | `docs/M14-student-production-ci-cd-plan.md` | Created | Defines the cost-conscious student production simulation, CI/CD learning outcomes, phased Azure resource path, naming convention, cost controls, and approval gates. |
@@ -27,7 +27,7 @@ Current status: **contract and documentation added**. Live Azure deployment rema
 | File | Change Type | Description |
 | --- | --- | --- |
 | `infrastructure/cloud/README.md` | Created / Updated | Documents the Azure Container Apps deployment notes, Azure SQL direction, Fabric/Power BI direction, resource responsibilities, configuration mapping, secret handling, health checks, monitoring, deployment steps, and live-evidence expectations. |
-| `infrastructure/cloud/azure-container-apps.env.example` | Created / Updated | Safe example of cloud environment variable names, including Azure SQL, Azure Blob Storage, Fabric, and Power BI settings. Uses placeholders only and contains no real secrets. |
+| `infrastructure/cloud/azure-container-apps.env.example` | Created / Updated | Safe example of cloud environment variable names, including Azure SQL, Azure Blob Storage, Fabric, Power BI, and recognition-settings service wiring. Uses placeholders only and contains no real secrets. |
 | `infrastructure/cloud/build-stats-acr-image.ps1` | Created | Builds the M13 Stats runtime image inside Azure Container Registry with `az acr build` and optional resource group / registry creation. |
 | `infrastructure/cloud/bootstrap-stats-admin-containerapp-job.ps1` | Created / Updated | Creates or updates the manual first-admin bootstrap Container Apps Job. Review follow-up replaced the subscription-specific managed identity resource ID default with a placeholder so environment-specific Azure IDs are supplied per deployment instead of committed as defaults. |
 

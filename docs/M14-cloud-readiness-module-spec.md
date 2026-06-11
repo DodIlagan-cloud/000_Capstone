@@ -13,6 +13,10 @@ The preferred initial target is **Azure Container Apps** because the current M13
 
 The preferred cloud data and analytics direction is **Azure SQL Database** for operational Stats persistence, **Microsoft Fabric** for curated analytical modelling, and **Power BI** for dashboard/report embedding. Any PostgreSQL references from M13 remain local-container development wiring only and are not the M14 cloud target.
 
+<!-- M14 Recognition Settings Cloud Persistence Start - 2026-06-10 -->
+Recognition settings are part of operational Stats persistence. Active document, transaction, and spending classification labels/rules, pending AI/user suggestions, admin approvals, audit records, and synchronization history must live in Azure SQL through M9. They must not be stored as mutable JSON files in the cloud image or in Blob Storage.
+<!-- M14 Recognition Settings Cloud Persistence End - 2026-06-10 -->
+
 ## Architecture Alignment
 
 M14 is aligned with:
@@ -42,6 +46,7 @@ The building-block plan defines this module as:
 - Preserve the M13 container-first runtime contract in cloud: one browser entry point, internal module ports, health checks, and stdout/stderr logs.
 - Define cloud storage migration rules so local filesystem intake can later move to Azure Blob Storage behind `STATS_STORAGE_PROVIDER`.
 - Define the Azure SQL target and secretless/managed-identity preference for database connectivity.
+- Define Azure SQL as the durable home for recognition settings so admin edits and AI/user suggestions survive container rebuilds, revisions, and redeployments.
 - Define the Fabric and Power BI boundary for analytics, semantic models, and report embedding.
 - Document the minimum monitoring and operational health checks required before a deployment is accepted.
 - Provide a cloud environment example without real subscription IDs, credentials, resource names, or secrets.
@@ -83,6 +88,7 @@ The initial Azure deployment shape is:
 | Database | Azure SQL Database |
 | Secrets | Azure Key Vault references or Container Apps secrets backed by managed identity |
 | Durable files | `LocalFileSystem` for current MVP; `AzureBlobStorage` as the cloud migration target |
+| Recognition settings | Azure SQL through M9; not runtime JSON and not Blob Storage |
 | Analytics | Microsoft Fabric workspace consuming curated Azure SQL exports or mirrored/ingested operational data |
 | Reporting | Power BI reports embedded in Stats Web or linked through secure workspace access |
 | Logs | Container stdout/stderr collected by Azure monitoring |
@@ -148,6 +154,8 @@ The committed cloud runtime now uses `STATS_STORAGE_PROVIDER=AzureBlobStorage` f
 
 Cloud acceptance for durable file retention requires `AzureBlobStorage` configuration, secret-backed storage credentials or managed identity access, and evidence that accepted uploads receive `azure-blob://` content references. M14 documents the required cloud variables and acceptance checks; the file-intake module owns the adapter behavior.
 
+Blob Storage is not the persistence layer for active recognition settings. Document files, exported evidence artifacts, or future derived object storage may live in Blob Storage, but approved classification labels/rules and pending suggestions must live in Azure SQL so they can be queried, audited, synchronized, and protected with transactional behavior.
+
 ## Database Boundary
 
 The cloud database target is Azure SQL Database.
@@ -164,6 +172,8 @@ M14 deployment notes must provide:
 Modules currently using PostgreSQL-specific drivers or SQLAlchemy URLs must be migrated behind a Stats data access boundary before Azure SQL can be the operational store. M14 records the target; M9 owns schema, migrations, and provider-specific persistence changes.
 
 Cloud-dev reachability evidence may be collected before every persistence workflow is complete. However, any evidence claiming durable operational data, restart-safe retrieval, dashboard readiness, or cloud persistence completion depends on M9 applying the Azure SQL schema and migration path to the target database.
+
+Any evidence claiming recognition-setting management is cloud-ready must prove that an admin add/edit/delete or approval writes to Azure SQL and survives a container app revision/redeploy. Rebuilding the image must not be required to preserve or change active labels/rules.
 
 ## Fabric and Power BI Boundary
 
@@ -246,6 +256,6 @@ M14 is complete when:
 - Secret handling and managed identity expectations are documented.
 - Storage, database, monitoring, and health-check boundaries are documented.
 - Integration contract tests pass.
-- Any live deployment evidence, if produced, is stored under `docs/evidence/` or `test-results/` with secrets redacted.
+- Any live deployment evidence, if produced, is stored under `docs/evidence/` or `tests/results/` with secrets redacted.
 
 <!-- M14 - Cloud Readiness End -->

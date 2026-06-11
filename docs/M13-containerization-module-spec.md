@@ -11,6 +11,10 @@ M13 is the prerequisite for enabling live Tesseract OCR in M5. Until M13 is in p
 
 M13 does not own module business logic, API routes, database schema, cloud deployment infrastructure, or Stats Web page presentation. Those concerns belong to their owning modules and apps.
 
+<!-- M13 Recognition Settings Runtime Boundary Start - 2026-06-10 -->
+M13 also does not own mutable recognition settings. The container image may carry migration/seed scripts needed to initialize M9 recognition tables, but active document, transaction, and spending classification labels/rules must live in the M9 database. Runtime modules must not depend on committed recognition JSON files baked into the image as the active source of truth.
+<!-- M13 Recognition Settings Runtime Boundary End - 2026-06-10 -->
+
 ## Architecture Alignment
 
 M13 is aligned with:
@@ -39,6 +43,7 @@ M13 starts early relative to its roadmap position because M5 OCR requires Tesser
 - Start module APIs in dependency order and confirm their health before Stats Web starts.
 - Expose Stats Web on a configurable container port so the browser-facing app is the single entry point.
 - Keep all runtime values â€” ports, hosts, OCR paths, directory roots, database URLs, API base URLs, token settings â€” configurable through environment variables and config files rather than hardcoded in the container image.
+- Package recognition-setting migration/seed assets only as database initialization inputs; approved labels/rules and pending AI/user suggestions must persist in M9 and survive image rebuilds or redeployments.
 - Apply the central logging contract so all packaged services write redacted logs to stdout/stderr for Docker, CI, and later cloud collection.
 - Provide a local Compose file so the full Stats runtime can be started and stopped with one command.
 - Provide health check definitions for every packaged service.
@@ -82,6 +87,7 @@ The single Stats runtime container must include:
 | Document Parsing API | `modules/document-parsing-module/` | OCR/text extraction and classification â€” port 8015 |
 | Transaction Extraction API | `modules/transaction-extraction-module/` | Transaction candidate extraction â€” port 8016 |
 | Data Validation API | `modules/data-validation-module/` | Transaction normalization and validation checks â€” port 8017 |
+| Stats Data API | `apps/stats-data/` | Database persistence, processing jobs, duplicate checks, and recognition settings â€” internal service |
 | Tesseract OCR | System package | OCR engine required by M5 |
 | OCR language data | `tesseract-ocr-eng` or equivalent | English language tessdata required by M5 |
 | PyMuPDF | Python package | PDF rendering for scanned PDF OCR in M5 |
@@ -125,6 +131,7 @@ The Dockerfile must:
 - Copy `start-stats-runtime.sh` and set it as the container entrypoint.
 - Expose the Stats Web port.
 - Not hardcode environment-dependent values such as database URLs, token secrets, or Stats Web base URLs.
+- Not treat committed recognition JSON files as mutable runtime state. Recognition labels/rules belong in M9 after migration/seed.
 - Use `STATS_APP_ROOT` and logical directory variables for runtime paths that may change between local, container, and cloud environments. Stable Docker build-context source paths may remain in `COPY` instructions, but application startup and evidence execution must not depend on a developer machine root.
 
 ### Dockerfile Requirements

@@ -44,6 +44,7 @@ This document lists the files created and modified for the merged **M3 File Vali
 | `tests/unit/file_validation_module/test_validation_service.py` | Created | Verifies core validation behavior for accepted and rejected files. |
 | `tests/unit/file_validation_module/test_validation_api.py` | Created | Verifies the multipart validation API and request policy override behavior. |
 | `tests/unit/file_validation_module/test_ingestion_api.py` | Created / Updated | Verifies ingestion creation, status lookup, rejected validation handling, retryable storage failure, and idempotent duplicate behavior. |
+| `tests/scripts/M3-M4-FileValidationIngestion/M3-M4-FileValidationIngestion-test-flow.md` | Created | Defines the future targeted Docker/browser/API acceptance flow for M3/M4 without executing tests or claiming evidence. |
 
 ## Stats Web Integration Surface
 

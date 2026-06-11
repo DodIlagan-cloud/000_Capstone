@@ -7,7 +7,7 @@
 
 Module 11 turns persisted Stats financial data into an evidence-backed dashboard and reporting workspace.
 
-M11 is an encompassing Stats Web module. It presents financial summaries, obligations, document status, transactions, reconciliation, review queues, and reporting views over the M9 Stats Data query layer. M11 must help users understand what they owe, what they paid, what needs review, and which source document supports each number.
+M11 is an encompassing Stats Web module. It presents Power BI-backed financial KPI dashboards alongside native Stats Web document provenance, operational status, review queues, and evidence navigation over the M9 Stats Data query layer. M11 must help users understand spending patterns, source coverage, data quality, what needs review, and which source document supports each number.
 
 M11 does not parse documents, extract transactions, validate records, persist data, run migrations, deploy cloud resources, or manage secrets. Those responsibilities remain with M5, M7, M8, M9, M13, and M14.
 
@@ -19,8 +19,8 @@ M11 does not parse documents, extract transactions, validate records, persist da
 | Module | Stats Dashboard and Reporting |
 | Type | Encompassing `.NET` app module |
 | Owner folder | `apps/stats-web/` |
-| Primary input | M9 Stats Data query APIs and authenticated user context |
-| Primary output | Dashboard, report, review, and evidence-backed financial views |
+| Primary input | Power BI embed/reporting configuration, M9 Stats Data query APIs, and authenticated user context |
+| Primary output | Embedded financial KPI dashboards, document provenance, report, review, and evidence-backed financial views |
 | Cloud analytics target | Microsoft Fabric and Power BI over curated M9 data |
 
 ## Current Stats App State
@@ -40,12 +40,13 @@ This spec is aligned to the current Stats app state as of the M9/M14 work now pr
 
 | Route | Current State | M11 Direction |
 | --- | --- | --- |
-| `/` | Authenticated dashboard-first shell with static counts for documents, transactions, and warnings | Replace static readiness cards with financial insight cards: last month expenses, current month running expenses, top expense contributor, and upcoming due/payable |
+| `/` | Authenticated dashboard-first shell with static counts for documents, transactions, and warnings | Replace static readiness cards with Power BI-backed financial KPI cards: last month expenses, current month running expenses, top expense contributor, prior-month change, monthly history, and notable expenses |
 | `/Upload` | Authenticated upload workflow calls M3/M4, M5, M7, M8, and now M9 save endpoint through `StatsDataBaseUrl` | Remains the intake/save source for dashboard data; M11 should link users back to upload when no data exists |
 | `/Documents` | Authenticated page lists recent saved M9 document records and supports removal through Stats Data API | Owns data provenance: source summary, document status, document type, source institution, quality, review counts, and drilldown |
-| `/Reports` | Authenticated reports shell with deferred reporting state | Becomes native report workspace first, then optional Power BI embed host |
+| `/Reports` | Authenticated reports shell with deferred reporting state | Becomes the primary Power BI embedded reporting host, with controlled not-configured/error states |
 | `/EmailSetup` | Shell placeholder for future email ingestion setup | Can later feed document source filters but is not an M11 dependency |
 | `/Users` | Admin user management from M1 | M11 only consumes authenticated user context and role-aware visibility |
+| `/Admin/Classifications` | Admin classification management from M2 with M5/M7 ownership | M11 may link classification metrics back to this admin surface but must not own rule editing or classification decisions |
 
 ### Current M9 API Surface
 
@@ -56,12 +57,12 @@ The current M9 API surface is enough for saved-document visibility but not yet e
 | `POST /api/v1/transactions/batches` | Implemented for saving validated upload results into Stats Data | Source of persisted dashboard data after upload review |
 | `GET /api/v1/documents?limit=25` | Implemented for recent saved documents | Current foundation for document status and saved-data evidence |
 | `DELETE /api/v1/documents/{document_id}` | Implemented for removing saved document records | Current document management action, not a dashboard metric endpoint |
-| `GET /api/v1/dashboard/summary` | Not implemented yet | Needed for M11 financial insight cards and trends |
+| `GET /api/v1/dashboard/summary` | Not implemented yet | Optional native fallback or support API; primary financial KPI cards should come from Power BI |
 | `GET /api/v1/documents/summary` | Not implemented yet | Needed for Documents provenance summary |
 | `GET /api/v1/transactions` | Not implemented yet | Needed for transaction table and trends |
-| `GET /api/v1/statements` | Not implemented yet | Needed for obligations and credit exposure |
+| `GET /api/v1/statements` | Not implemented yet | Future work for obligations, recurring bills, and credit exposure |
 | `GET /api/v1/document-financial-summaries` | Not implemented yet | Needed for invoice/receipt/payment-proof totals |
-| `GET /api/v1/reconciliation-links` | Not implemented yet | Needed for matched/unmatched evidence |
+| `GET /api/v1/reconciliation-links` | Not implemented yet | Future work for matched/unmatched evidence |
 | `GET /api/v1/findings` / `GET /api/v1/review-items` | Not implemented yet as first-class M11 APIs | Needed for review backlog and trust indicators |
 
 ### Current Data Foundation
@@ -89,12 +90,12 @@ M11 should read promoted M9 records through APIs or controlled read models. It s
 
 ## Goals
 
-- Show an operational dashboard for saved financial data from M9.
+- Show Power BI-backed financial KPI dashboards over saved financial data from M9.
 - Make document and transaction quality visible before users trust dashboard totals.
-- Surface upcoming obligations from statements, bills, invoices, and outstanding balances.
 - Show spending, income/credits, net movement, categories, merchants, and recent transactions.
-- Show reconciliation status for invoices, receipts, EFTPOS slips, transfers, statement rows, and proof documents.
-- Provide report views that can later be backed by Power BI/Fabric without replacing the native Stats Web workflow dashboard.
+- Show MVP reporting by spending category and transaction type, using persisted M9 fields produced by M7/M8 rather than dashboard-side inference.
+- Show source document coverage, data quality, and review status so users know whether reported numbers can be trusted.
+- Provide report views backed by Power BI/Fabric while preserving native Stats Web workflow and provenance views.
 - Keep every displayed financial number traceable to a document, page/line when available, and redacted evidence snippet.
 - Use controlled empty, loading, error, and not-configured states when M9 query APIs or reporting embeds are unavailable.
 
@@ -103,9 +104,10 @@ M11 should read promoted M9 records through APIs or controlled read models. It s
 - Creating M9 schema, Azure SQL migrations, persistence adapters, or duplicate-check logic.
 - Calling M3, M5, M7, or M8 directly for dashboard numbers.
 - Rerunning OCR, parsing, extraction, or validation from dashboard/report pages.
-- Owning Power BI workspace provisioning, Fabric capacity setup, semantic model refresh, or embed-token secret handling.
+- Owning Power BI workspace provisioning, Fabric capacity setup, semantic model refresh, or embed-token secret handling outside the approved M14/cloud boundary.
 - Storing report snapshots, raw documents, full OCR text, passwords, tokens, or database connection strings.
 - Replacing the Stats Web operational workflow with Power BI.
+- Owning document or transaction classification logic. M5 owns document classification, including the optional AI-assisted document-classification fallback and its audit metadata. M7 owns transaction classification. M9 owns durable suggestion, approval, and synchronization records. M11 reports persisted outcomes, classification source, unknown rates, suggestion lifecycle, approved-label coverage, and review backlog.
 
 ## Dashboard Product Principle
 
@@ -118,21 +120,23 @@ Every important number should answer:
 - Is the data trusted or does it need review?
 - What should the user do next?
 
-The Home dashboard should prioritize financial outcomes over processing counters. Document counts, saved-row counts, and review counts belong primarily on the Documents provenance tab, not as primary Home cards. Home may show small trust warnings only when data quality materially affects a financial insight.
+The Home dashboard should prioritize financial outcomes over processing counters, and those financial KPI cards should be Power BI-backed once reporting is connected. Document counts, saved-row counts, and review counts belong primarily on the Documents provenance tab, not as primary Home cards. Home may show small native trust warnings only when data quality materially affects a financial insight.
 
 ## User Questions M11 Must Answer
 
 | Question | Dashboard Area |
 | --- | --- |
-| What do I owe soon? | Upcoming obligations |
 | What did I spend this month? | Financial snapshot and spending trends |
 | How does this month compare with last month? | Current and prior month expense cards |
 | Who or what is driving most of my expenses? | Top contributor and category/merchant breakdown |
-| What payments have proof? | Reconciliation and evidence links |
-| Which invoices, receipts, statements, or transfers are unmatched? | Reconciliation queue |
+| What type of financial movement is this? | Transaction type mix and transaction detail |
+| What spending category does this belong to? | Spending category cards, trends, and filters |
+| Are new labels being suggested, approved, or rejected? | Recognition settings metrics and review backlog |
+| Did label changes update existing saved records? | Recognition sync/audit metrics |
+| Are my source records complete enough to trust the report? | Source document coverage |
+| Which extraction or validation issues affect the report? | Data quality and confidence |
 | Which documents or transactions need review? | Data quality and review backlog |
 | Can every number trace back to source evidence? | Drilldown and evidence preview |
-| How much credit-card debt or installment exposure exists? | Credit exposure |
 | Which documents were processed, saved, failed, or deferred? | Document status |
 
 ## First Dashboard Views
@@ -143,11 +147,11 @@ The Overview is the first screen after authentication once M11 is active.
 
 Expected content:
 
-- Financial insight cards.
-- Upcoming obligations.
+- Dashboard header with last update, selected currency, and rate basis. Vendor/source labels should stay out of the primary Home header unless needed for an error or setup state.
+- Analytics-backed financial insight cards.
 - Recent saved transactions.
 - Top expense contributor.
-- Monthly or category trend.
+- Analytics-backed monthly history and a clearly labelled current-month change against the prior month.
 - Optional trust warning when financial numbers are affected by review/quality issues.
 
 The Overview should prioritize actions and trust status over dense analytics.
@@ -156,8 +160,9 @@ Current alignment:
 
 - `/` already exists as the authenticated dashboard-first shell.
 - The current counts are static placeholders.
-- First M11 implementation should keep the existing route and progressively replace placeholders with M9-backed financial values.
+- First M11 implementation should keep the existing route and progressively replace placeholders with analytics-backed financial KPI cards when reporting configuration is available.
 - Document count, transaction count, and review item count should move to `/Documents` provenance summaries instead of remaining the primary Home cards.
+- The currency toggle belongs beside the last-updated indicator in the upper-left dashboard header so users can evaluate both data freshness and reporting currency before reading the KPI cards.
 
 ### Transactions
 
@@ -168,12 +173,17 @@ Expected filters:
 - Date range.
 - Currency.
 - Direction.
+- Transaction type.
+- Transaction subtype.
 - Category.
+- Spending subcategory.
 - Merchant or counterparty.
 - Source institution.
 - Payment method.
 - Quality status.
 - Review required.
+- Classification source.
+- Recognition suggestion status where linked.
 
 Expected columns:
 
@@ -185,10 +195,32 @@ Expected columns:
 - Amount.
 - Currency.
 - Direction.
+- Transaction type.
+- Transaction subtype.
+- Spending category.
+- Spending subcategory.
 - Payment method.
 - Source document.
 - Confidence or quality status.
 - Review state.
+- Label approval/sync status when a transaction is affected by a pending or recently approved label change.
+
+### Recognition Quality Metrics
+
+M11 should make recognition governance measurable without exposing provider names, model versions, or raw OCR text in normal user screens.
+
+Expected metrics:
+
+- Unknown document type count and rate.
+- Unknown transaction type count and rate.
+- Uncategorized spending count and rate.
+- Pending recognition-label suggestions.
+- Approved, rejected, edited-before-approval, renamed, and merged suggestion counts.
+- Label synchronization runs and affected transaction counts.
+- Transactions still using old labels after an approved rename/merge.
+- Category/reporting coverage after admin approval.
+
+The normal dashboard should describe these in user language, such as "items needing label review" or "labels awaiting approval." Technical AI/provider metadata belongs in admin/audit detail views only when needed for governance.
 
 ### Documents
 
@@ -238,11 +270,11 @@ Current alignment:
 - It currently shows file, status, row counts, review counts, saved timestamp, and remove action.
 - M11 should extend this into the provenance dashboard rather than create a separate duplicate document-status route.
 
-### Obligations
+### Future Work: Obligations And Credit Exposure
 
-The Obligations view focuses on statement summaries, bills, invoices, and installment exposure.
+Obligations, recurring bills, credit-card exposure, and installment summaries are valid future reporting outcomes, but they are not part of the first Reports page implementation. They should be added only when M9 has stable statement, obligation, payment-status, and recurring-payment read models.
 
-Expected content:
+Future expected content:
 
 - Payment due date.
 - Minimum amount due.
@@ -283,52 +315,137 @@ Expected fields:
 
 ### Reports
 
-The Reports view contains native report summaries first and Power BI embed areas later.
+The Reports view contains embedded analytical report pages when reporting configuration is available. It should support the literature-backed value proposition that Stats turns scattered financial documents into useful and trustworthy financial information.
 
-Initial native report sections:
+Initial report sections:
 
 - Financial overview.
 - Spending categories.
-- Credit-card obligations.
-- Invoice and payment matching.
-- Document processing quality.
-- Review backlog.
+- Transaction classification.
+- Source document coverage.
+- Data quality and confidence.
+- Review and exceptions.
 
-When Power BI is not configured, the Reports page must show a clear not-configured state and keep native dashboard views usable.
+The Reports page must include selected-report context so users understand what each report answers, which data it uses, and what should be reviewed before trusting the numbers.
+
+Deferred report sections:
+
+- Budget vs actual, once real budget records exist.
+- Bills and recurring payments, once stable obligation and payment-status data exists.
+- Credit-card exposure and installment summaries, once statement-specific read models exist.
+- Invoice/payment reconciliation, once reliable matching data exists.
+
+When Power BI is not configured, the Reports page must show a clear not-configured state. Native document/provenance and operational workflow views must remain usable.
 
 Current alignment:
 
 - `/Reports` already exists as an authenticated deferred reports shell.
-- First M11 work should replace the generic deferred panel with native report sections and a Power BI not-configured state.
+- First M11 work should replace the generic deferred panel with a Power BI embed host and a not-configured state.
 
 ## First Dashboard Cards
 
-| Card | Purpose | M9 Source |
+| Card | Purpose | Primary Source |
 | --- | --- | --- |
-| Last month expenses | Total debit/spending for the previous calendar month | `transactions` |
-| This month running expenses | Total debit/spending from the first day of the current month to today | `transactions` |
-| Top expense contributor | Highest merchant, counterparty, category, or description contributing to current-month spending | `transactions` |
-| Upcoming due / payable | Nearest due obligation and amount | `statement_summaries`, `document_financial_summaries` |
-| Monthly expense trend | Current and prior period spending movement | `transactions` |
-| Recent notable expenses | Recent high-value or unusual expenses | `transactions`, `findings` |
+| Last month expenses | Total debit/spending for the previous calendar month | Power BI semantic model over M9 `transactions` |
+| This month running expenses | Total debit/spending from the first day of the current month to today | Power BI semantic model over M9 `transactions` |
+| Top expense contributor | Highest merchant, counterparty, category, or description contributing to current-month spending | Power BI semantic model over M9 `transactions` |
+| Change vs prior month | Current month spending minus the previous month; positive means spending is higher | Power BI semantic model over M9 `transactions` |
+| Recent notable expenses | Recent high-value or unusual expenses | Power BI semantic model over M9 `transactions` and `findings` |
 
 Document counts, transaction row counts, and review item counts should be displayed on `/Documents` as provenance and data-quality context. They should not be primary Home dashboard cards.
 
+## Transaction Classification Direction
+
+Spending categories and transaction types should not depend on OCR alone. OCR and extraction provide transaction rows, but useful MVP reporting requires M7-owned transaction classification before M9 persistence.
+
+Recommended classification approach:
+
+- Normalize transaction descriptions and source institution labels before classification.
+- Keep transaction type separate from spending category. Transaction type describes movement mechanics such as purchase, payment, transfer, refund, fee, interest, installment, adjustment, or tax. Spending category describes the reporting bucket such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized.
+- Use stable vocabularies for both transaction types and household/MVP spending categories.
+- Apply deterministic rules first for descriptions, merchants, keywords, section labels, references, account patterns, document types/subtypes, and payment methods.
+- Use optional AI-assisted classification only as a configured fallback for weak, ambiguous, or unknown deterministic rule results, following the same pattern as M5 document classification.
+- Store transaction type and spending category suggestions with confidence, rule/model source, version, and review status.
+- Route low-confidence or ambiguous transactions to review instead of forcing a category.
+- Persist user corrections so future similar transactions can be classified more reliably.
+- Keep type/category reports transparent by showing uncategorized spend, unknown transaction type counts, low-confidence classification counts, AI-assisted coverage, and review-required records.
+
+M11 should report classification coverage and category trust before presenting category totals as reliable financial insight. M7 owns classification suggestions and optional AI-assisted fallback, M8 validates/review-gates them, and M9 owns persisted classification fields, audit trail, and migrations. M11 consumes the resulting read models.
+
+## Currency Display And Exchange Rates
+
+M11 owns the reporting currency user experience, not exchange-rate acquisition or persistence.
+
+### Home Placement
+
+The Home dashboard header should place the currency toggle beside the last update section in the upper-left corner of the page.
+
+Suggested header structure:
+
+```text
+Financial Dashboard
+Last updated: 08 Jun 2026 09:42    Currency: [ NZD v ]    Rate basis: Transaction date
+```
+
+This placement keeps the two most important interpretation controls together:
+
+- How fresh is the dashboard?
+- Which currency are the financial KPI cards using?
+
+### M11-Owned Behavior
+
+M11 owns:
+
+- Currency toggle placement and visual behavior in Stats Web.
+- Passing selected currency context into embedded Power BI reports where supported.
+- Displaying selected currency, rate basis, last Power BI refresh, and not-configured states.
+- Requiring Power BI KPI cards to respond to the selected reporting currency.
+
+M11 does not own:
+
+- Fetching current exchange rates from an external provider.
+- Persisting exchange-rate tables.
+- Creating Azure SQL schema or migrations for currency/rate data.
+- Managing Power BI/Fabric credentials, service principals, embed secrets, or refresh secrets.
+
+### Exchange Rate Direction
+
+Exchange rates should be refreshed outside the browser and stored as auditable reference data before Power BI uses them.
+
+Recommended flow:
+
+```text
+External FX source or manual reference table
+        |
+        v
+M9/Fabric stores exchange-rate reference data
+        |
+        v
+Power BI semantic model applies selected reporting currency
+        |
+        v
+M11 embeds Power BI KPI cards and reports
+```
+
+Default rate basis should be transaction-date rate for historical reporting accuracy. A current-rate mode can be added later if users need a present-value estimate.
+
+Power BI should use a currency dimension, exchange-rate table, converted amount measures, and dynamic format strings so selected currency changes both values and symbols consistently.
+
 ## Required M9 Query APIs
 
-M11 should read from M9 APIs, not direct database connections.
+M11 should read native operational/provenance data from M9 APIs, not direct database connections. Financial KPI cards and analytical dashboard visuals should come from embedded Power BI reports/dashboards over curated M9 data.
 
 | Endpoint | Current Status | Purpose |
 | --- | --- | --- |
-| `GET /api/v1/dashboard/summary` | Planned | Financial insight cards, trends, top contributor, recent notable expenses, and upcoming due/payable |
+| `GET /api/v1/dashboard/summary` | Planned/optional | Native fallback, validation support, or non-Power BI operational summary when embed is unavailable |
 | `GET /api/v1/transactions` | Planned | Transaction table and transaction trends |
 | `GET /api/v1/documents` | Implemented for recent saved documents | Document status and dashboard readiness |
 | `GET /api/v1/documents/summary` | Planned | Documents provenance summary: source, type, status, quality, row counts, and review counts |
 | `GET /api/v1/documents/{document_id}` | Planned | Document drilldown and source traceability |
 | `DELETE /api/v1/documents/{document_id}` | Implemented | Remove saved document record and dependent persisted records |
-| `GET /api/v1/statements` | Planned | Statement obligations and credit exposure |
+| `GET /api/v1/statements` | Planned | Future statement obligations, recurring bills, and credit exposure |
 | `GET /api/v1/document-financial-summaries` | Planned | Invoice, receipt, and payment-proof totals |
-| `GET /api/v1/reconciliation-links` | Planned | Matched and unmatched evidence links |
+| `GET /api/v1/reconciliation-links` | Planned | Future matched and unmatched evidence links |
 | `GET /api/v1/findings` | Planned | Open system/module findings |
 | `GET /api/v1/review-items` | Planned | User-facing review queue |
 
@@ -342,19 +459,21 @@ M9 may expose these as API response groups, SQL views, or later curated reportin
 dashboard_summary
 monthly_cashflow
 category_spending
-upcoming_obligations
-credit_exposure
 recent_transactions
 recent_notable_expenses
 top_expense_contributors
 document_processing_status
 review_backlog
-reconciliation_status
 documents_provenance_summary
-merchant_counterparty_summary
+transaction_classification
+source_document_coverage
+data_quality_confidence
+review_exceptions
 ```
 
 M11 should treat these as read models. M9 owns how they are derived.
+
+Future reporting read models may include `upcoming_obligations`, `credit_exposure`, and `reconciliation_status` after M9 promotes stable obligation and matching data.
 
 ## Fabric And Power BI Boundary
 
@@ -369,31 +488,34 @@ M3-M8 extract and validate data
 M9 persists trusted financial data in Azure SQL
         |
         v
-M11 native dashboard reads M9 APIs for operational workflow
+M11 native views read M9 APIs for operational workflow and provenance
         |
         v
-Fabric / Power BI consumes curated M9 data for analytical reports
+Fabric / Power BI consumes curated M9 data for financial KPI dashboards and analytical reports
 ```
 
-### Native Stats Web Dashboard
+### Native Stats Web Views
 
-Use the native M11 dashboard for daily workflow:
+Use native M11 views for daily workflow:
 
 - Review queues.
 - Upload/document status.
-- Upcoming obligations.
-- Recent saved transactions.
+- Document provenance.
 - Reconciliation status.
 - Evidence drilldowns.
 - Empty/loading/error states.
 
 ### Power BI Reports
 
-Use Power BI for richer analytical reporting:
+Use Power BI for financial KPI cards and richer analytical reporting:
 
-- Monthly spending trends.
+- Last month expenses.
+- This month running expenses.
+- Top expense contributors.
+- Current-month change against the prior month.
+- Monthly spending history.
 - Category and merchant analysis.
-- Credit-card exposure.
+- Obligation/payable summaries only after stable obligation and payment-status data exists.
 - Payment history.
 - Document processing KPIs.
 - Quality and review backlog trends.
@@ -407,7 +529,7 @@ Use Fabric later for curated analytical modelling:
 - Business-friendly measures and dimensions.
 - Power BI report hosting and modelling.
 
-M11 should not require Fabric/Power BI to be configured before the native dashboard is useful.
+M11 should not require Fabric/Power BI to be configured before native document/provenance and operational workflow views are useful. However, financial KPI cards and analytical dashboard visuals are considered reporting features and should display a controlled not-configured state until Power BI is connected.
 
 Current cloud-dev alignment:
 
@@ -415,6 +537,62 @@ Current cloud-dev alignment:
 - PostgreSQL `stats-db` is legacy/local-only and should not drive M11 cloud plans.
 - Fabric and Power BI are future reporting/analytics layers over curated M9 data.
 - Real tenant IDs, subscription IDs, connection strings, passwords, and secret values must not be committed.
+
+### Current Fabric Execution Status
+
+As of 2026-06-08, the M11 development Fabric capacity exists and is paused for cost control.
+
+Completed checks:
+
+- `Microsoft.Fabric` resource provider is registered.
+- Microsoft Fabric Azure CLI extension is installed.
+- Development capacity `capstatsdev001` exists in `rg-stats-dev`.
+- Capacity region is `Australia East`.
+- Capacity SKU is `F2`.
+- Capacity state is `Paused`.
+- Native tenant account `Dod@ejpilagangmail.onmicrosoft.com` exists and has Owner access on the active subscription.
+- Capacity administrator is `Dod@ejpilagangmail.onmicrosoft.com`.
+- Tags include `project=stats`, `module=M11`, `environment=dev`, and `cost-control=suspend-when-idle`.
+- Because the capacity is paused, Fabric hourly compute cost should not be running while M11 is idle.
+
+Remaining setup:
+
+- Build the first Power BI financial KPI report pages.
+- Configure semantic model refresh policy inside Fabric/Power BI.
+- Configure Stats Web Power BI embed settings through secret-backed runtime configuration.
+
+Workspace status:
+
+- Fabric workspace `Stats - Dev - Reporting` has been created.
+- Both the original portal user and native tenant account `Dod@ejpilagangmail.onmicrosoft.com` have Admin access on the workspace.
+- Workspace capacity assignment has completed for `capstatsdev001`.
+- Workspace type is `Fabric`.
+- Semantic model storage format is small semantic model storage format.
+- Attempts to update capacity administration from the personal Gmail CLI identity are rejected by Azure Active Directory. Use the native tenant account for capacity administration.
+
+Reporting model status:
+
+- First semantic model contract has been defined in `docs/M11-powerbi-semantic-model-contract.md`.
+- Draft reporting read-model SQL has been prepared in `apps/stats-data/reporting/financial_reporting_read_models.sql`.
+- M11 read-model SQL has been applied to cloud-dev Azure SQL for reporting validation.
+- Verified cloud-dev rows: `vw_reporting_transactions` 28, `vw_reporting_monthly_expenses` 4, `vw_reporting_top_expense_contributors` 19, `vw_reporting_upcoming_obligations` 1, `vw_reporting_recent_notable_expenses` 28, and `vw_reporting_document_provenance` 13.
+- Power BI semantic model `Stats Financial KPIs Dev` has been created in `Stats - Dev - Reporting`.
+- Semantic model ID is `48d2cf50-7694-44a3-8e33-6919c24677e4`.
+- Azure SQL data-source credentials have been configured for the semantic model through the Power BI datasource API without printing secret values.
+- Semantic model refresh has been triggered and completed successfully through the Power BI API.
+- Fabric Create Report API attempts were accepted as long-running operations but failed during report import because the Power BI report workload rejected the generated PBIR `version.json` schema.
+- The first report item was then created manually in the Power BI/Fabric portal from the `Stats Financial KPIs Dev` semantic model.
+- Report `Financial Overview Dev` exists in workspace `Stats - Dev - Reporting`.
+- Report ID is `6e8c2178-de48-4199-886d-1d72adb73658`.
+- Report default page display name is `Page 1`; internal page name is `8af1331343190715ce1b`.
+- `M11` is a milestone/spec/test label only. It must not be used as a prefix in production-facing Stats Web labels, Power BI report names, report pages, semantic model table names, dashboards, or user-visible artefacts.
+- The read-model SQL is still not a formal M9 migration. M9 should promote it into migrations or a managed reporting-view deployment path after review.
+
+Cost-control rule:
+
+- M11 should only run the Fabric capacity while building, refreshing, or testing reports.
+- When work stops, use Azure Portal or `az fabric capacity suspend --resource-group rg-stats-dev --capacity-name capstatsdev001`.
+- When work resumes, use Azure Portal or `az fabric capacity resume --resource-group rg-stats-dev --capacity-name capstatsdev001`.
 
 ## Power BI Embed Direction
 
@@ -426,13 +604,43 @@ M11 should use a backend embed-config endpoint when Power BI is enabled:
 StatsWeb:Downstream:ReportingEmbedConfigUrl
 ```
 
-The backend embed-config endpoint should return only short-lived embed configuration needed by the browser. Secrets, tenant credentials, service principal credentials, and real resource identifiers must come from Azure Container Apps secrets or Key Vault through the owning cloud/runtime boundary. They must not be committed.
+Stats Web exposes the browser-facing contract at:
+
+```text
+GET /api/v1/reporting/embed-config?currency=NZD
+```
+
+That route must be handled by Stats Web before the generic module API proxy. It returns a controlled state when Power BI is not configured.
+
+Stats Web supports two backend modes:
+
+- External embed backend: fetch from `StatsWeb:Downstream:ReportingEmbedConfigUrl`.
+- Direct Power BI backend: use service-principal credentials from secret-backed configuration to call Microsoft identity and Power BI REST APIs.
+
+The direct backend uses Microsoft client-credentials authentication for the Power BI API scope, fetches the configured report from the configured workspace, and generates a view-only report embed token.
+
+The browser-facing response may include only short-lived embed configuration needed by the browser:
+
+- `status`
+- `message`
+- `embed_url`
+- `report_id`
+- `dataset_id`
+- `access_token`
+- `token_expires_at_utc`
+- `last_refreshed_at_utc`
+- `selected_currency`
+- `rate_basis`
+- `default_page_name`
+- `pages`
+
+Secrets, tenant credentials, service principal credentials, and real resource identifiers must come from Azure Container Apps secrets or Key Vault through the owning cloud/runtime boundary. They must not be committed.
 
 When embed config is missing or unavailable, M11 should show:
 
 ```text
 Power BI reporting is not connected yet.
-Stats can still show saved financial data through the native dashboard.
+Stats can still show document provenance, upload status, review queues, and evidence workflow.
 ```
 
 ## Configuration
@@ -444,9 +652,12 @@ Existing safe placeholders:
 | `StatsWeb:Downstream:StatsDataBaseUrl` | Future M9 API target for dashboard data |
 | `StatsWeb:Downstream:ReportingEmbedConfigUrl` | Future backend embed-config endpoint |
 | `StatsWeb:PowerBi:TenantId` | Future tenant identifier, never a secret |
+| `StatsWeb:PowerBi:ClientId` | Future service principal client identifier, never a secret |
+| `StatsWeb:PowerBi:ClientSecret` | Secret-backed service principal credential, never committed |
 | `StatsWeb:PowerBi:WorkspaceId` | Future Power BI/Fabric workspace identifier |
 | `StatsWeb:PowerBi:DashboardReportId` | Future report identifier |
 | `StatsWeb:PowerBi:DatasetId` | Future semantic model/dataset identifier |
+| `StatsWeb:PowerBi:ApiBaseUrl` | Power BI REST API base URL, default `https://api.powerbi.com/v1.0/myorg` |
 | `StatsWeb:PowerBi:EmbedMode` | Planned embed mode, default `AppOwnsData` |
 | `StatsWeb:Fabric:CapacityName` | Future capacity name or identifier |
 | `StatsWeb:Fabric:WorkspaceName` | Future workspace display name |
@@ -466,14 +677,14 @@ M11 views must define these states:
 | Partial data | Show available sections and flag missing query groups |
 | Review required | Mark totals or records with warning/review status |
 | Low OCR quality | Show source quality warning before trusting values |
-| Power BI not configured | Keep native dashboard usable and show reporting not connected |
-| Power BI unavailable | Show embed error without breaking native report summaries |
+| Power BI not configured | Keep native document/provenance views usable and show financial dashboard/reporting not connected |
+| Power BI unavailable | Show embed error without breaking native operational/provenance views |
 
 ## Drilldown And Evidence Requirements
 
 M11 should let users move from dashboard number to evidence:
 
-- Summary card to filtered transaction/document list.
+- Power BI summary card/report visual to filtered transaction/document list where embed drillthrough or Stats Web deep links are available.
 - Transaction to source document and redacted source snippet.
 - Obligation to statement or invoice summary.
 - Reconciliation item to both linked evidence records.
@@ -495,33 +706,33 @@ M11 should display masked account/card/reference values only. Full sensitive val
 
 ### Phase 1: Native Dashboard Contract
 
-- Define M11 dashboard views and API expectations.
+- Define M11 Power BI dashboard views, embed expectations, and native provenance API expectations.
 - Keep `/` as the dashboard-first route.
-- Replace static Home cards with financial insight cards when M9 dashboard summary data is available.
+- Replace static Home cards with Power BI-backed financial insight cards when embed configuration is available.
 - Treat `/Documents` as the first current M9-backed view and the owner of provenance/source summaries.
-- Keep `/Reports` as native report shell plus Power BI not-configured state.
-- Keep Power BI as a not-configured report area.
+- Keep `/Reports` as the Power BI embedded report shell plus not-configured state.
 
 ### Phase 2: M9 API Integration
 
 - Continue using implemented `GET /api/v1/documents` on `/Documents`.
-- Add or consume M9 dashboard, transaction, document summary, statement, financial summary, reconciliation, finding, and review endpoints as they become available.
-- Render real Home financial cards, obligations, recent notable expenses, top contributors, and trends only from M9 APIs.
+- Add or consume M9 transaction, document summary, statement, financial summary, finding, and review endpoints as they become available.
+- Render real Home financial cards, recent notable expenses, top contributors, and trends from Power BI embed visuals over curated M9 data.
 - Render document counts, source summaries, row counts, review counts, and quality summaries on `/Documents`.
 - Add filters and drilldowns.
 - Add user-facing error and partial-data states.
 
 ### Phase 3: Reporting Views
 
-- Add native reports for financial overview, categories, obligations, reconciliation, quality, and backlog.
+- Add reports for financial overview, spending categories, transaction classification, source document coverage, data quality/confidence, and review exceptions.
+- Keep obligations, credit-card exposure, budget-vs-actual, and reconciliation as future report sections until the supporting M9 read models are stable.
 - Add export-ready view structure when output requirements are approved.
-- Keep Power BI optional.
+- Keep native provenance and workflow views usable when Power BI is unavailable.
 
 ### Phase 4: Fabric And Power BI
 
 - Create curated M9 reporting views or exports.
 - Build a Fabric semantic model or compatible Power BI dataset over approved M9 data.
-- Build first Power BI report pages.
+- Build first Power BI financial KPI cards and report pages.
 - Add embed config endpoint through the appropriate backend/cloud boundary.
 - Embed reports in the M11 Reports page when configured.
 
@@ -539,13 +750,13 @@ M11 should display masked account/card/reference values only. Full sensitive val
 ## Acceptance Criteria
 
 - M11 spec exists and defines dashboard/reporting goals, boundaries, views, data sources, and test plan.
-- M11 reads operational dashboard data from M9 APIs or controlled deferred states only.
+- M11 reads native operational/provenance data from M9 APIs or controlled deferred states only.
 - M11 does not call processing modules directly for report totals.
-- Home dashboard views show financial insights first: last month expenses, current month running expenses, top expense contributor, upcoming due/payable, trends, and recent notable expenses.
+- Home dashboard views show Power BI-backed financial insights first: last month expenses, current month running expenses, top expense contributor, prior-month change, monthly history, and recent notable expenses.
 - Documents views show provenance first: document counts, source/type summaries, saved records, quality, row counts, review counts, and source drilldowns.
 - Each displayed financial number can trace to M9 source document/transaction/evidence metadata when available.
-- Power BI/Fabric are treated as optional analytics/reporting layers over curated M9 data.
-- Missing Power BI/Fabric configuration does not block the native dashboard.
+- Power BI/Fabric are treated as the financial dashboard and analytics/reporting layers over curated M9 data.
+- Missing Power BI/Fabric configuration does not block native document/provenance and operational workflow views.
 - No secrets, real connection strings, tenant IDs, subscription IDs, passwords, or secret values are committed.
 
 <!-- M11 End -->

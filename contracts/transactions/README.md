@@ -5,6 +5,8 @@
 This folder will hold transaction and data-quality contracts such as:
 
 - transaction candidate
+- transaction type classification
+- spending category classification
 - financial field candidate
 - section candidate
 - entity candidate
@@ -41,6 +43,7 @@ Primary result:
 - Upstream `parse_id`.
 - Document trace metadata.
 - `transaction_candidates` with candidate transaction date, optional posted/settled date, description, amount, currency, direction, source page/line/text, confidence, and reason codes.
+- Candidate transaction type and spending category suggestions, each with label, subtype, confidence, status, reason codes, diagnostic scores, and classification source.
 - `financial_field_candidates` with field name, value, normalized value when available, source page/line/text, confidence, and reason codes.
 <!-- M7 - Robust Candidate Output Start -->
 - `section_candidates` with generic section labels such as `statement_summary`, `transaction_table`, `receipt_totals`, `invoice_summary`, `payment_proof`, `line_items`, `fees_or_interest`, `rewards_or_points`, or `unknown_financial_block`.
@@ -55,6 +58,16 @@ Primary result:
 
 M7 returns candidates only. M8 owns cleaning, validation, duplicate detection, and quality decisions. M9 owns Stats persistence.
 M7 must not rerun OCR or call Tesseract. If M5 quality/findings show unusable text, low OCR confidence, or noisy OCR output, M7 reports input-quality findings so the workflow can decide whether M5 should be rerun with different OCR settings.
+
+<!-- M7 - Transaction Classification Start -->
+M7 owns transaction type and spending category classification. It follows the M5 classification pattern: shared committed vocabulary/rules are the primary path, and optional AI-assisted classification is a configured fallback for weak, ambiguous, or unknown rule results. Transaction type must remain separate from spending category:
+
+- `transaction_type` / `transaction_subtype` describe the financial movement mechanics, such as purchase, payment, transfer, refund, fee, interest, installment, adjustment, tax, or unknown.
+- `spending_category` / `spending_subcategory` describe the MVP reporting bucket, such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized.
+
+AI-assisted classification must use minimal redacted candidate context and must not send raw full OCR text, full account/card/customer/patient identifiers, secrets, connection strings, or whole source documents. M7 must preserve rule scores and AI contribution metadata so M8/M9/M11 can distinguish `rules`, `ai`, `rules_ai_merged`, and later `user_override` outcomes.
+<!-- M7 - Transaction Classification End -->
+
 <!-- M7 - Robust Candidate Output Start -->
 M7 should avoid treating statement headers, summary blocks, advisory text, or interest-rate disclosures as transaction rows unless a transaction-table row shape is present. These values should be emitted as section, field, reference, or finding candidates with source context.
 <!-- M7 - Robust Candidate Output End -->
@@ -73,6 +86,7 @@ Primary request:
 - Optional document trace metadata.
 - M7 `document_type`.
 - M7 `transaction_candidates` with date text, optional posted/settled date text, description, amount, currency, direction, source, confidence, and reason codes.
+- M7 transaction type and spending category suggestion fields on each transaction candidate.
 - M7 `financial_field_candidates` with field name, values, source, confidence, and reason codes.
 <!-- M8 - Robust Candidate Input Start -->
 - Optional M7 `section_candidates`, `entity_candidates`, `reference_candidates`, and `line_item_candidates` used as source context, metadata, reconciliation inputs, and review evidence.
@@ -85,6 +99,7 @@ Primary result:
 - Upstream `extraction_id` and `parse_id`.
 - Document trace metadata.
 - `normalized_records` with normalized transaction date, optional posted/settled date, title-cased description, currency, direction, signed amount, quality status, duplicate marker, and source candidate ID.
+- Preserved transaction type, transaction subtype, spending category, spending subcategory, classification confidence, category confidence, classification source, and review flags on normalized records.
 - `financial_fields` with normalized field names and values.
 <!-- M8 - Robust Candidate Input Start -->
 - `validated_entities`, `validated_references`, and `validated_line_items` when supplied by M7 and useful to downstream modules.
@@ -93,6 +108,7 @@ Primary result:
 - `summary` with valid, warning, invalid, same-batch duplicate, debit, credit, and net totals.
 - `evaluation` metadata for later testing and reporting.
 - `findings` for missing candidates, incomplete records, invalid amounts, low confidence, unknown direction, same-batch duplicate transactions, and record limits.
+- `findings` for unknown, ambiguous, or low-confidence transaction type and spending category classifications.
 
 M8 returns validation-ready records only. M9 owns database persistence, database duplicate checks against already stored records, and Stats-specific storage schema decisions.
 <!-- M8 - Robust Candidate Input Start -->

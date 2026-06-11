@@ -15,8 +15,9 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `docs/M7-transaction-extraction-module-spec.md` | Created/Modified | Defines goals, non-goals, inputs, outputs, API contract, extraction strategy, finding codes, OCR-quality input handling, configuration, tests, acceptance criteria, and deferred items. |
+| `docs/M7-transaction-extraction-module-spec.md` | Created/Modified | Defines goals, non-goals, inputs, outputs, API contract, extraction strategy, finding codes, OCR-quality input handling, configuration, tests, acceptance criteria, and deferred items. Updated on 2026-06-11 to require plain-language stale-review messages for transaction and spending recognition suggestions. |
 | `docs/M7-transaction-extraction-file-inventory.md` | Created | Tracks M7 files, verification commands, and current implementation notes. |
+| `docs/module-test-flow-playbook.md` | Modified | Adds the planned M7 browser-first Docker acceptance flow, evidence boundaries, M5 handoff expectations, required classification gates, M8 handoff proof, and cleanup expectations without executing tests. |
 | `contracts/transactions/README.md` | Modified | Adds the M7 transaction extraction contract and clarifies that M7 returns candidates for M8 validation and M9 persistence, while surfacing weak M5 OCR quality as input-quality findings. |
 
 ## Runtime Files
@@ -28,15 +29,20 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 | `modules/transaction-extraction-module/.env.example` | Created | Provides safe local override examples. |
 | `modules/transaction-extraction-module/config/defaults.env` | Created | Provides committed safe runtime defaults. |
 | `modules/transaction-extraction-module/app/__init__.py` | Created | Marks the module package. |
-| `modules/transaction-extraction-module/app/config.py` | Created | Loads defaults, local overrides, and environment values. |
+| `modules/transaction-extraction-module/app/config.py` | Created/Modified | Loads defaults, local overrides, and environment values. Planned update: include M9 recognition settings API URL/cache settings. |
 | `modules/transaction-extraction-module/app/main.py` | Created | Creates the FastAPI app and registers health/extraction routes. |
 | `modules/transaction-extraction-module/app/models/common.py` | Created | Defines health/root response models. |
 | `modules/transaction-extraction-module/app/models/extraction.py` | Created/Modified | Defines request/result, classification subtype, OCR word-block input, transaction/field/section/entity/reference/line-item/installment candidates, finding, summary, reconciliation, extracted table groups, and evaluation models. |
 | `modules/transaction-extraction-module/app/routes/health.py` | Created | Adds `/health` and `/` metadata endpoints. |
 | `modules/transaction-extraction-module/app/routes/extractions.py` | Created | Adds `POST /api/v1/extractions`. |
-| `modules/transaction-extraction-module/app/services/extraction_service.py` | Created/Modified | Adds deterministic transaction and financial field candidate extraction, M5 document type/subtype alignment, generic statement/table row reconstruction, OCR layout-aware row extraction, OCR layout repair for orphan description fragments and split credit markers, side-column exclusion, OCR-token statement row fallback, receipt/invoice total-derived transaction fallback, receipt-like unknown OCR total fallback, statement metadata/entity extraction, reconciliation, extracted table output, M5 input-quality handling, weak-OCR handling, and OCR-tolerant receipt/invoice field rules. Review hardening on 2026-06-02 makes the orphan-prefix retention behavior explicit so stale prefix fragments do not leak between rows. Fixture robustness on 2026-06-02 adds generic handling for vertically split OCR amount rows, preserves transaction amount-token OCR confidence for M8 review gating, prevents statement footers or side-column `CREDIT LIMIT` text from being treated as transaction amounts or credit markers, keeps statement payments as document-level payment evidence, reconstructs flattened statement payment evidence from paid/payment labels with credit markers, prefers labelled statement-summary payment/credit totals over row-derived payment evidence for reconciliation, prefers billing-currency statement amounts when original foreign-currency amounts also appear, extracts installment purchase/principal rows as reviewable installment candidates, derives receipt transaction dates from generic document-level receipt/OCR date evidence when the amount source line has no date, repairs generic receipt payment-method amount lines when OCR damages currency symbols or labels, prefers nearby terminal timestamp evidence over noisy later date-like fragments, prevents tax/GST-only values from being selected as receipt transaction totals when stronger total/payment evidence exists, and prefers sale/service/location labels over terminal/reference noise for receipt-derived transaction descriptions. |
+| `modules/transaction-extraction-module/app/services/extraction_service.py` | Created/Modified | Adds deterministic transaction and financial field candidate extraction, M5 document type/subtype alignment, generic statement/table row reconstruction, OCR layout-aware row extraction, OCR layout repair for orphan description fragments and split credit markers, side-column exclusion, OCR-token statement row fallback, receipt/invoice total-derived transaction fallback, receipt-like unknown OCR total fallback, statement metadata/entity extraction, reconciliation, extracted table output, M5 input-quality handling, weak-OCR handling, and OCR-tolerant receipt/invoice field rules. Review hardening on 2026-06-02 makes the orphan-prefix retention behavior explicit so stale prefix fragments do not leak between rows. Fixture robustness on 2026-06-02 adds generic handling for vertically split OCR amount rows, preserves transaction amount-token OCR confidence for M8 review gating, prevents statement footers or side-column `CREDIT LIMIT` text from being treated as transaction amounts or credit markers, keeps statement payments as document-level payment evidence, reconstructs flattened statement payment evidence from paid/payment labels with credit markers, prefers labelled statement-summary payment/credit totals over row-derived payment evidence for reconciliation, prefers billing-currency statement amounts when original foreign-currency amounts also appear, extracts installment purchase/principal rows as reviewable installment candidates, derives receipt transaction dates from generic document-level receipt/OCR date evidence when the amount source line has no date, repairs generic receipt payment-method amount lines when OCR damages currency symbols or labels, repairs split receipt total/EFTPOS labels, split decimal totals, and nearby amount lines as a fallback, prefers final-total labels over item-like sale amounts when OCR conflicts, prefers nearby terminal timestamp evidence over noisy later date-like fragments, prevents tax/GST-only values from being selected as receipt transaction totals when stronger total/payment evidence exists, and prefers sale/service/location labels over terminal/reference noise for receipt-derived transaction descriptions. |
+<!-- M7 Recognition Settings DB Source Start - 2026-06-10 -->
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Created/Modified | Transaction and spending classification service. Updated to load active approved vocabulary/rules from M9 and return controlled unavailable-settings review findings instead of falling back to stale committed JSON. |
 | `apps/stats-data/migrations/azure-sql/007_document_processing_steps.sql` | Created | Adds durable per-step timing storage for upload processing jobs, including the M7 transaction extraction step. |
 | `apps/stats-data/src/stats_data/processing_jobs.py` | Modified | Adds processing-step persistence helpers used by Stats Web to record M7 extraction timing and safe count metadata. |
+| `apps/stats-web/Pages/Admin/Classifications.cshtml` | Created/Modified | Shows and manages transaction and spending recognition settings for administrators using M9 active settings rather than committed JSON. |
+| `apps/stats-web/wwwroot/js/classifications.js` | Created/Modified | Protects the classification management page for admin users and supports editable recognition setting sections. Keeps save/delete interactions on the same page through M9-backed handlers. |
+| `tests/scripts/regression/cleanup_m5_m7_m9_recognition_evidence_data_2026_06_11.py` | Created | Removes prior M5/M7/M9 recognition evidence residue so future M7 transaction/spending suggestion tests start from a production-like baseline. |
 
 ## Tests
 
@@ -45,8 +51,16 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 | `tests/unit/transaction_extraction_module/__init__.py` | Created | Marks the M7 test package. |
 | `tests/unit/transaction_extraction_module/conftest.py` | Created/Modified | Provides isolated FastAPI test client setup and focused OCR-style text fixtures for the M7 module. |
 | `tests/unit/transaction_extraction_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, and settings defaults/overrides. |
-| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Created/Modified | Verifies missing text, generic statement/table extraction, OCR layout repair, proof-of-payment extraction, single-line OCR receipt/invoice extraction, receipt/invoice total-derived transaction fallback, receipt-like unknown OCR fallback, receipt date fallback from document-level OCR text, OCR-damaged payment-method amount/date repair, receipt total precedence over tax/GST-only amounts, receipt description precedence over terminal/reference noise, unknown document confidence handling, M5 quality/finding handoff, weak-OCR handoff, section-aware non-transaction handling, and no-candidate findings. Review hardening on 2026-06-02 adds targeted generic layout regressions for stale prefixes, side-column amount exclusion, and split credit markers. Fixture robustness on 2026-06-02 adds generic regressions for vertically split amount rows, amount-token OCR confidence preservation, footer amount exclusion, side-column credit-word exclusion, flattened statement-payment evidence, summary payment/credit total precedence over row payment evidence, billing-currency amount selection on foreign-currency statement rows, statement-payment exclusion from transaction candidates, and reviewable installment balance extraction. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Created/Modified | Verifies missing text, generic statement/table extraction, OCR layout repair, proof-of-payment extraction, single-line OCR receipt/invoice extraction, receipt/invoice total-derived transaction fallback, receipt-like unknown OCR fallback, receipt date fallback from document-level OCR text, OCR-damaged payment-method amount/date repair, split receipt total/EFTPOS label repair, split-decimal receipt total repair, receipt total precedence over tax/GST-only and item-like sale amounts, receipt description precedence over terminal/reference noise, unknown document confidence handling, M5 quality/finding handoff, weak-OCR handoff, section-aware non-transaction handling, and no-candidate findings. Review hardening on 2026-06-02 adds targeted generic layout regressions for stale prefixes, side-column amount exclusion, and split credit markers. Fixture robustness on 2026-06-02 adds generic regressions for vertically split amount rows, amount-token OCR confidence preservation, footer amount exclusion, side-column credit-word exclusion, flattened statement-payment evidence, summary payment/credit total precedence over row payment evidence, billing-currency amount selection on foreign-currency statement rows, statement-payment exclusion from transaction candidates, and reviewable installment balance extraction. |
+<!-- M7 Recognition Settings DB Source End - 2026-06-10 -->
+
+<!-- M7 AI Suggestion Governance Start - 2026-06-11 -->
+| `modules/transaction-extraction-module/app/models/extraction.py` | Modified | Adds pending recognition suggestion fields so M7 can hand off AI-proposed labels separately from approved active labels. |
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Keeps approved active values when AI proposes labels outside M9 active vocabulary and emits pending suggestion metadata for M8/M9 governance. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Adds focused coverage for AI-proposed outside-vocabulary labels producing pending suggestion metadata instead of approved active labels. |
+<!-- M7 AI Suggestion Governance End - 2026-06-11 -->
 | `tests/unit/transaction_extraction_module/test_extraction_api.py` | Created | Verifies the JSON extraction endpoint returns candidates, explicit missing-text findings, and accepts M5-shaped parse results. |
+| `tests/scripts/M7-TransactionExtraction/M7-TransactionExtraction-test-flow.md` | Created | Defines the detailed M7 acceptance test flow to refine before a future Docker evidence run, including browser states, supporting API checks, reviewer walkthrough requirements, pass/fail gates, and cleanup. |
 
 ## Evidence Artefacts
 
@@ -108,8 +122,35 @@ From M13 onward, official M7 verification must run inside `stats-runtime` throug
 - It converts M5 low-text/OCR-disabled/OCR-failure/weak-OCR signals into M7 input-quality findings.
 - It does not rerun OCR or call Tesseract.
 - It returns candidates and confidence metadata only.
+- It owns transaction-classification behavior, but active transaction/spending labels and rules are managed through M9 recognition settings. The admin page must use M9-backed handlers instead of committed JSON.
 - Current M5-output evidence shows all six saved OCR-backed M5 outputs complete in M7. The four JPEG OCR outputs now each return one transaction candidate and at least one financial field candidate.
 - M8 remains responsible for cleaning, normalizing, validating, and deduplicating records.
 - M9 remains responsible for Stats persistence.
+
+<!-- M7 Recognition Approval Evidence Update Start - 2026-06-11 -->
+
+## Recognition Approval Evidence Update
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `docs/M7-transaction-extraction-module-spec.md` | Modified | Requires actionable recognition-approval failure messages and generated page action URLs for admin suggestion review submissions. |
+| `apps/stats-web/wwwroot/js/classifications.js` | Modified | Fixes admin recognition-setting form submission when hidden fields overlap browser form properties, preventing stale HTTP 404 approval failures. |
+| `tests/scripts/regression/run_m5_m7_m9_recognition_approval_desktop_evidence_2026_06_11.py` | Modified | Drives the full one-Edge-window recognition approval flow and records Azure SQL evidence for document, transaction, and spending approvals from real JPEG input. |
+| `tests/results/M5-M7-M9-RecognitionApproval/M5-M7-M9-recognition-approval-2026-06-11-20260611-130431/` | Created | Final evidence set proving M7 transaction/spending suggestions were approved and persisted through M9. |
+
+<!-- M7 Recognition Approval Evidence Update End - 2026-06-11 -->
+
+<!-- M7 Recognition Resilience Update Start - 2026-06-12 -->
+
+## Recognition Resilience Update
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `docs/M7-transaction-extraction-module-spec.md` | Modified | Requires M7 to use a successful prior M9 in-memory settings cache during temporary M9/API outages and to preserve valid JSON when limiting AI prompt size. |
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Returns the stale active-settings cache when the M9 recognition settings API is temporarily unavailable after a successful prior load. |
+| `modules/transaction-extraction-module/app/services/ai_transaction_classification_service.py` | Modified | Trims redacted source text before JSON serialization instead of slicing serialized prompt JSON. |
+| `tests/unit/transaction_extraction_module/test_classification_hardening.py` | Created | Verifies stale-cache fallback and valid JSON prompt limiting. |
+
+<!-- M7 Recognition Resilience Update End - 2026-06-12 -->
 
 <!-- M7 End -->

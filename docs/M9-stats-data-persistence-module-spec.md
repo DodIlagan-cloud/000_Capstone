@@ -319,7 +319,15 @@ This is the core durable financial data M9 should store from Data Validation nor
 | `signed_amount` | Debit/credit signed value for reporting |
 | `source_institution` | Bank, merchant, provider, or counterparty source |
 | `merchant_or_counterparty` | Optional later normalized merchant/payee |
-| `category` | Optional user/system category |
+| `transaction_type` | M7/M8-preserved movement type, such as purchase, payment, transfer, refund, fee, interest, installment, adjustment, tax, or unknown |
+| `transaction_subtype` | More specific movement subtype, such as card purchase, EFTPOS payment, bank transfer, credit-card payment, finance charge, late-payment fee, statement credit, or reversal |
+| `spending_category` | M7/M8-preserved MVP reporting category, such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized |
+| `spending_subcategory` | Optional finer reporting bucket |
+| `category` | Backward-compatible or user-facing category alias; should converge with `spending_category` unless a user override model separates suggested and confirmed values |
+| `classification_source` | `rules`, `ai`, `rules_ai_merged`, `user_override`, or `unknown` |
+| `transaction_type_confidence` | Confidence for transaction type/subtype classification |
+| `spending_category_confidence` | Confidence for spending category/subcategory classification |
+| `classification_review_required` | Boolean flag when transaction/category classification is unknown, ambiguous, low-confidence, AI-assisted, or user-review-needed |
 | `reference` | Optional transaction/reference code |
 | `payment_method` | Card, bank transfer, EFTPOS, cash, unknown |
 | `masked_account_or_card` | Masked account/card reference only |
@@ -338,7 +346,9 @@ Dashboard-facing query dimensions:
 - Transaction date by day, month, quarter, and year.
 - Direction: debit, credit, unknown.
 - Currency.
-- Category.
+- Transaction type and subtype.
+- Spending category and subcategory.
+- Classification source and classification confidence.
 - Merchant or counterparty.
 - Source institution.
 - Payment method.
@@ -346,6 +356,87 @@ Dashboard-facing query dimensions:
 - Source type and document type.
 - Quality status and review state.
 - Uploaded/saved user scope.
+
+<!-- M9 Recognition Settings Persistence Start - 2026-06-10 -->
+### Recognition Label Suggestions And Synchronization
+
+M9 owns durable storage and synchronization for recognition-label governance. The database is the approved source of truth for allowed document labels, transaction labels, spending labels, deterministic rule signals, pending suggestions, approval history, audit records, and affected-record synchronization.
+
+Committed recognition JSON files are deprecated for runtime use. They may be retained temporarily only as migration seed/reference material until equivalent M9 seed data exists. M5 and M7 must read active approved settings from M9. If M9 recognition settings are unavailable, M5/M7 must fail the classification portion clearly rather than silently using stale JSON files from the container image.
+
+The accepted flow is:
+
+1. Any upload user may trigger a label suggestion through M5 or M7 when a document, transaction type, transaction subtype, spending category, or spending subcategory is unknown, ambiguous, or plausibly new.
+2. M5/M7 do not write active settings directly. They return or submit a pending suggestion with redacted evidence, source identifiers, proposed label values, confidence, reason codes, and suggested action.
+3. M9 stores the pending suggestion and exposes it to admin-only Stats Web routes.
+4. An administrator may approve, edit before approving, reject, rename, or merge the suggestion.
+5. Approval updates the active database recognition settings through a controlled backend operation and writes an audit record.
+6. If the approved action changes existing labels, M9 updates affected persisted records in the same controlled operation or records a queued synchronization task when the update cannot complete immediately.
+7. Rejection changes only the suggestion status and audit history. It must not change active settings or existing transaction/document records.
+8. Pending suggestions may be linked to affected transactions/documents, but active persisted labels remain the safest approved values, such as `unknown` or `uncategorized`, until approval.
+9. M9 must accept persistence payloads where the extracted transaction is otherwise valid but classification fields remain `unknown` or `uncategorized` with pending recognition suggestion metadata. These records are saved as review-required records, not rejected at the upload-save boundary, so admin approval can later update the linked document/transaction rows through the suggestion workflow.
+
+Recommended durable tables:
+
+| Table | Purpose |
+| --- | --- |
+| `recognition_labels` | Active approved labels for document type/subtype, transaction type/subtype, and spending category/subcategory. Includes status, display label, description, sort order, created/updated audit fields, and deprecation metadata. |
+| `recognition_rules` | Active approved deterministic rule signals tied to labels, including rule scope, match terms/patterns, weights, minimum evidence requirements, enabled status, and audit fields. |
+| `recognition_label_suggestions` | Pending, approved, rejected, or merged suggestions from M5/M7, including source document/transaction links, proposed labels, redacted evidence, confidence, and reason codes. |
+| `recognition_config_changes` | Audit trail for approved database setting changes, including admin user, action type, before/after labels/rules, timestamps, and change reason. |
+| `recognition_label_sync_runs` | Records database synchronization for label rename/merge/apply actions, affected row counts, status, and failure details. |
+
+Recommended transaction/document links:
+
+| Link | Purpose |
+| --- | --- |
+| `transactions.recognition_suggestion_id` | Optional foreign key to `recognition_label_suggestions.suggestion_id` when a transaction was saved with a pending AI/user suggestion attached for review. |
+| `stats_documents.recognition_suggestion_id` | Optional foreign key to `recognition_label_suggestions.suggestion_id` when a document was parsed with a pending document-label suggestion. |
+
+The current transaction and document label fields should remain text snapshots for reporting stability and compatibility with existing dashboard queries. They should not become hard foreign keys to active labels in this pass because historical reports must remain understandable after labels are renamed, merged, deprecated, or reactivated. M9 may add label ID references later once the governance workflow has proven stable.
+
+Admin synchronization policies:
+
+| Policy | Behavior |
+| --- | --- |
+| `rename_existing_records` | Replace matching old labels with the new approved label in historical transaction rows. |
+| `merge_existing_records` | Move matching old labels into an existing approved label and update historical transaction rows. |
+| `apply_to_unknown_records` | Apply a newly approved suggestion only to eligible records still set to `unknown`, `unknown / unknown`, or `uncategorized` and linked to the suggestion. Manual corrections must not be overwritten. |
+| `leave_historical_records` | Update active settings only and leave existing saved records unchanged; requires an explicit admin reason because reporting may split old/new labels. |
+
+For this project, the default recommended policy is `rename_existing_records` or `merge_existing_records` when the admin changes labels that already exist in saved records. Stats Web must show an affected-record count before confirmation when M9 can calculate it.
+<!-- M9 Recognition Settings Persistence End - 2026-06-10 -->
+
+<!-- M9 AI Suggestion Approval Start - 2026-06-11 -->
+### AI Suggestion Approval Runtime
+
+M9 must persist recognition suggestions supplied by validated document and transaction records into `dbo.recognition_label_suggestions` when transactions are saved. Suggestions remain separate from active document, transaction, and spending fields until an administrator approves them.
+
+The admin approval API must support:
+
+- listing pending, approved, rejected, and all suggestions;
+- approving a suggestion into active `recognition_labels`;
+- rejecting a suggestion without changing active settings;
+- recording the review action, reviewer, review timestamp, and audit change;
+- applying approved labels only to transactions linked to that suggestion and still holding fallback active values such as `unknown` or `uncategorized`.
+<!-- M9 Recognition Governance Hardening Start - 2026-06-12 -->
+- treating approved and rejected suggestions as terminal so repeat approval/rejection requests cannot create duplicate config-change or sync-run audit rows;
+- linking every sync-run audit row to the actual `config_change_id` generated for the approval/rejection operation;
+- returning a clear not-found/conflict response when a label rename targets a missing source label instead of reporting a successful no-op save;
+- seeding active recognition labels and rules through idempotent database operations that are safe during first deploy, database reset, and multi-worker startup.
+<!-- M9 Recognition Governance Hardening End - 2026-06-12 -->
+<!-- M9 Document Suggestion Approval Start - 2026-06-11 -->
+- approving document-type suggestions into active document recognition labels;
+- applying approved document labels only to linked saved documents and validation results that still hold fallback document values such as `unknown`;
+- leaving manually corrected document values unchanged when approving a suggestion.
+<!-- M9 Document Suggestion Approval End - 2026-06-11 -->
+
+The evidence run for this workflow must show the seeded recognition label tables, the pending AI suggestion, the admin approval action, and the resulting database/web app state change.
+
+Recognition-setting and suggestion-review failures must be returned to Stats Web as controlled, user-facing messages. The UI must not expose raw HTTP status text such as `HTTP 404`, raw FastAPI error JSON, stack traces, connection details, or secret-bearing diagnostics. When a pending suggestion no longer exists, was already reviewed, or was removed during cleanup, the admin page should say that the review item is no longer available and ask the user to refresh the items to review.
+
+Evidence and acceptance tests that mutate M9 must leave the database in a production-like baseline after the run. Cleanup may remove or deactivate records that are clearly marked as test/evidence data, including labels with `test_` keys, evidence-only users, evidence processing jobs, evidence upload documents, validation payloads, recognition suggestions, transactions, batches, findings, and dependent rows tied to the evidence user or evidence source file. Cleanup must not remove baseline seed labels/rules, real admin users, production-like configuration, or non-test user data. Cleanup actions must be recorded with SQL query evidence when they are part of an assessment run.
+<!-- M9 AI Suggestion Approval End - 2026-06-11 -->
 
 Recommended first duplicate key:
 
@@ -562,7 +653,9 @@ The first database design should support these dashboard needs:
 | --- | --- |
 | Total spending/income over time | `transactions.transaction_date`, `direction`, `signed_amount`, `currency` |
 | Monthly debit/credit/net trends | `transactions` grouped by date period and currency |
-| Category breakdown | `transactions.category` |
+| Transaction type mix | `transactions.transaction_type`, `transaction_subtype`, `direction`, `signed_amount`, `currency` |
+| Spending category breakdown | `transactions.spending_category`, `spending_subcategory`, `signed_amount`, `currency` |
+| Category trust and coverage | `transactions.classification_source`, `transaction_type_confidence`, `spending_category_confidence`, `classification_review_required` |
 | Merchant/payee summaries | `transactions.merchant_or_counterparty` and normalized description |
 | Recent transactions | `transactions` ordered by transaction date and created time |
 | Upcoming obligations | `statement_summaries.payment_due_date`, `minimum_amount_due`, `total_amount_due`, `document_financial_summaries.owing_amount` |
@@ -690,6 +783,17 @@ Cloud-first deployment order:
 | `/api/v1/reconciliation-links` | `GET` | Query matched/unmatched financial evidence links |
 | `/api/v1/findings` | `GET` | List open review findings |
 | `/api/v1/findings/{finding_id}` | `PATCH` | Resolve or ignore a finding |
+| `/api/v1/admin/recognition-settings` | `GET` | Return approved database-backed recognition labels, rules, and pending suggestions for admin management |
+| `/api/v1/admin/recognition-settings/document-labels` | `POST/PATCH/DELETE` | Add, edit, deactivate, or delete approved document type/subtype labels through validated backend handlers |
+| `/api/v1/admin/recognition-settings/document-rules` | `POST/PATCH/DELETE` | Add, edit, deactivate, or delete approved document classification rules through validated backend handlers |
+| `/api/v1/admin/recognition-settings/transaction-labels` | `POST/PATCH/DELETE` | Add, edit, deactivate, or delete approved transaction type/subtype labels through validated backend handlers |
+| `/api/v1/admin/recognition-settings/transaction-rules` | `POST/PATCH/DELETE` | Add, edit, deactivate, or delete approved transaction classification rules through validated backend handlers |
+| `/api/v1/admin/recognition-settings/spending-labels` | `POST/PATCH/DELETE` | Add, edit, deactivate, or delete approved spending category/subcategory labels through validated backend handlers |
+| `/api/v1/admin/recognition-settings/spending-rules` | `POST/PATCH/DELETE` | Add, edit, deactivate, or delete approved spending category rules through validated backend handlers |
+| `/api/v1/admin/recognition-settings/suggestions` | `GET` | List pending/approved/rejected label suggestions |
+| `/api/v1/admin/recognition-settings/suggestions/{suggestion_id}` | `PATCH` | Approve, edit-approve, reject, rename, or merge a suggestion |
+| `/api/v1/admin/recognition-settings/sync-preview` | `POST` | Return affected-record counts before a label rename/merge is confirmed |
+| `/api/v1/admin/recognition-settings/sync-runs/{sync_run_id}` | `GET` | Read label synchronization status and affected-row counts |
 
 ## Configuration
 
@@ -713,6 +817,9 @@ Cloud-first deployment order:
 - Use authenticated user context for all save/query routes.
 - Scope ordinary users to their own documents and transactions.
 - Allow administrator visibility only through explicit admin routes or role checks.
+- Require administrator role for recognition settings writes, suggestion approvals, active database setting updates, and database label synchronization.
+- Audit every recognition label/rule approval, rejection, edit, delete/deactivation, rename, merge, and historical-record sync.
+- Store only redacted evidence snippets for suggestions; do not store raw OCR text or full financial text in suggestion records.
 - Never expose identity secrets, password hashes, tokens, or database credentials through M9 responses.
 
 ## Testing Boundary
@@ -722,9 +829,9 @@ From M13 onward, official M9 verification should run through the Stats container
 | Test Type | Required Coverage |
 | --- | --- |
 | Unit tests | Duplicate-key generation, persistence mapping, validation-result mapping |
-| API tests | Save batch, query documents, query transactions, duplicate save behavior |
+| API tests | Save batch, query documents, query transactions, duplicate save behavior, admin recognition-setting suggestion approval, label/rule add/edit/delete validation, sync-preview counts |
 | Integration tests | Azure SQL schema creation/migration and cloud database connectivity |
-| Regression tests | M1 identity still works; Data Validation checkpoint can call M9 save path |
+| Regression tests | M1 identity still works; Data Validation checkpoint can call M9 save path; label rename/merge synchronization preserves reporting dimensions |
 | Evidence tests | Browser save flow and database verification screenshots/output |
 
 ## Acceptance Criteria
@@ -736,6 +843,8 @@ From M13 onward, official M9 verification should run through the Stats container
 - M9 associates stored records with authenticated users.
 - M9 stores dashboard-ready statement, invoice, receipt, payment-proof, and reconciliation facts when upstream validation provides them.
 - M9 exposes or can derive query results for M11 dashboard summaries, trends, obligations, reconciliation status, review backlog, and processing health.
+- M9 stores active recognition labels/rules, pending recognition label suggestions, and admin approval/rejection audit records.
+- M9 supports controlled synchronization of persisted transaction labels when admin-approved database setting edits rename, merge, or apply document/transaction/spending labels.
 - M9 returns a save summary with saved, skipped duplicate, warning, and invalid counts.
 - M9 avoids storing raw document bytes or full unredacted OCR text in relational tables.
 - M9 migrations can create the Stats-owned tables in Azure SQL.

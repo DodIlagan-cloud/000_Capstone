@@ -31,6 +31,8 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 | `apps/stats-web/Pages/Index.cshtml` | Modified | Updates the authenticated landing page into the dashboard-first Stats workspace shell with upload-documents and email-ingestion setup action buttons. |
 | `apps/stats-web/Pages/Index.cshtml.cs` | Modified | Supplies shell feature flags to the authenticated landing page. |
 | `apps/stats-web/Pages/Users.cshtml` | Modified | Adds shell navigation links to the administrator user-management page while preserving M1 behavior. |
+| `apps/stats-web/Pages/Admin/Classifications.cshtml` | Created | Adds an administrator-only read-only classification management page for M5 document rules, planned M7 transaction rules, and future review-candidate queues. |
+| `apps/stats-web/Pages/Admin/Classifications.cshtml.cs` | Created | Loads committed M5 document-classification vocabulary and rules for display while keeping runtime rule mutation out of the browser. |
 | `apps/stats-web/Pages/Upload.cshtml` | Created/Modified | Adds the authenticated upload-documents action page and later-module checkpoint surface for M3/M4/M5/M7/M8 results. |
 | `apps/stats-web/Pages/Upload.cshtml.cs` | Created | Supplies configured API settings to the upload-documents action page. |
 | `apps/stats-web/Pages/EmailSetup.cshtml` | Created | Adds the authenticated email-ingestion setup action page with a controlled deferred state. |
@@ -44,19 +46,22 @@ M2 establishes `apps/stats-web/` as the Stats product web shell. It preserves th
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `apps/stats-web/wwwroot/js/app.js` | Modified | Allows the existing M1 access guard to be reused by shell pages that do not render user identity fields. |
-| `apps/stats-web/wwwroot/css/access.css` | Modified | Adds shell navigation, deferred states, dashboard cards, ingestion action buttons, and mobile layout styling for M2. |
+| `apps/stats-web/wwwroot/js/app.js` | Modified | Allows the existing M1 access guard to be reused by shell pages that do not render user identity fields and shows admin-only classification management navigation. |
+| `apps/stats-web/wwwroot/js/classifications.js` | Created | Enforces browser-side admin access for the read-only classification management page and switches document, transaction, and review-candidate tabs. |
+| `apps/stats-web/wwwroot/css/access.css` | Modified | Adds shell navigation, deferred states, dashboard cards, ingestion action buttons, classification management layout, and mobile layout styling for M2. |
 
 ## Verification Artefacts
 
 | File or Folder | Change Type | Description |
 | --- | --- | --- |
+| `tests/scripts/M2-StatsWebShell/M2-StatsWebShell-test-flow.md` | Created | Defines the targeted Docker-based M2 acceptance flow, route/state screenshot sequence, credential handling, reviewer walkthrough, pass/fail criteria, and cleanup expectations for future evidence runs. |
 | `tests/results/M2-StatsWebShell-M0-M1/` | Created | Stores M2 build/test evidence and carried-forward M0/M1 regression notes for this execution session. |
 
 ## Notes
 
 - M2 keeps authentication and authorization behavior delegated to the M1 Identity Access API.
 - Dashboard, email setup, document tracking, and reports are shell surfaces only until their owning modules exist. Upload documents is now a shell-owned presentation/orchestration surface that can call M3/M4/M5/M7/M8 while keeping reusable rules in those backend modules.
+- Classification management is a Stats Web admin surface only. M5 owns document classification behavior, M7 owns transaction classification behavior, and M11 reports classification outcomes.
 - Official M2 acceptance evidence after M13 must come from the Docker stack and `stats-runtime`; older host-side build/browser evidence remains historical.
 - Module 2 code blocks were tagged using the `M2 - Stats Web Shell Start` and `M2 End` convention.
 

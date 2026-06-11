@@ -13,7 +13,7 @@ Current status: **implementation updated** for project-wide container-first test
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `docs/M13-containerization-module-spec.md` | Created / Updated | Defines M13 goals, non-goals, what gets packaged, startup orchestration order, Dockerfile build-time verification, runtime config, health check table, OCR validation requirements, testing, and acceptance criteria. Updated to require project-root `tests/input/` fixtures for every OCR evidence run and to align with the Azure SQL runtime direction. |
+| `docs/M13-containerization-module-spec.md` | Created / Updated | Defines M13 goals, non-goals, what gets packaged, startup orchestration order, Dockerfile build-time verification, runtime config, health check table, OCR validation requirements, testing, and acceptance criteria. Updated to require project-root `tests/input/` fixtures for every OCR evidence run, to align with the Azure SQL runtime direction, and to clarify that active recognition settings live in M9 rather than mutable JSON inside the image. |
 | `docs/M13-container-first-testing-policy.md` | Created | Defines the project-wide policy that official module tests and evidence run through the container after M13. |
 | `docs/M13-container-first-testing-file-inventory.md` | Created | Dedicated inventory for the project-wide container-first testing correction, including affected files, validation plan, and pending evidence status before commit. |
 | `docs/M13-containerization-file-inventory.md` | Created / Updated | This file. Updated to include all files touched in both the initial implementation and the architectural correction pass. |
@@ -22,7 +22,7 @@ Current status: **implementation updated** for project-wide container-first test
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `infrastructure/containers/stats/Dockerfile` | Created / Updated | Multi-stage build: publishes Stats Web, installs Tesseract OCR, English tessdata, Microsoft ODBC Driver 18, UnixODBC, Python module dependencies, copies M1/M3-M4/M5/M7/M8 module source, copies root test scripts/tests and safe documentation required by contract checks, verifies OCR and Azure SQL runtime dependencies, sets OCR/database environment variables, and sets the startup script as the container entrypoint. Real `tests/input` fixtures remain excluded from image build and are copied into the running container by evidence runners. |
+| `infrastructure/containers/stats/Dockerfile` | Created / Updated | Multi-stage build: publishes Stats Web, installs Tesseract OCR, English tessdata, Microsoft ODBC Driver 18, UnixODBC, Python module dependencies, copies M1/M3-M4/M5/M7/M8 module source, copies root test scripts/tests and safe documentation required by contract checks, verifies OCR and Azure SQL runtime dependencies, sets OCR/database environment variables, and sets the startup script as the container entrypoint. Real `tests/input` fixtures remain excluded from image build and are copied into the running container by evidence runners. Recognition-setting migration/seed assets may be packaged, but active labels/rules are persisted in M9 and must survive rebuild/redeploy. |
 | `infrastructure/containers/stats/start-stats-runtime.sh` | Created / Updated | Startup orchestration script. Waits for Azure SQL connectivity, runs identity DB init, starts Identity Access API (8013), File Validation API (8014), Document Parsing API (8015), Transaction Extraction API (8016), and Data Validation API (8017), waits for each `/health`, then starts Stats Web in the foreground. |
 | `infrastructure/containers/stats/.env.container.example` | Created / Updated | Documents all required container environment variables for the active Azure SQL runtime. Real connection strings and secrets belong only in ignored local env files, Container Apps secrets, or Key Vault. Review follow-up clarifies that local Docker Compose requires a real ignored `AZURE_SQL_CONNECTIONSTRING`. |
 | `infrastructure/compose/stats-runtime.compose.yml` | Created / Updated | Full-stack Compose profile for the single `stats` runtime image. It reads `.env.container`, maps Stats Web, enables OCR, configures module ports, uses Azure SQL environment variables, and runs the Compose-level health check. Review follow-up documents why the 90-second start period is retained and makes missing `AZURE_SQL_CONNECTIONSTRING` fail fast with a clear Compose error. |
@@ -64,7 +64,7 @@ Current status: **implementation updated** for project-wide container-first test
 | File | Change Type | Description |
 | --- | --- | --- |
 | `docs/M13-containerization-module-spec.md` | Modified | Defines container-first unit/contract and acceptance/evidence execution, and includes M7/M8 packaged-service requirements. |
-| `docs/M5-document-parsing-module-spec.md` | Modified | Added Testing Boundary (M13) section before the Testing section. Clarifies that OCR end-to-end evidence requires the M13 containerized runtime. |
+| `docs/M5-document-parsing-module-spec.md` | Modified | Added Testing Boundary (M13) section before the Testing section. Clarifies that OCR end-to-end evidence requires the M13 containerized runtime and that active recognition settings come from M9 rather than in-image JSON. |
 
 ## Docker Full Regression Evidence Infrastructure
 

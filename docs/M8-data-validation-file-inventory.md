@@ -40,6 +40,10 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `modules/data-validation-module/app/main.py` | Created | Creates the FastAPI app and registers health/validation routes. |
 | `modules/data-validation-module/app/models/common.py` | Created | Defines health/root response models. |
 | `modules/data-validation-module/app/models/validation.py` | Created/Modified | Defines request/result, normalized transaction record, normalized installment balance record, finding, review item, summary, and evaluation models. |
+<!-- M8 Document Suggestion Handoff Start - 2026-06-11 -->
+| `modules/data-validation-module/app/models/validation.py` | Modified | Adds validation-result-level document-label suggestion fields from M5/M7 handoff so M9 can persist pending document recognition suggestions. |
+| `modules/data-validation-module/app/services/validation_service.py` | Modified | Preserves document-label suggestion metadata from the request to the validation result while keeping M8 out of approval/persistence decisions. |
+<!-- M8 Document Suggestion Handoff End - 2026-06-11 -->
 | `modules/data-validation-module/app/routes/health.py` | Created | Adds `/health` and `/` metadata endpoints. |
 | `modules/data-validation-module/app/routes/validations.py` | Created | Adds `POST /api/v1/validations`. |
 | `modules/data-validation-module/app/services/validation_service.py` | Created/Modified | Adds deterministic transaction normalization, installment balance normalization, validation findings, financial field normalization, same-batch duplicate detection, and guided review item generation from repaired OCR, suspicious text, duplicate, invalid, installment, and reconciliation signals. Review hardening on 2026-06-02 separates low-confidence diagnostics for fields, entities, and references, generalizes suspicious OCR description review gates, avoids short legitimate merchant-token false positives, and removes a dead post-cleaning ISO date format path. |
@@ -64,6 +68,8 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `tests/unit/data_validation_module/test_foundation.py` | Created | Verifies app import, health/root endpoints, and settings defaults/overrides. |
 | `tests/unit/data_validation_module/test_validation_api.py` | Created | Verifies the JSON validation endpoint, missing-candidate findings, and upstream finding passthrough. |
 | `tests/unit/data_validation_module/test_validation_service.py` | Created/Modified | Verifies normalization, warnings, invalid records, same-batch duplicate detection, duplicate detection opt-out, financial field/entity/reference quality status, richer M7 candidate groups, section-aware transaction review gating, suspicious/repaired OCR review items, installment review items, date normalization cleanup, and reconciliation review items. |
+| `tests/scripts/M8-DataValidation/M8-DataValidation-test-flow.md` | Created | Defines the future Docker-based M8 acceptance flow, required browser/API proof, reviewer walkthrough structure, pass/fail criteria, and cleanup expectations without executing the tests. |
+| `docs/module-test-flow-playbook.md` | Modified | Adds the M8 detailed flow and links the module-specific flow file for refinement before future evidence runs. |
 
 ## Verification
 
@@ -123,6 +129,14 @@ Container-first defects caught and fixed during validation:
 - The official runner now includes the M13 container contract inside `stats-runtime`, and the Docker image packages the safe contract input files needed for those assertions.
 
 Historical host-side diagnostics were run during development, but they are not M8 acceptance evidence after M13. Official M8 tests and evidence must run inside `stats-runtime` through the container-first runners.
+
+<!-- M8 Test Flow Update - 2026-06-12 Start -->
+Test flow planning update:
+
+- `tests/scripts/M8-DataValidation/M8-DataValidation-test-flow.md` is the module-specific flow definition for future M8 evidence runs.
+- The file is a plan, not evidence. No browser run, upload run, container run, database query, or cloud-dev deployment is implied by this inventory update.
+- The flow requires actual Windows Edge screenshots with the container URL visible only when an evidence run is explicitly requested.
+<!-- M8 Test Flow Update - 2026-06-12 End -->
 
 Source label diagnostic:
 

@@ -51,6 +51,8 @@ The business need is to give users a stable, authenticated Stats workspace befor
 - Prepare a manual-upload action page that can call the merged File Validation and Ingestion API without embedding validation or ingestion rules.
 - Prepare an email-ingestion setup action page that can later call the Email Ingestion Module without embedding mailbox retrieval logic.
 - Prepare dashboard/reporting placeholders that do not calculate final financial analytics before later modules define persistence and reporting contracts.
+- Provide an administrator-only recognition settings surface that can show and manage approved document, transaction, and spending label configuration through controlled backend handlers without moving OCR, parsing, extraction, or classification decision logic into Stats Web.
+- Render administrator-only navigation server-side once the authenticated role is known so admin links do not appear late or shift the navigation after the page loads.
 - Keep service base URLs and runtime settings configurable through ASP.NET Core configuration providers.
 - Keep the app usable on desktop and mobile widths.
 - Provide M2-focused verification plus regression checks for M0 and M1.
@@ -66,6 +68,19 @@ The business need is to give users a stable, authenticated Stats workspace befor
 7. Add or update automated and manual checks for shell navigation, protected access, role-aware visibility, responsive layout, and M1 regression flows.
 8. Capture M2 evidence in a named root `tests/results/` evidence folder that includes raw output, checklist, and actual Windows browser/terminal screenshots where applicable.
 
+## Recognition Settings Implementation Plan
+
+The admin recognition settings workflow should be implemented in phases:
+
+1. Move admin-only navigation rendering to server-side role-aware output so the Recognition settings link is present immediately for admins and absent for non-admins.
+2. Keep client-side guards as defense-in-depth, not as the primary reason the navigation appears.
+3. Replace display-only label tables with collapsible admin-management sections.
+4. Add row-level Edit, Save, Cancel, and Add controls for document labels, transaction labels, and spending labels.
+5. Route all save actions through backend handlers that validate labels, normalize JSON keys, write approved JSON atomically, and return user-friendly errors.
+6. Add a Suggested labels section where AI/user-triggered suggestions can be approved, edited before approval, rejected, renamed, or merged.
+7. Call M9 sync-preview before rename/merge confirmation and show affected persisted-record counts to the admin.
+8. After approval, call M9 synchronization so persisted transaction records and reporting dimensions stay aligned with approved JSON.
+
 ## Non-Goals
 
 - Implementing password hashing, token signing, token validation internals, role logic, or identity persistence.
@@ -73,6 +88,7 @@ The business need is to give users a stable, authenticated Stats workspace befor
 - Implementing file content validation, MIME/signature checks, hash generation, or rejection-rule logic.
 - Implementing file ingestion job storage, queues, OCR handoff, or processing status persistence.
 - Implementing OCR, document classification, transaction extraction, data cleaning, duplicate detection, or confidence scoring.
+- Implementing OCR, parsing, extraction, or classification decision rules owned by M5 or M7. Stats Web may provide approved admin-management forms that call controlled backend handlers for label configuration, pending suggestions, and persisted-record synchronization.
 - Implementing Stats database schema, migrations, persistence adapters, or dashboard queries.
 - Implementing final financial dashboards, report exports, or analytics calculations.
 - Implementing email ingestion.
@@ -156,6 +172,7 @@ Expected future M2 shell routes include:
 | `/Login` | M1 login and required password setup consumer page. |
 | `/` | Authenticated Stats dashboard/workspace shell with upload and email-ingestion setup action buttons. |
 | `/Users` | Administrator user-management consumer page for M1. |
+| `/Admin/Classifications` | Administrator recognition settings surface for approved document, transaction, and spending labels, pending label suggestions, and controlled review queues. |
 | `/Upload` | Authenticated upload-documents action page prepared for merged file intake and later workflow processing. |
 | `/EmailSetup` | Authenticated email-ingestion setup action page prepared for later email ingestion contracts. |
 | `/Documents` | Authenticated document status shell prepared for later workflow state. |
@@ -186,7 +203,7 @@ M2 is an encompassing app, so its contracts are consumer-facing screens and conf
 | Output | Consumer | Description |
 | --- | --- | --- |
 | Authenticated web session | Browser user | User reaches the Stats shell after valid login and required password setup. |
-| Role-aware navigation | Browser user | Admin-only and user-level actions are visible or hidden based on M1 profile data. |
+| Role-aware navigation | Browser user | Admin-only and user-level actions are rendered from authenticated role context and do not appear late after client-side checks. |
 | Identity API requests | M1 Identity Access API | Login, current-user, password-change, and user-management requests. |
 | Shell page state | Browser user | Dashboard home, upload, email setup, document, and report surfaces render controlled states. |
 | Future workflow handoff | Later modules | Prepared UI boundaries for OCR, processing status, and workflow calls after contracts exist. |
@@ -451,6 +468,20 @@ M2 must not add OCR, document parsing, database, or Python processing dependenci
 
 M2 verification must include build checks, browser-level scripted checks, and regression checks for previously completed modules. From M13 onward, official verification must run through the Stats container.
 
+For user-facing behavior, M2 evidence must be captured from an actual run of the Stats app using the same browser routes and interactions a normal user would use. Static rendering, generated screenshots, direct HTTP responses, or isolated component captures may support diagnosis, but they do not replace live browser evidence from the running app.
+
+### Targeted Acceptance Test Flow
+
+The current targeted M2 acceptance flow is maintained in:
+
+```text
+tests/scripts/M2-StatsWebShell/M2-StatsWebShell-test-flow.md
+```
+
+That flow must be reviewed and updated before each new M2 evidence run. It defines the expected Docker runtime target, visible browser route sequence, admin/non-admin credential handling, protected-route checks, evidence folder pattern, reviewer walkthrough format, chat progress updates, pass/fail criteria, and cleanup expectations.
+
+Do not treat the test-flow document itself as evidence. Evidence is created only when the flow is executed and the resulting raw output, screenshots, checklist, and reviewer walkthrough are written under `tests/results/`.
+
 ### Carry-Forward Regression Rule
 
 Each completed module adds to the Stats project regression baseline.
@@ -482,7 +513,13 @@ Each completed module adds to the Stats project regression baseline.
 
 ### Suggested Evidence Folder
 
-Use the root grouped evidence folder:
+For a new targeted M2 Docker acceptance run, use the root grouped evidence folder:
+
+```text
+tests/results/M2-StatsWebShell-DockerAcceptance-YYYY-MM-DD/
+```
+
+Older historical M2 evidence may remain under:
 
 ```text
 tests/results/M2-StatsWebShell-M0-M1/
