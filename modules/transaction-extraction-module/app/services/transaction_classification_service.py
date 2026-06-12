@@ -14,6 +14,7 @@ from app.config import settings
 from app.models.extraction import TransactionCandidate
 from app.services.ai_transaction_classification_service import (
     ai_classify_transaction,
+    ai_skip_reason,
     merge_rule_and_ai_classification,
     should_try_ai_classification,
 )
@@ -30,6 +31,14 @@ def classify_transaction_candidate(
 ) -> TransactionCandidate:
     active_settings = _load_active_settings()
     if not active_settings:
+        classification_source = (
+            "ai_skipped_settings_unavailable"
+            if settings.transaction_classification_ai_enabled
+            else "settings_unavailable"
+        )
+        review_reason_codes = ["RECOGNITION_SETTINGS_UNAVAILABLE"]
+        if settings.transaction_classification_ai_enabled:
+            review_reason_codes.append("AI_SKIPPED_SETTINGS_UNAVAILABLE")
         unavailable = _unknown(
             "unknown",
             "unknown",
@@ -57,9 +66,9 @@ def classify_transaction_candidate(
             "spending_category_status": uncategorized["status"],
             "spending_category_reason_codes": uncategorized["reason_codes"],
             "spending_category_scores": uncategorized["scores"],
-            "classification_source": "settings_unavailable",
+            "classification_source": classification_source,
             "classification_review_required": True,
-            "classification_review_reason_codes": ["RECOGNITION_SETTINGS_UNAVAILABLE"],
+            "classification_review_reason_codes": sorted(set(review_reason_codes)),
         }
         if hasattr(candidate, "model_copy"):
             return candidate.model_copy(update=updates)
@@ -91,7 +100,10 @@ def classify_transaction_candidate(
     )
 
     ai_result = None
-    if should_try_ai_classification(transaction_result, category_result):
+    ai_was_eligible = should_try_ai_classification(transaction_result, category_result)
+    ai_skip_code = None
+    if ai_was_eligible:
+        ai_skip_code = ai_skip_reason()
         ai_result = ai_classify_transaction(
             candidate=candidate,
             document_type=document_type,
@@ -140,6 +152,14 @@ def classify_transaction_candidate(
         "classification_review_reason_codes": merged["classification_review_reason_codes"],
         **suggestion_updates,
     }
+    if ai_was_eligible and ai_result is None and settings.transaction_classification_ai_enabled:
+        if not ai_skip_code:
+            ai_skip_code = "AI_SKIPPED_PROVIDER_NO_RESULT"
+        updates["classification_source"] = str(ai_skip_code).lower()
+        updates["classification_review_required"] = True
+        updates["classification_review_reason_codes"] = sorted(
+            set([*list(updates.get("classification_review_reason_codes") or []), ai_skip_code])
+        )
     if hasattr(candidate, "model_copy"):
         return candidate.model_copy(update=updates)
     return candidate.copy(update=updates)

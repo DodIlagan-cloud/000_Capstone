@@ -1133,6 +1133,48 @@ def test_strong_rule_transaction_classification_skips_ai(monkeypatch):
     assert result.transaction_candidates[0].classification_source == "rules"
 
 
+def test_ai_enabled_but_settings_unavailable_reports_explicit_skip(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setitem(classifier_globals, "_load_active_settings", lambda: None)
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text="2026-06-08 POS Merchant counter total PHP 34.33",
+        )
+    )
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.classification_source == "ai_skipped_settings_unavailable"
+    assert "AI_SKIPPED_SETTINGS_UNAVAILABLE" in candidate.classification_review_reason_codes
+    assert "RECOGNITION_SETTINGS_UNAVAILABLE" in candidate.classification_review_reason_codes
+
+
+def test_ai_enabled_but_api_key_missing_reports_explicit_skip(monkeypatch):
+    classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
+    settings = classifier_globals["settings"]
+
+    monkeypatch.setattr(settings, "transaction_classification_ai_enabled", True)
+    monkeypatch.setattr(settings, "transaction_classification_ai_provider", "gemini")
+    monkeypatch.setattr(settings, "transaction_classification_ai_model", "gemini-2.5-flash")
+    monkeypatch.setattr(settings, "transaction_classification_ai_api_key_env", "MISSING_TEST_GEMINI_API_KEY")
+    monkeypatch.delenv("MISSING_TEST_GEMINI_API_KEY", raising=False)
+
+    result = extract_transactions(
+        TransactionExtractionRequest(
+            document_type="receipt",
+            text="2026-06-08 POS Merchant counter total PHP 34.33",
+        )
+    )
+    candidate = result.transaction_candidates[0]
+
+    assert candidate.classification_source == "ai_skipped_api_key_missing"
+    assert "AI_SKIPPED_API_KEY_MISSING" in candidate.classification_review_reason_codes
+
+
 def test_weak_transaction_classification_accepts_ai_assist(monkeypatch):
     classifier_globals = extract_transactions.__globals__["classify_transaction_candidate"].__globals__
     settings = classifier_globals["settings"]

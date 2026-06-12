@@ -18,6 +18,8 @@ Current status: **contract and documentation added**. Live Azure deployment rema
 | `docs/M14-azure-development-continuation-plan.md` | Created | Practical phased plan for deploying to Azure and continuing development from Azure using Azure SQL, Blob Storage, Fabric, and Power BI. |
 | `docs/M14-student-production-ci-cd-plan.md` | Created | Defines the cost-conscious student production simulation, CI/CD learning outcomes, phased Azure resource path, naming convention, cost controls, and approval gates. |
 | `docs/cloud-dev-development-rules.md` | Created / Updated | Shared coordination rules and reusable prompt for Codex module agents working against the `cloud-dev` Azure development runtime, including Claude/Copilot review triage expectations. |
+| `docs/cloud-dev-user-flow-evidence-plan.md` | Created | Tracks the segmented, evidence-driven cloud-dev user-flow strategy by logical user function, including admin and standard-user sign-in/navigation, upload, processing/review, save, duplicate handling, document management, reports, cleanup, evidence requirements, and runner expectations. |
+| `docs/cloud-dev-user-flow-tracking.md` | Created | Defines the committed tracking contract for segmented cloud-dev user-flow evidence, including the relationship between the versioned plan, ignored local live tracker, and per-segment evidence folders. |
 | `infrastructure/cloud/M14-azure-build-preview.md` | Created | Human-readable review checklist explaining what the first Azure-side image build will create, why each resource exists, and how the build will run. |
 | `infrastructure/cloud/M14-stage0-stage1-execution-checklist.md` | Created | Step-by-step Stage 0 and Stage 1 execution checklist covering local readiness, Azure-side image build commands, evidence capture, and the stop point before Container Apps deployment. |
 | `infrastructure/cloud/cloud-dev-stage1-evidence.md` | Created | Records the completed `cloud-dev` Stage 1 resource group, Basic ACR, pushed `stats-runtime:dev` image, ACR Tasks limitation, local Docker fallback, and stop point before Container Apps deployment. |
@@ -43,6 +45,14 @@ Current status: **contract and documentation added**. Live Azure deployment rema
 | File | Change Type | Description |
 | --- | --- | --- |
 | `tests/integration/test_m14_cloud_readiness_contract.py` | Created / Updated | Verifies the M14 files exist, the cloud example avoids real secrets, required variables are documented, Azure Blob Storage is configured as the durable cloud document-storage target, and cloud deployment notes cover Azure Container Apps, Container Registry, Key Vault, managed identity, Azure SQL, Blob Storage, health probes, stdout/stderr logging, and secret rotation. |
+
+## Evidence Tracking
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `tests/results/CloudDevUserFlows/USER-FLOW-TRACKER.md` | Created | Live status board and run log for segmented cloud-dev user-flow evidence, including current freshness state, next action, segment statuses, evidence folder links, and run history. |
+| `tests/results/CloudDevUserFlows/SEGMENT-*-WALKTHROUGH.md` | Created / Updated | Local walkthrough indexes for each completed or blocked cloud-dev user-flow segment, with embedded screenshots, result checks, attempts, fixes, and stop/go decisions. |
+| `tests/results/CloudDevUserFlows/_attempts/` | Created / Updated | Local audit folder for failed or superseded segment attempts, including the error encountered and the fix applied before rerun. |
 
 ## Verification
 

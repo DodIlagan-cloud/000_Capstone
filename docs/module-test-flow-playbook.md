@@ -9,6 +9,8 @@ This playbook defines the expected test flow for each Stats module. It is a plan
 
 From M13 onward, official evidence runs through the Stats Docker runtime first. From M14 onward, cloud-dev evidence should repeat the container-proven flow when the tested behavior is deployed and practical to verify.
 
+Cloud-dev user-flow evidence is tracked separately in `docs/cloud-dev-user-flow-evidence-plan.md`. Use that plan when validating deployed functionality that a real user interacts with, especially role-based sign-in/navigation, upload, review, save, duplicate handling, document management, and reports.
+
 ## Common Flow
 
 Every module test flow should follow this order:
@@ -52,6 +54,31 @@ Every module test flow should follow this order:
 | M11 Dashboard Reporting | Generate/report read models and verify reporting APIs/UI. | KPI/report data sourced from persisted records, semantic model or reporting query evidence. | Power BI/reporting screenshots must avoid exposing tokens or raw internal error details. |
 | M13 Containerization | Build/start Docker runtime and verify packaged services. | `stats-runtime` health, module ports, Tesseract/PyMuPDF availability, and Docker regression path. | This is the official local runtime gate for earlier modules. |
 | M14 Cloud Readiness | Repeat container-proven flows against cloud-dev where practical. | Container App health, Azure SQL/storage identity, cloud URL browser proof, and deployment config. | Redact subscription/secrets/connection strings; include concrete cloud endpoint and date. |
+
+## Cloud-Dev User Flow Evidence
+
+Cloud-dev tests should be segmented by logical user function rather than bundled into one long all-input run.
+
+The current tracked cloud-dev user-flow plan is:
+
+```text
+docs/cloud-dev-user-flow-evidence-plan.md
+```
+
+For user-facing cloud-dev evidence, run and review one segment at a time:
+
+1. Fresh-state setup.
+2. Sign in and navigation for both admin and standard users.
+3. Valid document upload.
+4. Processing and review.
+5. Edit and accept review items.
+6. Save transactions.
+7. Duplicate handling.
+8. Documents management.
+9. Reports.
+10. Final cleanup.
+
+Each segment must produce screenshots, redacted state summaries, raw output, and a clear `PASSED`, `FAILED`, or `BLOCKED` result before the next segment starts.
 
 <!-- M1 - User Access Management Start -->
 ## M1 Detailed Flow

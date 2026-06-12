@@ -14,10 +14,31 @@ from app.models.extraction import TransactionCandidate
 
 
 SENSITIVE_PATTERN = re.compile(r"\b\d{6,}\b")
+AI_SKIP_DISABLED = "AI_SKIPPED_DISABLED"
+AI_SKIP_UNSUPPORTED_PROVIDER = "AI_SKIPPED_UNSUPPORTED_PROVIDER"
+AI_SKIP_MODEL_MISSING = "AI_SKIPPED_MODEL_MISSING"
+AI_SKIP_API_KEY_MISSING = "AI_SKIPPED_API_KEY_MISSING"
+AI_SKIP_ENDPOINT_MISSING = "AI_SKIPPED_ENDPOINT_MISSING"
+AI_SKIP_PROVIDER_CALL_FAILED = "AI_SKIPPED_PROVIDER_CALL_FAILED"
+AI_SKIP_RESPONSE_PARSE_FAILED = "AI_SKIPPED_RESPONSE_PARSE_FAILED"
 
 
 def should_try_ai_classification(transaction_result: dict[str, object], category_result: dict[str, object]) -> bool:
     return _weak_result(transaction_result) or _weak_result(category_result)
+
+
+def ai_skip_reason() -> str | None:
+    if not settings.transaction_classification_ai_enabled:
+        return AI_SKIP_DISABLED
+    if settings.transaction_classification_ai_provider not in {"gemini", "openai", "openai_compatible"}:
+        return AI_SKIP_UNSUPPORTED_PROVIDER
+    if not settings.transaction_classification_ai_model:
+        return AI_SKIP_MODEL_MISSING
+    if not os.getenv(settings.transaction_classification_ai_api_key_env):
+        return AI_SKIP_API_KEY_MISSING
+    if not _request_endpoint():
+        return AI_SKIP_ENDPOINT_MISSING
+    return None
 
 
 def ai_classify_transaction(
@@ -28,16 +49,10 @@ def ai_classify_transaction(
     transaction_result: dict[str, object],
     category_result: dict[str, object],
 ) -> dict[str, object] | None:
-    if not settings.transaction_classification_ai_enabled:
+    skip_reason = ai_skip_reason()
+    if skip_reason:
         return None
-    if settings.transaction_classification_ai_provider not in {"gemini", "openai", "openai_compatible"}:
-        return None
-    if not settings.transaction_classification_ai_model:
-        return None
-
-    api_key = os.getenv(settings.transaction_classification_ai_api_key_env)
-    if not api_key:
-        return None
+    api_key = os.getenv(settings.transaction_classification_ai_api_key_env) or ""
 
     payload = _request_payload(
         candidate=candidate,
@@ -47,8 +62,6 @@ def ai_classify_transaction(
         category_result=category_result,
     )
     endpoint = _request_endpoint()
-    if not endpoint:
-        return None
 
     request = urllib.request.Request(
         endpoint,
