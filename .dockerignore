@@ -6,6 +6,7 @@
 .tmp/
 **/tests/results/
 .git/
+.claude/
 .qodo/
 .venv/
 venv/

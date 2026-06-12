@@ -49,6 +49,7 @@ infrastructure/compose/.env.container
 docx_render_check/
 
 # IDE/local tool state
+.claude/
 .qodo/
 .vscode/
 .idea/
