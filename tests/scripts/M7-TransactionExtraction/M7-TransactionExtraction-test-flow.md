@@ -72,7 +72,7 @@ When this flow is executed through Codex or another assistant, post concise prog
 11. No-transaction, ambiguous, unknown, or low-confidence scenario inspected or fixture gap recorded.
 12. M8 validation/review handoff inspected.
 13. Terminal/API/raw-output supporting evidence captured.
-14. Evidence index and reviewer walkthrough written.
+14. Evidence index and reviewer walkthrough with embedded screenshots written.
 15. Cleanup completed or cleanup gap recorded.
 
 ## Automated Checks
@@ -175,7 +175,18 @@ Create `M7-TransactionExtraction-reviewer-walkthrough-YYYY-MM-DD.md` with this s
 ## Step-by-Step Review
 | Step | User State | Route/API | Screenshot/Output | Reviewer Check |
 | --- | --- | --- | --- | --- |
+
+## Embedded Screenshots
+### Step name
+![Step name](screenshot-file-YYYY-MM-DD.png)
+
+- Reviewer check:
+- Result / comment:
 ```
+
+The `Embedded Screenshots` section is required. Embed every browser and terminal screenshot inline with Markdown image syntax so the reviewer can inspect the evidence without opening each image separately.
+
+Every embedded screenshot must be visually checked before the walkthrough is marked passed. The expected result for that step must be readable in the screenshot itself, such as M5 parse completion, transaction extraction results, transaction rows, document-level extracted fields, review-gated labels, M8 handoff, or terminal `Result: PASSED`. If the expected result is not visible, retake the screenshot or add a dedicated result screenshot.
 
 Each reviewer check should say exactly what to look for, for example:
 
@@ -199,7 +210,7 @@ Pass only when:
 - Document type, transaction type, and spending category are present or review-gated when missing, unknown, ambiguous, unsupported, or low-confidence.
 - A no-transaction, ambiguous, unknown, or low-confidence scenario is exercised, or the missing fixture is recorded as a gap with supporting controlled API proof.
 - M8 handoff is visible or blocked with a precise documented reason.
-- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough are created.
+- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough with embedded screenshots and visible-result checks are created.
 - Temporary uploaded documents/records are cleaned up where practical.
 
 Fail when:
@@ -213,6 +224,7 @@ Fail when:
 - A no-transaction or ambiguous case silently succeeds without findings.
 - M8 handoff is absent and not documented as a blocker.
 - Evidence screenshots do not show actual visible browser windows with the address bar.
+- Evidence screenshots do not visibly show the expected extraction or handoff result for their step.
 - The run relies on API, database, or terminal output as the primary acceptance evidence instead of the normal Stats app user flow.
 - Secrets, full raw OCR text, or unredacted sensitive identifiers appear in output or evidence.
 

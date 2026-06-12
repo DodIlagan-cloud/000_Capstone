@@ -64,7 +64,7 @@ When this flow is executed through Codex or another assistant, post concise prog
 10. Duplicate/idempotent re-upload verified.
 11. `/Documents` or status lookup checked, depending on whether persistence is in scope.
 12. Terminal/raw-output evidence captured.
-13. Evidence index and reviewer walkthrough written.
+13. Evidence index and reviewer walkthrough with embedded screenshots written.
 14. Cleanup completed or cleanup gap recorded.
 
 ## Fixtures
@@ -158,7 +158,18 @@ Create `M3-M4-FileValidationIngestion-reviewer-walkthrough-YYYY-MM-DD.md` with t
 ## Step-by-Step Review
 | Step | User State | Route/API | Screenshot/Output | Reviewer Check |
 | --- | --- | --- | --- | --- |
+
+## Embedded Screenshots
+### Step name
+![Step name](screenshot-file-YYYY-MM-DD.png)
+
+- Reviewer check:
+- Result / comment:
 ```
+
+The `Embedded Screenshots` section is required. Embed every browser and terminal screenshot inline with Markdown image syntax so the reviewer can inspect the evidence without opening each image separately.
+
+Every embedded screenshot must be visually checked before the walkthrough is marked passed. The expected result for that step must be readable in the screenshot itself, such as the drop zone, accepted validation metadata, rejected finding, queued ingestion, duplicate status, `DUPLICATE_SUBMISSION`, or terminal `Result: PASSED`. If the expected result is below the fold or unclear, scroll/crop/retake and add a dedicated result screenshot.
 
 Each reviewer check should say exactly what to look for, for example:
 
@@ -185,7 +196,7 @@ Pass only when:
 - Accepted file ingestion returns a queued record and status lookup succeeds.
 - Duplicate/idempotent submission behavior is visible in the UI. API proof may support this, but should not replace it unless a blocker is documented.
 - `/Documents` is checked when persistence is in scope, or explicitly marked out of M3/M4 scope when only ingestion handoff exists.
-- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough are created during the evidence run as support for the browser-user journey.
+- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough with embedded screenshots and visible-result checks are created during the evidence run as support for the browser-user journey.
 - Temporary files, temporary users, and temporary records are cleaned up where practical.
 
 Fail when:
@@ -200,6 +211,7 @@ Fail when:
 - Accepted files do not produce an ingestion id or queued/duplicate status.
 - Duplicate submission creates an unrelated active queued record for the same idempotency key/hash.
 - Evidence screenshots do not show actual visible browser windows with the address bar.
+- Evidence screenshots do not visibly show the expected validation, ingestion, rejection, duplicate, or cleanup result for their step.
 - Evidence is API-only even though the normal Stats app user path was available.
 - Secrets or full private document contents appear in output or evidence.
 

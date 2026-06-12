@@ -33,6 +33,8 @@ Every module test flow should follow this order:
 - API, database, and container command output are supporting evidence only unless the user-facing flow is blocked; any fallback must clearly record the blocker and must not be presented as a completed user-flow pass.
 - Evidence must not copy full sensitive OCR text, credentials, tokens, connection strings, or unredacted financial identifiers.
 - Host-only checks may be listed as diagnostics, but they do not satisfy module acceptance after M13.
+- Every reviewer walkthrough must embed the actual screenshots inline. Keep a step table for quick scanning, then add an `Embedded Screenshots` section with one Markdown image per evidence screenshot plus the reviewer check and result/comment.
+- Every retained screenshot must be visually checked before the run is marked passed. The expected result must be readable in the screenshot itself, such as a success message, duplicate message, rejected status, queued status, transaction result, saved state, or blocker. If the result is not visible because of scroll position, crop, browser prompt, loading state, or ambiguity, retake it or add a dedicated result screenshot.
 
 ## Module Flows
 
@@ -90,7 +92,7 @@ The M2 flow should be refined before each evidence run, then executed only when 
 10. Browser flow: sign in as a standard user when available, verify ordinary shell navigation, and verify `/Users` is absent or blocked.
 11. Evidence proof: capture actual visible Windows Edge screenshots from the live Stats app with the address bar visible for every verified route/state.
 12. Evidence proof: capture raw output and a visible terminal screenshot only during execution.
-13. Evidence documentation: create/update the screenshot evidence index and reviewer walkthrough under the dated root `tests/results/` folder.
+13. Evidence documentation: create/update the screenshot evidence index and reviewer walkthrough under the dated root `tests/results/` folder. The walkthrough must embed every screenshot inline after the step table and state whether the expected result is visibly present in each screenshot.
 14. Cleanup: close temporary browser sessions, clear evidence-session storage, deactivate temporary standard users where supported, and record whether Docker was reused, started, left running, or intentionally stopped.
 
 ## M3/M4 Detailed Flow
@@ -144,7 +146,7 @@ M7 acceptance evidence must prove the transaction extraction checkpoint from the
 9. Negative/needs-review proof: run a no-transaction, ambiguous, low-confidence, or unknown fixture when available. If no real fixture exists, record the fixture gap and use a minimal controlled API payload only as supporting proof.
 10. M8 handoff proof: continue far enough to show M8 validation/review state consuming M7 candidates, including normalized rows or precise review blockers.
 11. Terminal proof: run the relevant container command or script and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
-12. Evidence documentation: create or update the screenshot evidence index and reviewer walkthrough under the dated root `tests/results/` folder.
+12. Evidence documentation: create or update the screenshot evidence index and reviewer walkthrough under the dated root `tests/results/` folder. The walkthrough must embed every screenshot inline after the step table and state whether the expected result is visibly present in each screenshot.
 13. Cleanup: remove temporary uploads, processing records, review suggestions, and saved transactions where practical; document anything retained.
 <!-- M7 Test Flow Update - 2026-06-12 End -->
 

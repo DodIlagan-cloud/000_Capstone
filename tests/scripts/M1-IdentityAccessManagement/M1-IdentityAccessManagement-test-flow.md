@@ -84,7 +84,7 @@ When this flow is executed through Codex or another assistant, post concise prog
 14. New user permitted workspace verified.
 15. New user admin-only block verified.
 16. Terminal/raw-output evidence captured.
-17. Evidence index and reviewer walkthrough written.
+17. Evidence index and reviewer walkthrough with embedded screenshots written.
 18. Cleanup completed or cleanup gap recorded.
 
 ## Automated Checks
@@ -171,7 +171,18 @@ Create `M1-IdentityAccessManagement-reviewer-walkthrough-YYYY-MM-DD.md` with thi
 ## Step-by-Step Review
 | Step | User State | Route/API/DB | Screenshot/Output | Reviewer Check |
 | --- | --- | --- | --- | --- |
+
+## Embedded Screenshots
+### Step name
+![Step name](screenshot-file-YYYY-MM-DD.png)
+
+- Reviewer check:
+- Result / comment:
 ```
+
+The `Embedded Screenshots` section is required. Embed every browser and terminal screenshot inline with Markdown image syntax so the reviewer can inspect the evidence without opening each image separately.
+
+Every embedded screenshot must be visually checked before the walkthrough is marked passed. The expected result for that step must be readable in the screenshot itself, such as the login form, authenticated workspace, admin-only Manage users control, created user state, standard-user block, database result, or terminal `Result: PASSED`. If the expected result is not visible, retake the screenshot or add a dedicated result screenshot.
 
 Each reviewer check should say exactly what to look for, for example:
 
@@ -200,7 +211,7 @@ Pass only when:
 - Admin signs out.
 - New user signs in, completes required password maintenance, and reaches permitted workspace.
 - New user is blocked from admin-only user management.
-- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough are created during the evidence run.
+- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough with embedded screenshots and visible-result checks are created during the evidence run.
 - Temporary user/password state is cleaned up where practical, or retained state is documented.
 
 Fail when:
@@ -214,6 +225,7 @@ Fail when:
 - Standard user can access admin-only user management.
 - Created user is not persisted in the configured runtime database.
 - Evidence screenshots do not show actual visible browser windows with the address bar.
+- Evidence screenshots do not visibly show the expected result for their step.
 - Secrets, passwords, password hashes, bearer tokens, or connection strings appear in output or evidence.
 
 ## Cleanup

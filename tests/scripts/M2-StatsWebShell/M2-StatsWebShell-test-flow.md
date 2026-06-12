@@ -75,7 +75,7 @@ When this flow is executed through Codex or another assistant, post concise prog
 11. Logout/session-clear behavior verified.
 12. Standard-user route behavior verified or blocker recorded.
 13. Terminal/raw-output evidence captured.
-14. Evidence index and reviewer walkthrough written.
+14. Evidence index and reviewer walkthrough with embedded screenshots written.
 15. Cleanup completed or cleanup gap recorded.
 
 ## Automated Checks
@@ -141,7 +141,18 @@ Create `M2-StatsWebShell-reviewer-walkthrough-YYYY-MM-DD.md` with this structure
 ## Step-by-Step Review
 | Step | User State | Route | Screenshot | Reviewer Check |
 | --- | --- | --- | --- | --- |
+
+## Embedded Screenshots
+### Step name
+![Step name](screenshot-file-YYYY-MM-DD.png)
+
+- Reviewer check:
+- Result / comment:
 ```
+
+The `Embedded Screenshots` section is required. Embed every browser and terminal screenshot inline with Markdown image syntax so the reviewer can inspect the evidence without opening each image separately.
+
+Every embedded screenshot must be visually checked before the walkthrough is marked passed. The expected result for that step must be readable in the screenshot itself, such as the login route, dashboard navigation, authenticated route, signed-out redirect, standard-user shell, or admin block. If the expected result is not visible, retake the screenshot or add a dedicated result screenshot.
 
 Each reviewer check should say exactly what to look for, for example:
 
@@ -161,7 +172,7 @@ Pass only when:
 - Authenticated dashboard and main shell routes are verified through actual browser screenshots captured from the live Stats app while following normal user interaction paths.
 - Protected routes redirect or block unauthenticated access.
 - Standard-user behavior is verified, or a precise standard-user blocker is documented.
-- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough are created.
+- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough with embedded screenshots and visible-result checks are created.
 - Temporary test users or sessions are cleaned up where applicable.
 
 Fail when:
@@ -172,6 +183,7 @@ Fail when:
 - Authenticated shell navigation fails for valid configured credentials.
 - Admin-only route is visible or usable by a standard user.
 - Evidence screenshots do not show actual visible browser windows with the address bar.
+- Evidence screenshots do not visibly show the expected result for their route/state.
 - Secrets appear in output or evidence.
 
 ## Cleanup

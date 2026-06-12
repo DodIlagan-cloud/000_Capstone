@@ -72,7 +72,7 @@ When this flow is executed through Codex or another assistant, post concise prog
 12. Save-ready or duplicate-blocked final state inspected.
 13. Documents/Reports result inspected when saved data is expected.
 14. Terminal/API/raw-output supporting evidence captured.
-15. Evidence index and reviewer walkthrough written.
+15. Evidence index and reviewer walkthrough with embedded screenshots written.
 16. Cleanup completed or cleanup gap recorded.
 
 ## Automated Checks
@@ -157,7 +157,18 @@ Create `M8-DataValidation-reviewer-walkthrough-YYYY-MM-DD.md` with this structur
 ## Step-by-Step Review
 | Step | User State | Route/API | Screenshot/Output | Reviewer Check |
 | --- | --- | --- | --- | --- |
+
+## Embedded Screenshots
+### Step name
+![Step name](screenshot-file-YYYY-MM-DD.png)
+
+- Reviewer check:
+- Result / comment:
 ```
+
+The `Embedded Screenshots` section is required. Embed every browser and terminal screenshot inline with Markdown image syntax so the reviewer can inspect the evidence without opening each image separately.
+
+Every embedded screenshot must be visually checked before the walkthrough is marked passed. The expected result for that step must be readable in the screenshot itself, such as transaction check results, review queue, ready rows, extracted-data toggle, duplicate/save blocker, saved result, `/Documents` state, or terminal `Result: PASSED`. If the expected result is not visible, retake the screenshot or add a dedicated result screenshot.
 
 Each reviewer check should say exactly what to look for, for example:
 
@@ -179,7 +190,7 @@ Pass only when:
 - Review edit/accept behavior is exercised when supported by the UI.
 - Save-ready behavior is exercised and either persists, duplicate-blocks, or records a precise not-ready reason.
 - Documents/Reports outcome is verified when saved records are expected.
-- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough are created.
+- Raw output, terminal screenshot, screenshot evidence index, and reviewer walkthrough with embedded screenshots and visible-result checks are created.
 - Temporary uploaded documents/records are cleaned up where practical.
 
 Fail when:
@@ -191,6 +202,7 @@ Fail when:
 - Review items or findings are hidden behind raw developer JSON only.
 - Duplicate/save behavior returns a generic message without a visible reason.
 - Evidence screenshots do not show actual visible browser windows with the address bar.
+- Evidence screenshots do not visibly show the expected validation, review, duplicate, save, or document result for their step.
 - The run relies on API, database, or terminal output as the primary acceptance evidence instead of the normal Stats app user flow.
 - Secrets or unredacted sensitive OCR text appear in output or evidence.
 

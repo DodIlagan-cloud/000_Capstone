@@ -23,7 +23,9 @@ Use this skill to produce reusable, assessment-friendly test artefacts for a com
 - Crop screenshots to the relevant browser or terminal area before final delivery.
 - Position visible browser windows away from the Windows toast notification area before capture to avoid unrelated notification evidence and retakes.
 - Keep filenames stable and dated: `<module>-windows-browser-<target>-YYYY-MM-DD.png`.
+- Do a visual result check for every retained screenshot. The expected outcome must be visible inside the screenshot itself, not only present in DOM state, logs, raw output, or a filename. If the expected result is below the fold, hidden, cropped out, too small, or ambiguous, scroll/crop/retake and add a dedicated screenshot for that result.
 - Maintain a Markdown evidence index that lists every retained screenshot and what it proves.
+- Every reviewer walkthrough must embed the screenshots inline with Markdown image syntax, not only link to filenames. Keep the step table for quick scanning, then add an `Embedded Screenshots` section where each screenshot appears under its step name with the reviewer check and result/comment.
 - Remove or avoid rendered-response screenshots unless the user explicitly asks for them.
 - Include the exact command used for terminal verification in a tests/results script or report.
 
@@ -37,10 +39,12 @@ Use this skill to produce reusable, assessment-friendly test artefacts for a com
 6. Run the current module verification and the carried-forward prior-module regression verification.
 7. Open each target in a visible Windows Edge browser window or tab and position the window away from the Windows toast notification area.
 8. Capture screenshots with `PIL.ImageGrab.grab()` and save them under `tests/results/`.
-9. Find and activate the existing test terminal window, then capture a visible Windows terminal screenshot showing test output and a clear passed/failed result.
-10. Crop the screenshots to relevant browser or terminal content.
-11. Create or update an evidence index Markdown file.
-12. Stop any local server process started for evidence capture unless the user wants it left running.
+9. Inspect each screenshot and confirm the expected result is visibly present. Retake weak screenshots before writing the final walkthrough.
+10. Find and activate the existing test terminal window, then capture a visible Windows terminal screenshot showing test output and a clear passed/failed result.
+11. Crop the screenshots to relevant browser or terminal content.
+12. Create or update an evidence index Markdown file.
+13. Create or update a reviewer walkthrough that includes both the step table and embedded screenshots.
+14. Stop any local server process started for evidence capture unless the user wants it left running.
 
 ## Carry-Forward Regression Rule
 
@@ -186,6 +190,27 @@ Example table:
 | Windows browser health evidence | `module-windows-browser-health-YYYY-MM-DD.png` | Browser opened `GET /health` from the local service |
 | Windows terminal test evidence | `module-windows-terminal-test-YYYY-MM-DD.png` | PowerShell displayed direct module test output with passed result |
 ```
+
+## Reviewer Walkthrough
+
+Create or update `<module>-reviewer-walkthrough-YYYY-MM-DD.md` with:
+
+- Objective, runtime target, fixture list, and cleanup status.
+- A step-by-step table with screenshot filename, reviewer checks, and pass/fail comments.
+- An `Embedded Screenshots` section immediately after the table.
+- One subsection per screenshot using this pattern:
+
+```markdown
+### Duplicate user message
+![Duplicate user message](06-duplicate-user-message-YYYY-MM-DD.png)
+
+- Reviewer check: The visible upload status says this document was already uploaded.
+- Result / comment: Pass - user-facing duplicate message is visible.
+```
+
+Every embedded screenshot must include a visual-result comment. Use `Pass - expected result is visible` only when the screenshot itself shows the required state/message/count/action. Use `Needs retake` or `Fail` when the screenshot does not visibly prove the expected result, even if supporting logs or DOM assertions passed.
+
+Use relative image paths when the screenshots live beside the Markdown file, so reviewers can open the walkthrough folder and see the images render without path rewrites.
 
 ## Cleanup
 

@@ -145,10 +145,22 @@ function findingMessages(findings = []) {
 function ingestionFailureMessage(record) {
   const status = record?.status || "unknown";
   const reasons = findingMessages(record?.findings || []);
+  if (status === "duplicate") {
+    return reasons.length
+      ? `This document was already uploaded. ${reasons.join(" ")}`
+      : "This document was already uploaded. Choose a different file or remove the existing saved record before uploading it again.";
+  }
+  if (status === "queued" && !ingestionHandoffReady(record)) {
+    return "Document upload stopped at ingestion. The queued record did not include a processing handoff.";
+  }
   if (reasons.length) {
     return `Document upload stopped at ingestion. Status: ${status}. Reason: ${reasons.join(" ")}`;
   }
   return `Document upload stopped at ingestion. Status: ${status}. The ingestion service did not queue the file and did not return a reason.`;
+}
+
+function ingestionHandoffReady(record) {
+  return Boolean(record?.handoff?.content_reference);
 }
 
 function resetUploadPage(message = "Choose a file to validate.", tone = "pending") {
@@ -647,7 +659,9 @@ function renderIngestionResult(record) {
   ingestionResult.replaceChildren();
 
   const heading = document.createElement("h3");
-  heading.textContent = record.status === "queued" ? "Document uploaded" : "Document upload needs review";
+  heading.textContent = record.status === "queued"
+    ? "Document uploaded"
+    : record.status === "duplicate" ? "Document already uploaded" : "Document upload needs review";
 
   const handoff = record.handoff || {};
   const source = record.source || {};
@@ -1368,7 +1382,7 @@ async function sendAcceptedFileToProcessing() {
     const record = await response.json();
     renderIngestionResult(record);
 
-    if (record.status === "queued" || record.status === "duplicate") {
+    if (record.status === "queued" && ingestionHandoffReady(record)) {
       renderProcessingProgress(2, "Reading document", "The document is uploaded. Stats is reading the text.");
       setValidationState("Document ingested. Parsing document.", "pending");
       await startAcceptedFileProcessingJob(record);

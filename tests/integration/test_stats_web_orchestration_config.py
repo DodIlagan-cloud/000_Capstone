@@ -217,6 +217,52 @@ def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
     assert "payload.validation_result" in upload_source
 
 
+def test_upload_duplicate_ingestion_stops_before_async_m5_m7_processing():
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+    start = upload_source.index("async function sendAcceptedFileToProcessing()")
+    end = upload_source.index("async function startAcceptedFileProcessingJob(record)")
+    function_source = upload_source[start:end]
+
+    assert 'if (record.status === "queued" && ingestionHandoffReady(record))' in function_source
+    assert 'record.status === "queued" || record.status === "duplicate"' not in function_source
+    assert 'record.status === "duplicate" ? "Document already uploaded" : "Document upload needs review"' in upload_source
+    assert "This document was already uploaded." in upload_source
+    assert "function ingestionHandoffReady(record)" in upload_source
+    assert "record?.handoff?.content_reference" in upload_source
+
+    queued_start = function_source.index('if (record.status === "queued" && ingestionHandoffReady(record))')
+    terminal_start = function_source.index('renderProcessingProgress(1, "Document upload stopped"')
+    queued_branch = function_source[queued_start:terminal_start]
+    terminal_branch = function_source[terminal_start:]
+
+    assert "await startAcceptedFileProcessingJob(record);" in queued_branch
+    assert "await startAcceptedFileProcessingJob(record);" not in terminal_branch
+    assert 'setValidationState(ingestionFailureMessage(record), "error");' in terminal_branch
+    assert "The queued record did not include a processing handoff." in upload_source
+
+
+def test_queued_ingestion_still_reaches_m7_extraction_after_m5_parse():
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+
+    upload_start = upload_source.index("async function sendAcceptedFileToProcessing()")
+    upload_end = upload_source.index("async function startAcceptedFileProcessingJob(record)")
+    upload_function = upload_source[upload_start:upload_end]
+    queued_start = upload_function.index('if (record.status === "queued" && ingestionHandoffReady(record))')
+    terminal_start = upload_function.index('renderProcessingProgress(1, "Document upload stopped"')
+    queued_branch = upload_function[queued_start:terminal_start]
+
+    assert "await startAcceptedFileProcessingJob(record);" in queued_branch
+    assert 'fetch("/api/v1/upload-processing-jobs"' in upload_source
+
+    parse_step = program_source.index('"document_parsing"')
+    extraction_step = program_source.index('"transaction_extraction"')
+    validation_step = program_source.index('"data_validation"')
+    assert parse_step < extraction_step < validation_step
+    assert '/api/v1/extractions' in program_source
+    assert "BuildExtractionRequest(parseResult)" in program_source
+
+
 def test_upload_js_does_not_force_single_page_parse_in_async_flow():
     """Ensure async browser processing preserves statement page coverage."""
     upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
