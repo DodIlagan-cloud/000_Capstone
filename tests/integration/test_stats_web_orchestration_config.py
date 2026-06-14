@@ -175,6 +175,15 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert 'statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/batches")' in upload_source
     assert 'statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/duplicate-checks")' in upload_source
     assert "buildSaveValidationResult" in upload_source
+    assert "confirmedClassificationSource(record)" in upload_source
+    assert "user_confirmed_ai_suggestion" in upload_source
+    assert "acceptedClassificationRecord(record)" in upload_source
+    assert "next.suggested_transaction_type" not in upload_source
+    assert "next.transaction_type = String(next.suggested_transaction_type)" not in upload_source
+    assert "classification_review_required: accepted ? false" in upload_source
+    assert "classification_review_reason_codes: accepted ? []" in upload_source
+    assert "classification_human_confirmed: accepted" in upload_source
+    assert "recognition_suggestion_status: accepted ? \"confirmed_by_upload_review\"" in upload_source
     assert "checkDuplicateTransactions" in upload_source
     assert "duplicateCheckMessage" in upload_source
     assert "renderDuplicateCheckPanel" in upload_source
@@ -191,11 +200,13 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert "transactionSubtypeOptions" in upload_source
     assert "spendingCategoryOptions" in upload_source
     assert "spendingSubcategoryOptions" in upload_source
-    assert "[\"transaction_type\", \"Transaction type\", \"select\", transactionTypeOptions]" in upload_source
-    assert "[\"transaction_subtype\", \"Transaction subtype\", \"select\", transactionSubtypeOptions]" in upload_source
-    assert "[\"spending_category\", \"Spending category\", \"select\", spendingCategoryOptions]" in upload_source
-    assert "[\"spending_subcategory\", \"Spending subcategory\", \"select\", spendingSubcategoryOptions]" in upload_source
-    assert 'category: record.spending_category && record.spending_category !== "uncategorized"' in upload_source
+    assert "withSuggestedOption(transactionTypeOptions, record.suggested_transaction_type)" in upload_source
+    assert "withSuggestedOption(transactionSubtypeOptions, record.suggested_transaction_subtype)" in upload_source
+    assert "withSuggestedOption(spendingCategoryOptions, record.suggested_spending_category)" in upload_source
+    assert "withSuggestedOption(spendingSubcategoryOptions, record.suggested_spending_subcategory)" in upload_source
+    assert "[\"transaction_type\", \"Transaction type\", \"select\", transactionTypes]" in upload_source
+    assert "[\"spending_category\", \"Spending category\", \"select\", spendingCategories]" in upload_source
+    assert 'category: saveRecord.spending_category && saveRecord.spending_category !== "uncategorized"' in upload_source
     assert "review-item-header" in upload_source
     assert "review-details review-details-transaction" in upload_source
     assert "[\"Direction\", titleCaseLabel(record.direction || \"unknown\")]" in upload_source

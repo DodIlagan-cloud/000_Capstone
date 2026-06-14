@@ -37,6 +37,7 @@ Earlier modules may still be incomplete while this spec is refined. The purpose 
 - Keep runtime database configuration environment-driven and compatible with Azure SQL Database as the cloud operational store.
 - Shape stored transaction and document data so later dashboard/reporting modules can query totals, trends, status counts, categories, sources, and review backlogs without rereading source files or rerunning processing modules.
 - Preserve document-level financial facts for M11 to answer obligations, payments, reconciliation, credit exposure, and evidence-quality questions.
+- Treat Upload transaction review/accept/save as a human-confirmation path for AI-suggested transaction and spending labels, activating accepted new labels/subtypes during save with audit metadata.
 
 ## Non-Goals
 
@@ -328,6 +329,10 @@ This is the core durable financial data M9 should store from Data Validation nor
 | `transaction_type_confidence` | Confidence for transaction type/subtype classification |
 | `spending_category_confidence` | Confidence for spending category/subcategory classification |
 | `classification_review_required` | Boolean flag when transaction/category classification is unknown, ambiguous, low-confidence, AI-assisted, or user-review-needed |
+| `classification_human_confirmed` | Boolean flag that the saved transaction classification was reviewed and accepted by a user before persistence |
+| `classification_confirmed_by_user_id` | User who confirmed the transaction/spending classification during save, when applicable |
+| `classification_confirmed_at_utc` | Timestamp of save-time classification confirmation |
+| `classification_confirmation_source` | Confirmation path such as `upload_transaction_review`, `admin_classification_review`, or `none` |
 | `reference` | Optional transaction/reference code |
 | `payment_method` | Card, bank transfer, EFTPOS, cash, unknown |
 | `masked_account_or_card` | Masked account/card reference only |
@@ -364,17 +369,22 @@ M9 owns durable storage and synchronization for recognition-label governance. Th
 
 Committed recognition JSON files are deprecated for runtime use. They may be retained temporarily only as migration seed/reference material until equivalent M9 seed data exists. M5 and M7 must read active approved settings from M9. If M9 recognition settings are unavailable, M5/M7 must fail the classification portion clearly rather than silently using stale JSON files from the container image.
 
-The accepted flow is:
+M9 must expose a compact active-recognition context for classifiers before any AI-assisted request is made. That context should include approved document types/subtypes, transaction types/subtypes, spending categories/subcategories, enabled aliases/rules, deprecation hints, merge hints, and stable vocabulary identifiers. M5 and M7 use this context to constrain AI prompts so existing active labels are preferred and proposed new labels are explicitly distinguishable from approved labels.
+
+The accepted governance flows are:
 
 1. Any upload user may trigger a label suggestion through M5 or M7 when a document, transaction type, transaction subtype, spending category, or spending subcategory is unknown, ambiguous, or plausibly new.
-2. M5/M7 do not write active settings directly. They return or submit a pending suggestion with redacted evidence, source identifiers, proposed label values, confidence, reason codes, and suggested action.
-3. M9 stores the pending suggestion and exposes it to admin-only Stats Web routes.
-4. An administrator may approve, edit before approving, reject, rename, or merge the suggestion.
-5. Approval updates the active database recognition settings through a controlled backend operation and writes an audit record.
-6. If the approved action changes existing labels, M9 updates affected persisted records in the same controlled operation or records a queued synchronization task when the update cannot complete immediately.
-7. Rejection changes only the suggestion status and audit history. It must not change active settings or existing transaction/document records.
-8. Pending suggestions may be linked to affected transactions/documents, but active persisted labels remain the safest approved values, such as `unknown` or `uncategorized`, until approval.
-9. M9 must accept persistence payloads where the extracted transaction is otherwise valid but classification fields remain `unknown` or `uncategorized` with pending recognition suggestion metadata. These records are saved as review-required records, not rejected at the upload-save boundary, so admin approval can later update the linked document/transaction rows through the suggestion workflow.
+2. M5/M7 do not write active settings directly. They return classification fields and review metadata with redacted evidence, source identifiers, proposed label values, confidence, reason codes, and suggested action.
+3. When an AI-suggested transaction type, transaction subtype, spending category, or spending subcategory is reviewed and accepted in the Upload transaction review flow, M9 treats the save request as the human confirmation event for that transaction.
+4. In the reviewed transaction save path, M9 persists the accepted AI-suggested classification on the saved transaction, marks it human-confirmed, writes audit metadata, and upserts any new transaction/spending label or subtype into active recognition vocabulary during the same save workflow.
+5. The reviewed transaction save path bypasses the separate `/Admin/Classifications` pending-suggestion approval path for that transaction. M9 must not create a duplicate pending admin suggestion for a classification that was already confirmed by the save payload.
+6. Suggestions from post-MVP email ingestion, automated workflows, background processing, or other unreviewed paths remain admin-governed. M9 stores the pending suggestion and exposes it to admin-only Stats Web routes.
+7. An administrator may approve, edit before approving, reject, rename, or merge admin-governed suggestions.
+8. Admin approval updates the active database recognition settings through a controlled backend operation and writes an audit record.
+9. If the approved admin action changes existing labels, M9 updates affected persisted records in the same controlled operation or records a queued synchronization task when the update cannot complete immediately.
+10. Admin rejection changes only the suggestion status and audit history. It must not change active settings or existing transaction/document records.
+11. Pending admin suggestions may be linked to affected transactions/documents, but active persisted labels remain the safest approved values, such as `unknown` or `uncategorized`, until approval.
+12. M9 must accept persistence payloads where the extracted transaction is otherwise valid but classification fields remain `unknown` or `uncategorized` with pending recognition suggestion metadata. These records are saved as review-required records, not rejected at the upload-save boundary, so admin approval can later update the linked document/transaction rows through the suggestion workflow.
 
 Recommended durable tables:
 
@@ -383,7 +393,7 @@ Recommended durable tables:
 | `recognition_labels` | Active approved labels for document type/subtype, transaction type/subtype, and spending category/subcategory. Includes status, display label, description, sort order, created/updated audit fields, and deprecation metadata. |
 | `recognition_rules` | Active approved deterministic rule signals tied to labels, including rule scope, match terms/patterns, weights, minimum evidence requirements, enabled status, and audit fields. |
 | `recognition_label_suggestions` | Pending, approved, rejected, or merged suggestions from M5/M7, including source document/transaction links, proposed labels, redacted evidence, confidence, and reason codes. |
-| `recognition_config_changes` | Audit trail for approved database setting changes, including admin user, action type, before/after labels/rules, timestamps, and change reason. |
+| `recognition_config_changes` | Audit trail for approved database setting changes, including admin user or save-confirming user, action type, before/after labels/rules, timestamps, confirmation source, and change reason. |
 | `recognition_label_sync_runs` | Records database synchronization for label rename/merge/apply actions, affected row counts, status, and failure details. |
 
 Recommended transaction/document links:
@@ -394,6 +404,8 @@ Recommended transaction/document links:
 | `stats_documents.recognition_suggestion_id` | Optional foreign key to `recognition_label_suggestions.suggestion_id` when a document was parsed with a pending document-label suggestion. |
 
 The current transaction and document label fields should remain text snapshots for reporting stability and compatibility with existing dashboard queries. They should not become hard foreign keys to active labels in this pass because historical reports must remain understandable after labels are renamed, merged, deprecated, or reactivated. M9 may add label ID references later once the governance workflow has proven stable.
+
+For the reviewed transaction save path, the saved transaction label snapshots must use the accepted AI-suggested or user-edited values, not fallback `unknown` or `uncategorized` values, when the save payload marks the row as reviewed/accepted and classification-human-confirmed. Save-time active-vocabulary upsert must be idempotent so repeated save attempts do not create duplicate labels, duplicate subtypes, or duplicate config-change audit records.
 
 Admin synchronization policies:
 
@@ -410,7 +422,17 @@ For this project, the default recommended policy is `rename_existing_records` or
 <!-- M9 AI Suggestion Approval Start - 2026-06-11 -->
 ### AI Suggestion Approval Runtime
 
-M9 must persist recognition suggestions supplied by validated document and transaction records into `dbo.recognition_label_suggestions` when transactions are saved. Suggestions remain separate from active document, transaction, and spending fields until an administrator approves them.
+M9 must distinguish reviewed transaction-save confirmations from admin-governed pending suggestions.
+
+When a validated transaction record carries an AI-suggested transaction/spending classification and the upload user has reviewed/accepted that row before saving, M9 must:
+
+- save the accepted AI-suggested transaction type, transaction subtype, spending category, and spending subcategory on the transaction;
+- mark the transaction classification as human-confirmed with save user, timestamp, and confirmation source;
+- upsert any new transaction/spending label or subtype into active `recognition_labels`;
+- write an audited `recognition_config_changes` row tied to the save operation or transaction batch;
+- avoid creating a duplicate pending admin suggestion for that same confirmed transaction classification.
+
+Recognition suggestions supplied by post-MVP email ingestion, automated/background flows, unreviewed document/transaction rows, or transaction rows not marked classification-human-confirmed remain separate from active document, transaction, and spending fields until an administrator approves them.
 
 The admin approval API must support:
 
@@ -817,8 +839,8 @@ Cloud-first deployment order:
 - Use authenticated user context for all save/query routes.
 - Scope ordinary users to their own documents and transactions.
 - Allow administrator visibility only through explicit admin routes or role checks.
-- Require administrator role for recognition settings writes, suggestion approvals, active database setting updates, and database label synchronization.
-- Audit every recognition label/rule approval, rejection, edit, delete/deactivation, rename, merge, and historical-record sync.
+- Require administrator role for admin recognition settings writes, suggestion approvals, active database setting edits, and database label synchronization. The reviewed transaction save path may activate only the accepted AI-suggested transaction/spending labels carried by that save payload for that user-owned transaction batch.
+- Audit every recognition label/rule approval, rejection, edit, delete/deactivation, rename, merge, historical-record sync, and save-time user-confirmed label activation.
 - Store only redacted evidence snippets for suggestions; do not store raw OCR text or full financial text in suggestion records.
 - Never expose identity secrets, password hashes, tokens, or database credentials through M9 responses.
 
@@ -829,7 +851,7 @@ From M13 onward, official M9 verification should run through the Stats container
 | Test Type | Required Coverage |
 | --- | --- |
 | Unit tests | Duplicate-key generation, persistence mapping, validation-result mapping |
-| API tests | Save batch, query documents, query transactions, duplicate save behavior, admin recognition-setting suggestion approval, label/rule add/edit/delete validation, sync-preview counts |
+| API tests | Save batch, query documents, query transactions, duplicate save behavior, save-time user-confirmed label activation, admin recognition-setting suggestion approval, label/rule add/edit/delete validation, sync-preview counts |
 | Integration tests | Azure SQL schema creation/migration and cloud database connectivity |
 | Regression tests | M1 identity still works; Data Validation checkpoint can call M9 save path; label rename/merge synchronization preserves reporting dimensions |
 | Evidence tests | Browser save flow and database verification screenshots/output |
@@ -844,6 +866,11 @@ From M13 onward, official M9 verification should run through the Stats container
 - M9 stores dashboard-ready statement, invoice, receipt, payment-proof, and reconciliation facts when upstream validation provides them.
 - M9 exposes or can derive query results for M11 dashboard summaries, trends, obligations, reconciliation status, review backlog, and processing health.
 - M9 stores active recognition labels/rules, pending recognition label suggestions, and admin approval/rejection audit records.
+- M9 saves user-reviewed AI-suggested transaction/spending labels as human-confirmed classifications and upserts any new labels/subtypes into active vocabulary during the save workflow.
+- If a reviewed save payload contains an accepted AI-suggested transaction type, transaction subtype, spending category, or spending subcategory, the saved transaction persists those accepted values rather than fallback `unknown` or `uncategorized` values.
+- During save, every accepted classification value or subtype not already in active recognition vocabulary is added to active vocabulary through an audited, idempotent M9 operation.
+- Saved rows confirmed through manual Upload transaction review are marked human-confirmed, not low-confidence, not pending admin approval, and not blocked by the `/Admin/Classifications` pending-suggestion workflow.
+- No pending admin suggestion is required for a reviewed manual Upload transaction whose AI-suggested classification was accepted and saved, and M9 must avoid leaving a duplicate pending suggestion that implies further approval is necessary for that transaction.
 - M9 supports controlled synchronization of persisted transaction labels when admin-approved database setting edits rename, merge, or apply document/transaction/spending labels.
 - M9 returns a save summary with saved, skipped duplicate, warning, and invalid counts.
 - M9 avoids storing raw document bytes or full unredacted OCR text in relational tables.

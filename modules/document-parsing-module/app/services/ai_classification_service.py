@@ -4,6 +4,7 @@ M5/M6 End"""
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -18,6 +19,7 @@ def ai_classify_document(
     text: str,
     supported_document_types: list[str],
     rule_result: ClassificationResult,
+    active_recognition_context: dict[str, Any] | None = None,
 ) -> ClassificationResult | None:
     if not settings.classification_ai_enabled:
         return None
@@ -31,7 +33,7 @@ def ai_classify_document(
         return None
 
     redacted_text, _counts = redact_text(text, settings.classification_ai_max_chars)
-    payload = _request_payload(redacted_text, supported_document_types, rule_result)
+    payload = _request_payload(redacted_text, supported_document_types, rule_result, active_recognition_context or {})
     headers = _request_headers(api_key)
     endpoint = _request_endpoint()
     if not endpoint:
@@ -69,6 +71,7 @@ def merge_rule_and_ai_classification(
     rule_result: ClassificationResult,
     ai_result: ClassificationResult | None,
     approved_document_types: set[str],
+    recognition_context_version: str | None = None,
 ) -> ClassificationResult:
     if ai_result is None:
         return rule_result
@@ -83,6 +86,7 @@ def merge_rule_and_ai_classification(
                 "requires_review": True,
                 "review_reason_codes": sorted(set([*rule_result.review_reason_codes, "AI_CONFIDENCE_BELOW_THRESHOLD"])),
                 "reason_codes": sorted(set([*rule_result.reason_codes, "AI_ASSIST_LOW_CONFIDENCE"])),
+                "recognition_context_version": recognition_context_version or rule_result.recognition_context_version,
             }
         )
 
@@ -96,6 +100,7 @@ def merge_rule_and_ai_classification(
                 "requires_review": True,
                 "review_reason_codes": sorted(set([*rule_result.review_reason_codes, "RULE_AI_CLASSIFICATION_CONFLICT"])),
                 "reason_codes": sorted(set([*rule_result.reason_codes, "AI_ASSIST_CONFLICT"])),
+                "recognition_context_version": recognition_context_version or rule_result.recognition_context_version,
             }
         )
 
@@ -129,6 +134,9 @@ def merge_rule_and_ai_classification(
                 "suggestion_reason_codes": sorted(set([*suggestion_reason_codes, "PENDING_DOCUMENT_LABEL_SUGGESTION"])),
                 "suggestion_source": suggestion_source,
                 "suggestion_evidence_ref": suggestion_evidence_ref,
+                "classification_vocabulary_status": "outside_vocabulary_proposal",
+                "recognition_context_version": recognition_context_version or rule_result.recognition_context_version,
+                "classification_confirmation_mode": "upload_review_save",
             }
         )
 
@@ -139,6 +147,8 @@ def merge_rule_and_ai_classification(
             "reason_codes": sorted(set([*ai_result.reason_codes, "AI_ASSISTED_CLASSIFICATION"])),
             "scores": {**rule_result.scores, **ai_result.scores},
             "requires_review": ai_result.requires_review,
+            "classification_vocabulary_status": "active_vocabulary_match",
+            "recognition_context_version": recognition_context_version or rule_result.recognition_context_version,
         }
     )
 
@@ -147,14 +157,17 @@ def _request_payload(
     redacted_text: str,
     supported_document_types: list[str],
     rule_result: ClassificationResult,
+    active_recognition_context: dict[str, Any],
 ) -> dict[str, Any]:
     system_prompt = (
         "Classify a financial source document for the Stats app. "
         "Return only compact JSON with document_type, document_subtype, confidence, "
-        "reason_codes, explanation, and requires_review. Use only supported document types."
+        "reason_codes, explanation, requires_review, and vocabulary_status. "
+        "Prefer active_recognition_context labels when they fit. Propose a new label only when no active label fits."
     )
     user_prompt = {
         "supported_document_types": supported_document_types,
+        "active_recognition_context": active_recognition_context,
         "rule_result": rule_result.model_dump(),
         "redacted_text": redacted_text,
     }
@@ -222,10 +235,15 @@ def _parse_ai_response(raw_response: str, supported_document_types: list[str]) -
     if not parsed:
         return None
 
-    supported = {value.lower() for value in supported_document_types}
     document_type = str(parsed.get("document_type", "unknown")).lower()
     document_subtype = str(parsed.get("document_subtype", "unknown")).lower()
-    if document_type not in supported:
+    vocabulary_status = str(parsed.get("vocabulary_status") or "active_vocabulary_match").strip().lower()
+    supported = {value.lower() for value in supported_document_types}
+    if document_type not in supported and vocabulary_status != "outside_vocabulary_proposal":
+        return None
+    if not re.match(r"^[a-z][a-z0-9_]{1,79}$", document_type):
+        return None
+    if not re.match(r"^[a-z][a-z0-9_]{1,99}$", document_subtype):
         return None
 
     try:
@@ -250,6 +268,7 @@ def _parse_ai_response(raw_response: str, supported_document_types: list[str]) -
         ai_confidence=round(max(0.0, min(confidence, 1.0)), 3),
         requires_review=bool(parsed.get("requires_review", confidence < settings.classification_ai_min_confidence)),
         review_reason_codes=["AI_CLASSIFICATION_REVIEW_REQUIRED"] if parsed.get("requires_review") else [],
+        classification_vocabulary_status=vocabulary_status,
     )
 
 

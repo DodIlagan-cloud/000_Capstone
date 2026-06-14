@@ -65,7 +65,7 @@ The current roadmap may still show M5 as OCR Extraction and M6 as Document Class
 - When M5 loads active recognition settings from M9, it must use a still-available in-memory cache from a successful prior M9 load during a temporary M9/API outage. M5 may return recognition-settings-unavailable only when no active M9 settings cache exists. This does not permit falling back to deprecated committed JSON configuration files in the container image.
 <!-- M5 Recognition Resilience Update End - 2026-06-12 -->
 <!-- M5 Document Suggestion Approval Start - 2026-06-11 -->
-- When AI identifies a plausible document type that is not currently active in M9 recognition settings, M5 must not activate or return that label as the approved document type. It must return the safest approved current value, normally `unknown`, plus pending suggestion metadata containing the proposed document type/subtype, confidence, source, reason codes, and redacted evidence reference for M9/admin review.
+- When AI identifies a plausible document type that is not currently active in M9 recognition settings, M5 must preserve the proposed document type/subtype and mark the document for review. In the MVP manual Upload flow, user review/accept/save is the human confirmation path and M9 activates the accepted document label during save. For post-MVP email ingestion, automated workflows, or unreviewed flows, M5 may return the safest approved current value plus pending suggestion metadata for M9/admin review.
 <!-- M5 Document Suggestion Approval End - 2026-06-11 -->
 - Return both `document_type` and optional `document_subtype` when the shared vocabulary and rule signals support a subtype.
 - Treat Stats Web `/Admin/Classifications` as the administrator recognition settings surface for approved document recognition configuration, pending recognition suggestions, and approval workflows. M5 remains the owner of document classification behavior, but M9 is the database source of truth for approved labels, rules, suggestions, audit history, and synchronization.
@@ -258,12 +258,14 @@ When explicitly enabled and configured, the AI-assisted classifier may run only 
 
 Before calling the AI provider, M5 must:
 
+- Load the current active document recognition context from M9, including approved document types, subtypes, enabled rule labels, aliases, and any active deprecation/merge hints needed to avoid stale labels.
 - Redact personal information, card numbers, account numbers, email addresses, and similar sensitive values.
 - Truncate the prompt text to `CLASSIFICATION_AI_MAX_CHARS`.
-- Send only the supported document vocabulary, the rule result, and redacted extracted text.
+- Send only the active supported document vocabulary/context, the rule result, and redacted extracted text.
+- Instruct the provider to choose the best existing active document type/subtype when one fits, and to propose a new label only when the document evidence does not map safely to any active label.
 - Avoid sending raw uploaded file bytes or unredacted evidence.
 
-The provider response must map back to the M5 vocabulary and include document type, subtype, confidence, reason codes, model name/version, and review requirement. M5 accepts the AI suggestion only when confidence is at or above `CLASSIFICATION_AI_MIN_CONFIDENCE`. If the deterministic rule result is already classified and the AI result conflicts, M5 preserves the rule result, marks the classification as requiring review, and records conflict reason codes.
+The provider response must identify whether the suggested document type/subtype matched an active M9 vocabulary entry or is a proposed new label. It must include document type, subtype, confidence, reason codes, model name/version, and review requirement. M5 accepts the AI suggestion only when confidence is at or above `CLASSIFICATION_AI_MIN_CONFIDENCE`. If the deterministic rule result is already classified and the AI result conflicts, M5 preserves the rule result, marks the classification as requiring review, and records conflict reason codes.
 
 ### Classification Output
 
@@ -284,24 +286,24 @@ The `classification` object should include:
 | `requires_review` | Whether the classification needs human/developer review before rules are trusted. |
 | `review_reason_codes` | Review reason codes such as low AI confidence or rule/AI conflict. |
 
-### Admin-Approved Recognition Configuration Lifecycle
+### Recognition Configuration Lifecycle
 
-Document classification vocabulary and matching rules are controlled database configuration. Runtime uploads must not silently add, remove, or mutate approved document types/subtypes.
+Document classification vocabulary and matching rules are controlled database configuration. Runtime uploads must not silently add, remove, or mutate approved document types/subtypes without a human confirmation path.
 
 The accepted lifecycle is:
 
 1. M5 classifies with approved vocabulary/rules first.
 2. If the document is unknown, ambiguous, or appears to be a new shape, M5 returns review findings such as `POSSIBLE_NEW_DOCUMENT_SHAPE` with redacted evidence.
-3. If AI assistance is enabled, M5 may create a pending suggestion that maps to an approved label or proposes a new document label/rule candidate. The suggestion must include redacted evidence, reason codes, source document context, and confidence metadata.
-4. If deterministic content evidence strongly matches a supported document shape whose approved label is not currently active, M5 must keep the active document type as `unknown` and emit a pending non-AI document suggestion with redacted evidence metadata. This allows administrator approval to restore a known document type without requiring an external AI call.
-5. The upload user may continue the workflow using the safest current approved label, usually `unknown / unknown`, when a new label is not yet approved.
-6. An administrator reviews pending suggestions in Stats Web. The administrator may approve, edit before approving, reject, or merge the suggestion into an existing approved label.
-7. Only an approved admin action may update the active M9 recognition settings.
-8. Approved configuration changes must be audited in M9 and must update affected persisted records through M9 when the admin chooses rename, merge, or apply behavior.
-9. A rejected suggestion stays as historical review evidence and must not change active settings or existing records.
-10. A pending suggestion may be linked to uploaded documents or candidate transactions, but those records must keep the safest approved active value, usually `unknown` or `uncategorized`, until approval.
+3. For MVP manual Upload, if AI assistance proposes a new document type/subtype outside active vocabulary, the document must be shown for user review before save. If the user accepts the document classification as part of the reviewed upload/save flow, M9 treats that save as the human confirmation event, persists the accepted document classification, marks it human-confirmed, and adds the new document type/subtype to active vocabulary during save.
+4. The MVP manual Upload review/save path bypasses the separate `/Admin/Classifications` pending-suggestion approval path for that reviewed document. No separate administrator approval is required when the user has reviewed and accepted the document classification before saving.
+5. The admin pending-suggestion workflow remains useful for post-MVP email ingestion, automated workflows, background classification/rule management, and suggestions that were not reviewed by a user before save.
+6. If deterministic content evidence strongly matches a supported document shape whose approved label is not currently active, M5 must preserve source evidence and mark the document for user review in the manual Upload flow. For automated/email ingestion, M5 may emit a pending non-AI document suggestion with redacted evidence metadata for later admin governance.
+7. For automated/email ingestion and other post-MVP flows where no user reviews the document before save, M9 stores pending suggestions and an administrator reviews them in Stats Web. The administrator may approve, edit before approving, reject, or merge the suggestion into an existing approved label.
+8. Admin-approved configuration changes and manual Upload user-confirmed save-time activations must both be audited in M9. Admin rename/merge/apply actions may update affected persisted records through M9 according to the selected policy.
+9. A rejected admin-governed suggestion stays as historical review evidence and must not change active settings or existing records.
+10. A pending suggestion may be linked to uploaded documents or candidate transactions in automated/unreviewed workflows, but those records must keep the safest approved active value until admin approval.
 
-This workflow preserves explainability while allowing non-admin uploads and AI-assisted recognition to improve the system over time.
+This workflow preserves explainability while allowing MVP manual uploads and AI-assisted recognition to improve the system through user review, while keeping the admin suggestion queue for future automated/email ingestion and broader recognition management.
 
 Admin review and evidence failures must be plain-language. If a document recognition suggestion can no longer be approved because it was already reviewed, removed, or created by a stale test run, Stats Web must show a message such as `This review item is no longer available. Refresh the items to review and try again.` It must not show raw HTTP status text, raw API JSON, stack traces, or secret-bearing diagnostics to the user.
 <!-- M5 Recognition Settings DB Source End - 2026-06-10 -->

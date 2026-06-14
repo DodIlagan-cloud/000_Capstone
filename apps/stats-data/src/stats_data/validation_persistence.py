@@ -213,7 +213,7 @@ def build_validation_persistence_plan(
         operations.append(_document_section_op(section, document_id, validation_id))
     for record in result.get("normalized_records") or []:
         operations.append(_transaction_op(record, document_id, batch_id, owner_id, validation_id))
-        if _text(record.get("recognition_suggestion_id")):
+        if _text(record.get("recognition_suggestion_id")) and not _classification_activation_allowed(record):
             operations.append(_recognition_label_suggestion_op(record, document_id, validation_id))
     for field in result.get("financial_fields") or []:
         operations.append(_financial_field_op(field, document_id, batch_id, validation_id))
@@ -277,6 +277,11 @@ def persist_validation_result(connection: Any, result: dict[str, Any], **kwargs:
     try:
         for operation in plan.operations:
             _execute_insert_if_missing(cursor, operation)
+        _activate_confirmed_classifications(
+            cursor,
+            result,
+            saved_by_user_id=kwargs.get("saved_by_user_id") or kwargs.get("uploaded_by_user_id"),
+        )
         _mark_promoted(cursor, plan.validation_result_id)
         connection.commit()
     except Exception:
@@ -578,6 +583,9 @@ def _transaction_op(
     source = record.get("source") or {}
     transaction_id = _stable_id("transaction", validation_id, record.get("record_id"))
     duplicate_of = record.get("duplicate_of")
+    classification = _persisted_classification_values(record)
+    confirmed = _classification_confirmation_allowed(record)
+    activated = _classification_activation_allowed(record)
     return _op(
         "transactions",
         {
@@ -593,18 +601,24 @@ def _transaction_op(
             "currency": _currency(record.get("currency")),
             "direction": _text(record.get("direction")) or "unknown",
             "signed_amount": _money(record.get("signed_amount")),
-            "transaction_type": _text(record.get("transaction_type")) or "unknown",
-            "transaction_subtype": _text(record.get("transaction_subtype")) or "unknown",
-            "spending_category": _text(record.get("spending_category")) or "uncategorized",
-            "spending_subcategory": _text(record.get("spending_subcategory")) or "unknown",
+            "transaction_type": classification["transaction_type"],
+            "transaction_subtype": classification["transaction_subtype"],
+            "spending_category": classification["spending_category"],
+            "spending_subcategory": classification["spending_subcategory"],
             "classification_source": _text(record.get("classification_source")) or "unknown",
-            "classification_review_required": 1 if record.get("classification_review_required") else 0,
+            "classification_review_required": 0 if confirmed else (1 if record.get("classification_review_required") else 0),
             "classification_review_reason_codes_json": _json(record.get("classification_review_reason_codes") or []),
+            "classification_vocabulary_status": _text(record.get("classification_vocabulary_status")) or "active_vocabulary_match",
+            "recognition_context_version": _text(record.get("recognition_context_version")),
+            "classification_confirmation_mode": _text(record.get("classification_confirmation_mode")) if confirmed else None,
+            "classification_human_confirmed": 1 if confirmed else 0,
+            "classification_confirmed_by_user_id": owner_id if confirmed else None,
+            "classification_confirmed_at_utc": _utc_now_token() if confirmed else None,
             "classification_ai_model_name": _text(record.get("ai_model_name")),
             "classification_ai_model_version": _text(record.get("ai_model_version")),
             "classification_ai_confidence": _confidence(record.get("ai_confidence")),
-            "recognition_suggestion_id": _text(record.get("recognition_suggestion_id")),
-            "recognition_suggestion_status": _text(record.get("recognition_suggestion_status")) or "none",
+            "recognition_suggestion_id": None if activated else _text(record.get("recognition_suggestion_id")),
+            "recognition_suggestion_status": "none" if activated else (_text(record.get("recognition_suggestion_status")) or "none"),
             "suggested_transaction_type": _text(record.get("suggested_transaction_type")),
             "suggested_transaction_subtype": _text(record.get("suggested_transaction_subtype")),
             "suggested_spending_category": _text(record.get("suggested_spending_category")),
@@ -626,13 +640,14 @@ def _transaction_op(
             "source_ocr_confidence": _confidence(source.get("ocr_confidence")),
             "source_extraction_confidence": _confidence(source.get("extraction_confidence")),
             "reason_codes_json": _json(record.get("reason_codes") or []),
-            "category": _text(record.get("category")) or _display_category(record.get("spending_category")),
+            "category": _text(record.get("category")) or _display_category(classification["spending_category"]),
         },
     )
 
 
 def _recognition_label_suggestion_op(record: dict[str, Any], document_id: str, validation_id: str) -> SqlOperation:
     source = record.get("source") or {}
+    classification = _persisted_classification_values(record)
     transaction_id = _stable_id("transaction", validation_id, record.get("record_id"))
     suggestion_id = _text(record.get("recognition_suggestion_id")) or _stable_id(
         "recognition-suggestion",
@@ -650,10 +665,10 @@ def _recognition_label_suggestion_op(record: dict[str, Any], document_id: str, v
             "source_candidate_id": _text(record.get("source_candidate_id")) or _text(record.get("record_id")),
             "current_document_type": None,
             "current_document_subtype": None,
-            "current_transaction_type": _text(record.get("transaction_type")) or "unknown",
-            "current_transaction_subtype": _text(record.get("transaction_subtype")) or "unknown",
-            "current_spending_category": _text(record.get("spending_category")) or "uncategorized",
-            "current_spending_subcategory": _text(record.get("spending_subcategory")) or "unknown",
+            "current_transaction_type": classification["transaction_type"],
+            "current_transaction_subtype": classification["transaction_subtype"],
+            "current_spending_category": classification["spending_category"],
+            "current_spending_subcategory": classification["spending_subcategory"],
             "suggested_document_type": None,
             "suggested_document_subtype": None,
             "suggested_transaction_type": _text(record.get("suggested_transaction_type")),
@@ -1186,6 +1201,194 @@ def _source_text(source: dict[str, Any]) -> str | None:
 
 def _review_required(record: dict[str, Any]) -> bool:
     return bool(record.get("duplicate_of")) or _text(record.get("quality_status")) != "valid"
+
+
+def _classification_human_confirmed(record: dict[str, Any]) -> bool:
+    value = record.get("classification_human_confirmed")
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "confirmed"}
+    return bool(value)
+
+
+def _classification_confirmation_allowed(record: dict[str, Any]) -> bool:
+    if not _classification_human_confirmed(record):
+        return False
+    source = (_text(record.get("classification_source")) or "").lower()
+    mode = (_text(record.get("classification_confirmation_mode")) or "").lower()
+    return source in {"user_confirmed_ai_suggestion", "user_confirmed_classification"} and mode == "upload_transaction_review"
+
+
+def _classification_activation_allowed(record: dict[str, Any]) -> bool:
+    if not _classification_confirmation_allowed(record):
+        return False
+    if (_text(record.get("classification_source")) or "").lower() != "user_confirmed_ai_suggestion":
+        return False
+    if (_text(record.get("classification_vocabulary_status")) or "").lower() != "outside_vocabulary_proposal":
+        return False
+    if not _text(record.get("recognition_suggestion_id")):
+        return False
+    transaction_matches = _same_label(record.get("transaction_type"), record.get("suggested_transaction_type"))
+    spending_matches = _same_label(record.get("spending_category"), record.get("suggested_spending_category"))
+    return transaction_matches or spending_matches
+
+
+def _persisted_classification_values(record: dict[str, Any]) -> dict[str, str]:
+    if (
+        (_text(record.get("classification_vocabulary_status")) or "").lower() == "outside_vocabulary_proposal"
+        and not _classification_confirmation_allowed(record)
+    ):
+        return {
+            "transaction_type": "unknown",
+            "transaction_subtype": "unknown",
+            "spending_category": "uncategorized",
+            "spending_subcategory": "unknown",
+        }
+    return {
+        "transaction_type": _text(record.get("transaction_type")) or "unknown",
+        "transaction_subtype": _text(record.get("transaction_subtype")) or "unknown",
+        "spending_category": _text(record.get("spending_category")) or "uncategorized",
+        "spending_subcategory": _text(record.get("spending_subcategory")) or "unknown",
+    }
+
+
+def _same_label(left: Any, right: Any) -> bool:
+    return bool(_text(left) and _text(right) and _normalize_label_key(str(left)) == _normalize_label_key(str(right)))
+
+
+def _activate_confirmed_classifications(
+    cursor: Any,
+    result: dict[str, Any],
+    *,
+    saved_by_user_id: str | None,
+) -> None:
+    for record in result.get("normalized_records") or []:
+        if not _classification_activation_allowed(record):
+            continue
+        transaction_type = _text(record.get("transaction_type"))
+        transaction_subtype = _text(record.get("transaction_subtype")) or "unknown"
+        spending_category = _text(record.get("spending_category"))
+        spending_subcategory = _text(record.get("spending_subcategory")) or "unknown"
+        if transaction_type and transaction_type.lower() != "unknown":
+            _upsert_active_label_value(cursor, "transaction", transaction_type, transaction_subtype)
+            _record_save_time_activation(
+                cursor,
+                saved_by_user_id=saved_by_user_id,
+                scope="transaction",
+                label=transaction_type,
+                subtype=transaction_subtype,
+                record_id=_text(record.get("record_id")),
+            )
+        if spending_category and spending_category.lower() not in {"unknown", "uncategorized"}:
+            _upsert_active_label_value(cursor, "spending", spending_category, spending_subcategory)
+            _record_save_time_activation(
+                cursor,
+                saved_by_user_id=saved_by_user_id,
+                scope="spending",
+                label=spending_category,
+                subtype=spending_subcategory,
+                record_id=_text(record.get("record_id")),
+            )
+
+
+def _upsert_active_label_value(cursor: Any, scope: str, label: str, subtype: str) -> None:
+    key = _normalize_label_key(label)
+    subtype_key = _normalize_label_key(subtype)
+    cursor.execute(
+        """
+SELECT values_json
+FROM dbo.recognition_labels WITH (UPDLOCK, HOLDLOCK)
+WHERE label_scope = ? AND label_key = ?;
+""",
+        scope,
+        key,
+    )
+    row = cursor.fetchone()
+    default_value = "uncategorized" if scope == "spending" else "unknown"
+    if row:
+        values = _json_list(row[0])
+        if subtype_key not in values:
+            values.append(subtype_key)
+        cursor.execute(
+            """
+UPDATE dbo.recognition_labels
+SET values_json = ?, is_active = 1, updated_at_utc = SYSUTCDATETIME()
+WHERE label_scope = ? AND label_key = ?;
+""",
+            json.dumps(_normalize_label_values(values, default_value)),
+            scope,
+            key,
+        )
+        return
+    cursor.execute(
+        """
+INSERT INTO dbo.recognition_labels (label_id, label_scope, label_key, display_label, values_json, is_system, is_active)
+VALUES (?, ?, ?, ?, ?, 0, 1);
+""",
+        f"{scope}:{key}",
+        scope,
+        key,
+        _display_label(key),
+        json.dumps(_normalize_label_values([subtype_key], default_value)),
+    )
+
+
+def _record_save_time_activation(
+    cursor: Any,
+    *,
+    saved_by_user_id: str | None,
+    scope: str,
+    label: str,
+    subtype: str,
+    record_id: str | None,
+) -> None:
+    key = _normalize_label_key(label)
+    subtype_key = _normalize_label_key(subtype)
+    config_change_id = _stable_id("save-time-classification-activation", record_id, scope, key, subtype_key)
+    cursor.execute(
+        """
+MERGE dbo.recognition_config_changes AS target
+USING (SELECT ? AS config_change_id) AS source
+ON target.config_change_id = source.config_change_id
+WHEN NOT MATCHED THEN
+    INSERT (config_change_id, suggestion_id, admin_user_id, action_type, config_file, after_label, after_values_json, change_reason)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?);
+""",
+        config_change_id,
+        config_change_id,
+        saved_by_user_id,
+        "upload_review_confirmed_label",
+        "database:recognition_labels",
+        f"{scope}:{key}",
+        json.dumps([subtype_key]),
+        "Activated from manual Upload transaction review/save.",
+    )
+
+
+def _normalize_label_key(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = "_".join(part for part in normalized.split("_") if part)
+    return normalized or "unknown"
+
+
+def _normalize_label_values(values: list[str], default_value: str) -> list[str]:
+    normalized = sorted({_normalize_label_key(value) for value in values if _text(value)})
+    if default_value not in normalized:
+        normalized.insert(0, default_value)
+    return normalized
+
+
+def _json_list(value: Any) -> list[str]:
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if _text(item)]
+
+
+def _display_label(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.split("_") if part)
 
 
 def _duplicate_key(owner_id: str | None, record: dict[str, Any]) -> str:

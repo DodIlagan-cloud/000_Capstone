@@ -66,6 +66,32 @@ M7 owns transaction type and spending category classification. It follows the M5
 - `spending_category` / `spending_subcategory` describe the MVP reporting bucket, such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized.
 
 AI-assisted classification must use minimal redacted candidate context and must not send raw full OCR text, full account/card/customer/patient identifiers, secrets, connection strings, or whole source documents. M7 must preserve rule scores and AI contribution metadata so M8/M9/M11 can distinguish `rules`, `ai`, `rules_ai_merged`, and later `user_override` outcomes.
+
+Before M7 calls AI, it must retrieve the active M9 recognition context and provide the AI only the bounded classification choices and safe hints needed for the decision: approved transaction types/subtypes, approved spending categories/subcategories, aliases/rules, deprecation or merge hints, the rule result, and minimal redacted candidate evidence. The AI must be instructed to choose from active vocabulary first and to propose a new label or subtype only when no active label fits. M7 must preserve whether each AI-suggested value matched active vocabulary or is outside-vocabulary and user/admin reviewable.
+
+When AI suggests a transaction type, transaction subtype, spending category, or spending subcategory outside the active recognition vocabulary, M7 must keep the proposed value visible on the candidate for Upload review and mark it review-required. M7 must include enough metadata for M8/Stats Web/M9 to tell whether the value is already approved, user-confirmable through transaction review/save, or still admin-governed:
+
+- `classification_review_required`
+- `classification_confirmation_mode`
+- `classification_human_confirmed`
+- `suggested_transaction_type`
+- `suggested_transaction_subtype`
+- `suggested_spending_category`
+- `suggested_spending_subcategory`
+- `suggestion_confidence`
+- `suggestion_reason_codes`
+- `suggestion_source`
+- `suggestion_evidence_ref`
+
+If the user reviews and accepts the transaction before saving, M9 treats the save as the human-confirmation event, persists the accepted AI classification, and activates any new transaction/spending label or subtype without requiring separate `/Admin/Classifications` approval. For MVP manual Upload, this is the expected confirmation path. Unconfirmed suggestions from post-MVP email ingestion, automated workflows, or other unreviewed paths remain eligible for the admin governance workflow.
+
+Acceptance expectations for this handoff:
+
+- Outside-vocabulary AI transaction/spending classifications must be flagged for user review before save.
+- Accepted reviewed transactions must save with the accepted AI-suggested classification values.
+- Accepted values not already in active recognition vocabulary must be added to active vocabulary during save.
+- Saved rows confirmed through Upload review must be marked human-confirmed, not low-confidence and not pending admin approval.
+- The admin pending-suggestion workflow must not block or duplicate the reviewed manual Upload transaction save path; it is reserved for post-MVP email ingestion, automated workflows, and broader recognition management.
 <!-- M7 - Transaction Classification End -->
 
 <!-- M7 - Robust Candidate Output Start -->
@@ -99,7 +125,7 @@ Primary result:
 - Upstream `extraction_id` and `parse_id`.
 - Document trace metadata.
 - `normalized_records` with normalized transaction date, optional posted/settled date, title-cased description, currency, direction, signed amount, quality status, duplicate marker, and source candidate ID.
-- Preserved transaction type, transaction subtype, spending category, spending subcategory, classification confidence, category confidence, classification source, and review flags on normalized records.
+- Preserved transaction type, transaction subtype, spending category, spending subcategory, classification confidence, category confidence, classification source, review flags, and classification human-confirmation metadata on normalized records.
 - `financial_fields` with normalized field names and values.
 <!-- M8 - Robust Candidate Input Start -->
 - `validated_entities`, `validated_references`, and `validated_line_items` when supplied by M7 and useful to downstream modules.

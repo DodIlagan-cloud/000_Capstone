@@ -292,6 +292,7 @@ def _normalize_transaction_candidate(
             "AMBIGUOUS_TRANSACTION_TYPE",
             "AMBIGUOUS_SPENDING_CATEGORY",
             "AI_CLASSIFICATION_REVIEW_REQUIRED",
+            "AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED",
             "RULE_AI_TRANSACTION_TYPE_CONFLICT",
             "RULE_AI_SPENDING_CATEGORY_CONFLICT",
             "PENDING_RECOGNITION_LABEL_SUGGESTION",
@@ -345,6 +346,10 @@ def _normalize_transaction_candidate(
         suggestion_reason_codes=list(candidate.suggestion_reason_codes),
         suggestion_source=_optional_lower(candidate.suggestion_source),
         suggestion_evidence_ref=candidate.suggestion_evidence_ref,
+        classification_vocabulary_status=(candidate.classification_vocabulary_status or "active_vocabulary_match").strip().lower(),
+        recognition_context_version=candidate.recognition_context_version,
+        classification_confirmation_mode=_optional_lower(candidate.classification_confirmation_mode),
+        classification_human_confirmed=bool(candidate.classification_human_confirmed),
     )
 
 
@@ -714,6 +719,18 @@ def _classification_review_reason_codes(candidate, min_confidence: float, findin
         )
 
     suggestion_status = (candidate.recognition_suggestion_status or "none").lower()
+    vocabulary_status = (candidate.classification_vocabulary_status or "active_vocabulary_match").lower()
+    suggestion_source = (candidate.suggestion_source or "").lower()
+    if vocabulary_status == "outside_vocabulary_proposal" and suggestion_source == "ai":
+        reason_codes.append("AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED")
+        findings.append(
+            ValidationFinding(
+                code="AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED",
+                severity="warning",
+                message="AI suggested a new transaction or spending classification that must be accepted or edited before save.",
+                record_id=record_id,
+            )
+        )
     if suggestion_status in {"rejected", "invalid"}:
         reason_codes.append("REJECTED_RECOGNITION_LABEL_SUGGESTION")
         findings.append(

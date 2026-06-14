@@ -31,7 +31,7 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 - Accept M7-shaped transaction, financial field, section, entity, reference, and line-item candidates as JSON.
 - Normalize transaction dates, descriptions, currencies, directions, and signed amounts.
 - Preserve and validate M7 transaction type and spending category suggestions without performing classification itself.
-- Preserve recognition-label suggestion metadata from M7 so M9/Admin workflows can review possible new labels without requiring the upload user to be an administrator.
+- Preserve recognition-label suggestion metadata from M7 so Stats Web can confirm possible new transaction/spending labels through the MVP manual Upload review/save path or, in post-MVP automated/email workflows, pass unconfirmed suggestions to M9/Admin governance.
 - Accept optional posted/settled date text from M7 when statement-like tables provide both transaction and post dates.
 - Normalize document-level financial fields such as statement dates, due dates, totals, balances, invoice totals, paid/owing amounts, taxes, payment references, and masked account/card references where supplied by M7.
 - Preserve M7 source context so every validated value can be traced back to document, page, section, line, and redacted evidence snippet.
@@ -41,7 +41,7 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 - Detect duplicate transaction records within the supplied validation batch using deterministic date, description, amount, currency, and direction keys.
 - Prepare dashboard-ready quality statuses for both transaction records and document-level financial facts.
 - Prepare MVP reporting fields by preserving transaction type, transaction subtype, spending category, spending subcategory, classification confidence, category confidence, classification source, and review-required state from M7.
-- Preserve pending suggestion identifiers, proposed label values, suggestion confidence, redacted evidence references, and review reason codes when M7 supplies them.
+- Preserve pending/user-confirmable suggestion identifiers, proposed label values, suggestion confidence, redacted evidence references, review reason codes, and human-confirmation state when M7 supplies them.
 - Preserve upstream M7 extracted table groups and reconciliation status for user review. M8 may add validation status/review columns, but it must not hide non-transaction extracted data.
 - Produce guided review output that prioritizes exceptions before full extracted data. M8 must create review items for repaired OCR rows, suspicious OCR text, reconciliation mismatches, duplicates, and incomplete or ambiguous records so Stats Web can show a small review queue instead of asking the user to inspect every row.
 - Keep database-backed duplicate checks out of M8; M9/M10 compare normalized records against stored documents and transactions through the M9 pre-save duplicate-check endpoint before persistence.
@@ -87,7 +87,7 @@ Installment balance candidates are reviewable records, but they are not normal t
 
 ## Recognition Label Validation And Suggestion Handoff
 
-M8 is the quality gate between M7 extraction/classification and M9 persistence. It must not classify transactions itself, but it must make classification quality visible and preserve enough metadata for the admin recognition workflow.
+M8 is the quality gate between M7 extraction/classification and M9 persistence. It must not classify transactions itself, but it must make classification quality visible and preserve enough metadata for either the upload transaction-review confirmation path or the admin recognition workflow.
 
 Required behavior:
 
@@ -110,6 +110,8 @@ Required behavior:
    - `suggestion_reason_codes`
    - `suggestion_source`
    - `suggestion_evidence_ref`
+   - `classification_confirmation_mode`
+   - `classification_human_confirmed`
 <!-- M8 Document Suggestion Handoff Start - 2026-06-11 -->
 3. Preserve M5 document-label suggestion fields at the validation-result level when present:
    - `document_recognition_suggestion_id`
@@ -122,20 +124,23 @@ Required behavior:
    - `document_suggestion_evidence_ref`
 <!-- M8 Document Suggestion Handoff End - 2026-06-11 -->
 4. Validate current labels against the approved vocabulary when the vocabulary is available to M8 through configuration or request metadata.
-5. Mark records for review when labels are missing, unknown, uncategorized, outside approved vocabulary, pending approval, rejected, ambiguous, or below the configured confidence threshold.
-6. Allow the upload workflow to continue when a suggestion is pending. The saved record should keep the safest approved current value, such as `unknown` or `uncategorized`, while M9 stores the suggestion for later admin review.
-7. Never write JSON configuration and never approve/reject suggestions. M8 only validates, flags, and passes data forward.
+5. Preserve whether M7/M5 classified against active M9 vocabulary or produced a proposed outside-vocabulary AI label after using the active recognition context.
+6. Mark records for review when labels are missing, unknown, uncategorized, outside approved vocabulary, pending approval, rejected, ambiguous, or below the configured confidence threshold.
+7. For AI-suggested transaction/spending labels outside active vocabulary, allow the Upload review flow to display the suggested value as the candidate classification, require user review/acceptance before save, and preserve enough metadata for M9 to mark the saved classification human-confirmed.
+8. Allow post-MVP automated/email workflows to continue when a suggestion is not confirmed through transaction review. In that case, M9 may store the suggestion for later admin review according to the admin governance path.
+9. Never write JSON configuration and never approve/reject admin suggestions. M8 only validates, flags, records user-review state, and passes data forward.
 
 M8 output to M9 must make the distinction clear:
 
 | Output Field Group | Meaning |
 | --- | --- |
 | Approved/current labels | The labels that may be saved on the transaction now. |
-| Suggested labels | Proposed future labels requiring admin approval. |
-| Review flags | Why the row needs user/admin review before reporting trust improves. |
+| User-confirmable suggested labels | Proposed transaction/spending labels from AI that can become saved labels after Upload review/accept/save. |
+| Admin-governed suggested labels | Proposed labels that were not confirmed through Upload review and still require admin approval. |
+| Review flags | Why the row needs user or admin review before reporting trust improves. |
 | Evidence references | Redacted context that helps an admin decide without exposing full OCR text. |
 
-This allows non-admin uploads to benefit from AI-assisted recognition while preserving admin governance over approved JSON and historical database synchronization.
+This allows non-admin manual uploads to benefit from AI-assisted recognition while preserving an audit trail. User-reviewed transaction save can confirm new transaction/spending labels for that saved transaction and activate the label in M9. Admin governance remains for post-MVP automated/email ingestion, broader label/rule management, background suggestions, and historical synchronization.
 
 ## API Contract
 
@@ -182,8 +187,9 @@ M8 remains a synchronous reusable validation API. It does not write M9 timing re
 | `UNKNOWN_SPENDING_CATEGORY` | Warning | M7 supplied no usable MVP reporting category. |
 | `LOW_CONFIDENCE_SPENDING_CATEGORY` | Warning | M7 spending category confidence is below the validation threshold. |
 | `AMBIGUOUS_SPENDING_CATEGORY` | Warning | M7 spending category status or scores require review. |
-| `PENDING_RECOGNITION_LABEL_SUGGESTION` | Warning | M7 supplied a proposed transaction or spending label that has not been approved by an administrator. |
-| `UNAPPROVED_RECOGNITION_LABEL` | Warning | A transaction or spending label is outside the approved vocabulary known to M8. |
+| `PENDING_RECOGNITION_LABEL_SUGGESTION` | Warning | M7 supplied a proposed transaction or spending label that has not been confirmed through Upload review/save or admin approval. |
+| `UNAPPROVED_RECOGNITION_LABEL` | Warning | A transaction or spending label is outside the approved vocabulary known to M8 and must be reviewed before save. |
+| `AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED` | Warning | AI supplied a new transaction or spending classification that can be accepted by the user during transaction review before save. |
 | `REJECTED_RECOGNITION_LABEL_SUGGESTION` | Warning | A supplied label suggestion was already rejected or marked unusable upstream. |
 
 ## Guided Review Output
@@ -204,12 +210,12 @@ Stats Web should default to the `review_items` queue when it is non-empty, then 
 Stats Web review actions before M9 persistence are local to the current upload session:
 
 - `Edit` allows the user to correct transaction date, posted date, description, amount, currency, and direction for any transaction row shown in the Upload checkpoint, including rows M8 initially marked `Ready`.
-- `Edit` allows the user to correct transaction type, transaction subtype, spending category, and spending subcategory using approved dropdown values. User edits in the upload session are current-row corrections, not approval of new global labels.
-- `Accept` confirms that a reviewed transaction row should join the ready-to-save set for the current upload session.
+- `Edit` allows the user to correct transaction type, transaction subtype, spending category, and spending subcategory. Approved dropdown values should be preferred, but the review UI must also show AI-suggested outside-vocabulary values when M7 supplied them for user confirmation.
+- `Accept` confirms that a reviewed transaction row should join the ready-to-save set for the current upload session. When the row contains an AI-suggested outside-vocabulary transaction/spending classification, Accept marks that classification as user-confirmed for the save payload.
 - A high-confidence or `Ready` row must still remain editable because OCR can miss or alter digits even when the row passes M8 validation rules.
 - The transaction-row `Edit` action must remain visible wherever transaction rows are shown. Hiding an already-reserved action column behind hover does not add user value in this checkpoint.
 - Transaction rows must not offer an `Exclude` action in this iteration because every extracted transaction should either be corrected or accepted before the future database write.
-- Accepting rows does not persist anything. M9/M10 own database writes and the pre-save database-backed duplicate check.
+- Accepting rows does not persist anything. M9/M10 own database writes and the pre-save database-backed duplicate check. However, the accepted payload must carry user-confirmed classification metadata so M9 can save the accepted AI classification and activate any new transaction/spending label or subtype during the save workflow.
 - Statement-like documents must keep save readiness gated by reconciliation. After each edit or accept, the Upload page recalculates document totals using the supplied M7/M8 reconciliation facts. When M7 has separated statement payments into document-level `payments_and_credits`, the Upload page must use the statement-level credit total only when it is explicitly present in the M7 reconciliation payload; an explicit zero credit total must not be replaced by the sum of normalized credit rows. Transactions are not final ready-to-save while the calculated total differs from the document total outside tolerance.
 - Non-transaction extracted data tables such as statement summary, document summary, entities/references, line items, and findings must be hidden behind a user-controlled toggle by default. The review queue and transaction readiness state remain the primary visible checkpoint.
 <!-- M8 Review UX - 2026-06-02 End -->
@@ -253,7 +259,7 @@ M8 has no durable file-storage responsibility. If future validation evidence or 
 - M7-shaped extraction results can be submitted as JSON.
 - Normalized records include date, description, amount, currency, direction, signed amount, source, confidence, and quality status.
 - Normalized records preserve M7 transaction type, transaction subtype, spending category, spending subcategory, classification source, confidence, and category confidence.
-- Normalized records preserve M7 pending recognition-label suggestion metadata when supplied, while keeping approved/current labels separate from proposed labels.
+- Normalized records preserve M7 recognition-label suggestion and user-confirmation metadata when supplied, while keeping already-active labels, AI-suggested labels, and admin-governed suggestions distinguishable.
 - Posted/settled date is preserved when M7 supplies it, but missing posted date alone does not block save readiness.
 - M7 section, entity, reference, and line-item candidates can be submitted without causing validation failures.
 - Document-level financial facts retain source section context and can be returned separately from transaction records.
@@ -262,7 +268,9 @@ M8 has no durable file-storage responsibility. If future validation evidence or 
 - Ambiguous section context, financial-field ambiguity, and total reconciliation warnings return explicit findings.
 - Transaction candidates sourced from non-transaction sections are marked for review instead of being treated as clean save-ready rows.
 - Unknown, ambiguous, or low-confidence transaction type and spending category suggestions are marked for review instead of being silently treated as clean MVP reporting categories.
-- Pending, rejected, or outside-vocabulary recognition-label suggestions are marked for review and passed through to M9 for admin governance.
+- Pending, rejected, or outside-vocabulary recognition-label suggestions are marked for review. User-confirmed AI transaction/spending labels are passed to M9 for save-time activation in the manual Upload MVP flow; unconfirmed suggestions from post-MVP automated/email workflows remain available for admin governance.
+- AI-suggested transaction type, transaction subtype, spending category, or spending subcategory values outside the current active vocabulary block save readiness until the user reviews and accepts or edits that transaction.
+- After the user accepts a reviewed AI-suggested classification, M8/Stats Web save payloads mark the row as classification-human-confirmed and must not keep it in a pending-admin-approval state.
 - Evaluation metadata is present and measurable.
 - Unit tests pass inside the M13 Stats runtime container through the official container runner.
 - M8 remains free of Stats persistence, database duplicate checks, and dashboard logic.
@@ -314,8 +322,9 @@ M8 tests should include:
 - Pending suggestion metadata is preserved separately from approved/current labels.
 - Outside-vocabulary labels produce `UNAPPROVED_RECOGNITION_LABEL`.
 - Pending suggestions produce `PENDING_RECOGNITION_LABEL_SUGGESTION`.
+- AI-suggested outside-vocabulary transaction/spending labels produce `AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED` and become save-ready only after user accept/edit confirmation.
 - M8 does not mutate JSON configuration or mark suggestions approved.
-- M9 save payloads include both current labels and suggestion metadata when present.
+- M9 save payloads include current labels, suggestion metadata, and user-confirmed classification metadata when present.
 
 <!-- M8 Test Flow Update - 2026-06-12 Start -->
 ## Acceptance Test Flow Definition

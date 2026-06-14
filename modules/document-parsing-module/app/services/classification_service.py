@@ -40,6 +40,7 @@ def classify_document(
             scores={},
             requires_review=True,
             review_reason_codes=["RECOGNITION_SETTINGS_UNAVAILABLE"],
+            classification_vocabulary_status="settings_unavailable",
         )
 
     vocabulary = active_settings.get("document_vocabulary", {})
@@ -65,6 +66,7 @@ def classify_document(
             text=text,
             supported_document_types=supported_document_types,
             approved_document_types=allowed_types,
+            active_settings=active_settings,
         )
 
     scored_rules = []
@@ -100,6 +102,7 @@ def classify_document(
             text=text,
             supported_document_types=supported_document_types,
             approved_document_types=allowed_types,
+            active_settings=active_settings,
         )
 
     best_type, best_subtype, best_score, _matched, _rule = max(scored_rules, key=lambda item: item[2])
@@ -120,6 +123,7 @@ def classify_document(
             text=text,
             supported_document_types=supported_document_types,
             approved_document_types=allowed_types,
+            active_settings=active_settings,
         )
 
     if best_type == "statement" and confidence >= confidence_threshold:
@@ -135,6 +139,7 @@ def classify_document(
             text=text,
             supported_document_types=supported_document_types,
             approved_document_types=allowed_types,
+            active_settings=active_settings,
         )
 
     receipt_override = _receipt_favored_result(scored_rules)
@@ -152,6 +157,7 @@ def classify_document(
             text=text,
             supported_document_types=supported_document_types,
             approved_document_types=allowed_types,
+            active_settings=active_settings,
         )
 
     if ambiguous:
@@ -174,6 +180,7 @@ def classify_document(
             text=text,
             supported_document_types=supported_document_types,
             approved_document_types=allowed_types,
+            active_settings=active_settings,
         )
 
     unknown = _unknown_result(
@@ -195,6 +202,7 @@ def classify_document(
         text=text,
         supported_document_types=supported_document_types,
         approved_document_types=allowed_types,
+        active_settings=active_settings,
     )
 
 
@@ -204,7 +212,10 @@ def _finalize_classification(
     text: str,
     supported_document_types: list[str],
     approved_document_types: set[str],
+    active_settings: dict[str, Any] | None = None,
 ) -> ClassificationResult:
+    context_version = _recognition_context_version(active_settings)
+    rule_result = _with_context_metadata(rule_result, context_version=context_version)
     if not settings.classification_ai_enabled or not should_try_ai_classification(rule_result):
         return rule_result
 
@@ -212,12 +223,54 @@ def _finalize_classification(
         text=text,
         supported_document_types=supported_document_types,
         rule_result=rule_result,
+        active_recognition_context=_document_ai_context(active_settings),
     )
     return merge_rule_and_ai_classification(
         rule_result=rule_result,
         ai_result=ai_result,
         approved_document_types=approved_document_types,
+        recognition_context_version=context_version,
     )
+
+
+def _with_context_metadata(result: ClassificationResult, *, context_version: str | None) -> ClassificationResult:
+    return result.model_copy(
+        update={
+            "classification_vocabulary_status": "active_vocabulary_match"
+            if result.document_type not in {"unknown", ""}
+            else "unknown_or_unclassified",
+            "recognition_context_version": context_version,
+        }
+    )
+
+
+def _recognition_context_version(active_settings: dict[str, Any] | None) -> str | None:
+    if not active_settings:
+        return None
+    context = active_settings.get("recognition_context")
+    if isinstance(context, dict) and context.get("version"):
+        return str(context["version"])
+    if active_settings.get("recognition_context_version"):
+        return str(active_settings["recognition_context_version"])
+    return None
+
+
+def _document_ai_context(active_settings: dict[str, Any] | None) -> dict[str, Any]:
+    if not active_settings:
+        return {}
+    context = active_settings.get("recognition_context")
+    if isinstance(context, dict) and isinstance(context.get("document"), dict):
+        return {
+            "version": context.get("version") or active_settings.get("recognition_context_version"),
+            "document": context["document"],
+        }
+    return {
+        "version": _recognition_context_version(active_settings),
+        "document": {
+            "vocabulary": active_settings.get("document_vocabulary", {}),
+            "rules": active_settings.get("document_rules", {}),
+        },
+    }
 
 
 def _score_rule(text: str, rule: dict[str, Any]) -> tuple[float, list[str]]:

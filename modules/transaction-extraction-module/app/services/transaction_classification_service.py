@@ -69,6 +69,7 @@ def classify_transaction_candidate(
             "classification_source": classification_source,
             "classification_review_required": True,
             "classification_review_reason_codes": sorted(set(review_reason_codes)),
+            "classification_vocabulary_status": "settings_unavailable",
         }
         if hasattr(candidate, "model_copy"):
             return candidate.model_copy(update=updates)
@@ -110,6 +111,7 @@ def classify_transaction_candidate(
             document_subtype=document_subtype,
             transaction_result=transaction_result,
             category_result=category_result,
+            active_recognition_context=_transaction_ai_context(active_settings),
         )
     rule_transaction_result = transaction_result
     rule_category_result = category_result
@@ -150,6 +152,8 @@ def classify_transaction_candidate(
         "ai_confidence": merged["ai_confidence"],
         "classification_review_required": merged["classification_review_required"],
         "classification_review_reason_codes": merged["classification_review_reason_codes"],
+        "recognition_context_version": _recognition_context_version(active_settings),
+        "classification_vocabulary_status": "active_vocabulary_match",
         **suggestion_updates,
     }
     if ai_was_eligible and ai_result is None and settings.transaction_classification_ai_enabled:
@@ -163,6 +167,39 @@ def classify_transaction_candidate(
     if hasattr(candidate, "model_copy"):
         return candidate.model_copy(update=updates)
     return candidate.copy(update=updates)
+
+
+def _recognition_context_version(active_settings: dict[str, Any] | None) -> str | None:
+    if not active_settings:
+        return None
+    context = active_settings.get("recognition_context")
+    if isinstance(context, dict) and context.get("version"):
+        return str(context["version"])
+    if active_settings.get("recognition_context_version"):
+        return str(active_settings["recognition_context_version"])
+    return None
+
+
+def _transaction_ai_context(active_settings: dict[str, Any]) -> dict[str, Any]:
+    context = active_settings.get("recognition_context")
+    if isinstance(context, dict):
+        compact = {"version": context.get("version") or active_settings.get("recognition_context_version")}
+        if isinstance(context.get("transaction"), dict):
+            compact["transaction"] = context["transaction"]
+        if isinstance(context.get("spending"), dict):
+            compact["spending"] = context["spending"]
+        return compact
+    return {
+        "version": _recognition_context_version(active_settings),
+        "transaction": {
+            "vocabulary": active_settings.get("transaction_vocabulary", {}),
+            "rules": active_settings.get("transaction_rules", {}),
+        },
+        "spending": {
+            "vocabulary": active_settings.get("spending_vocabulary", {}),
+            "rules": active_settings.get("spending_rules", {}),
+        },
+    }
 
 
 def _suggestion_updates(
@@ -261,27 +298,18 @@ def _suggestion_updates(
             set([*list(merged.get("classification_review_reason_codes") or []), "PENDING_RECOGNITION_LABEL_SUGGESTION"])
         ),
     }
-    if not transaction_known:
-        updates.update(
-            {
-                "transaction_type": str(rule_transaction_result.get("label") or "unknown"),
-                "transaction_subtype": str(rule_transaction_result.get("subtype") or "unknown"),
-                "transaction_type_confidence": float(rule_transaction_result.get("confidence") or 0.0),
-                "transaction_type_status": str(rule_transaction_result.get("status") or "unknown"),
-                "transaction_type_reason_codes": list(rule_transaction_result.get("reason_codes") or []),
-                "transaction_type_scores": dict(rule_transaction_result.get("scores") or {}),
-            }
-        )
-    if not category_known:
-        updates.update(
-            {
-                "spending_category": str(rule_category_result.get("label") or "uncategorized"),
-                "spending_subcategory": str(rule_category_result.get("subtype") or "unknown"),
-                "spending_category_confidence": float(rule_category_result.get("confidence") or 0.0),
-                "spending_category_status": str(rule_category_result.get("status") or "unknown"),
-                "spending_category_reason_codes": list(rule_category_result.get("reason_codes") or []),
-                "spending_category_scores": dict(rule_category_result.get("scores") or {}),
-            }
+    updates["classification_vocabulary_status"] = "outside_vocabulary_proposal"
+    updates["classification_confirmation_mode"] = "transaction_review_save"
+    if suggestion_source == "ai":
+        updates["recognition_suggestion_status"] = "outside_vocabulary"
+        updates["classification_review_reason_codes"] = sorted(
+            set(
+                [
+                    *list(updates.get("classification_review_reason_codes") or []),
+                    "AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED",
+                    "UNAPPROVED_RECOGNITION_LABEL",
+                ]
+            )
         )
     return updates
 

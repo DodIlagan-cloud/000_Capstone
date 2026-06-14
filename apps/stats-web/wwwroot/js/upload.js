@@ -303,6 +303,10 @@ function localInstallmentStatus(installment, reviewState) {
 }
 
 function editableRecordFields(record) {
+  const transactionTypes = withSuggestedOption(transactionTypeOptions, record.suggested_transaction_type);
+  const transactionSubtypes = withSuggestedOption(transactionSubtypeOptions, record.suggested_transaction_subtype);
+  const spendingCategories = withSuggestedOption(spendingCategoryOptions, record.suggested_spending_category);
+  const spendingSubcategories = withSuggestedOption(spendingSubcategoryOptions, record.suggested_spending_subcategory);
   return [
     ["transaction_date", "Date", "date"],
     ["posted_date", "Posted date", "date"],
@@ -310,11 +314,19 @@ function editableRecordFields(record) {
     ["amount", "Amount", "number"],
     ["currency", "Currency", "text"],
     ["direction", "Direction", "select", transactionDirectionOptions],
-    ["transaction_type", "Transaction type", "select", transactionTypeOptions],
-    ["transaction_subtype", "Transaction subtype", "select", transactionSubtypeOptions],
-    ["spending_category", "Spending category", "select", spendingCategoryOptions],
-    ["spending_subcategory", "Spending subcategory", "select", spendingSubcategoryOptions],
+    ["transaction_type", "Transaction type", "select", transactionTypes],
+    ["transaction_subtype", "Transaction subtype", "select", transactionSubtypes],
+    ["spending_category", "Spending category", "select", spendingCategories],
+    ["spending_subcategory", "Spending subcategory", "select", spendingSubcategories],
   ].map(([name, label, type, options]) => ({ name, label, type, options: options || [], value: record[name] ?? "" }));
+}
+
+function withSuggestedOption(options, suggestedValue) {
+  const suggested = String(suggestedValue || "").trim().toLowerCase();
+  if (!suggested || options.includes(suggested)) {
+    return options;
+  }
+  return [...options, suggested];
 }
 
 function editableInstallmentFields(installment) {
@@ -794,15 +806,29 @@ function buildValidationRequest(extractionResult) {
 function buildSaveValidationResult(validationResult, reviewState) {
   const acceptedRecordIds = reviewState.acceptedRecordIds;
   const acceptedInstallmentIds = reviewState.acceptedInstallmentIds;
-  const normalizedRecords = reviewState.records.map((record) => ({
-    ...record,
-    category: record.spending_category && record.spending_category !== "uncategorized"
-      ? titleCaseLabel(record.spending_category)
-      : record.category || "Unknown",
-    quality_status: acceptedRecordIds.has(record.record_id) && transactionCoreFieldsComplete(record)
-      ? (transactionFieldsComplete(record) ? "valid" : "warning")
-      : record.quality_status,
-  }));
+  const normalizedRecords = reviewState.records.map((record) => {
+    const accepted = acceptedRecordIds.has(record.record_id) && transactionCoreFieldsComplete(record);
+    const saveRecord = accepted ? acceptedClassificationRecord(record) : { ...record };
+    return {
+      ...saveRecord,
+      category: saveRecord.spending_category && saveRecord.spending_category !== "uncategorized"
+        ? titleCaseLabel(saveRecord.spending_category)
+        : saveRecord.category || "Unknown",
+      classification_source: accepted
+        ? confirmedClassificationSource(saveRecord)
+        : saveRecord.classification_source,
+      classification_review_required: accepted ? false : Boolean(saveRecord.classification_review_required),
+      classification_review_reason_codes: accepted ? [] : saveRecord.classification_review_reason_codes || [],
+      classification_human_confirmed: accepted || Boolean(saveRecord.classification_human_confirmed),
+      classification_confirmation_mode: accepted
+        ? "upload_transaction_review"
+        : saveRecord.classification_confirmation_mode,
+      recognition_suggestion_status: accepted ? "confirmed_by_upload_review" : saveRecord.recognition_suggestion_status,
+      quality_status: accepted
+        ? (transactionFieldsComplete(saveRecord) ? "valid" : "warning")
+        : saveRecord.quality_status,
+    };
+  });
   const normalizedInstallments = reviewState.installments.map((installment) => ({
     ...installment,
     quality_status: acceptedInstallmentIds.has(installment.installment_id) && installmentFieldsComplete(installment)
@@ -826,6 +852,18 @@ function buildSaveValidationResult(validationResult, reviewState) {
       recommended_action: warningRecordCount || invalidRecordCount ? "review_items" : "save_ready_transactions",
     },
   };
+}
+
+function acceptedClassificationRecord(record) {
+  return { ...record };
+}
+
+function confirmedClassificationSource(record) {
+  const source = String(record.classification_source || "unknown").toLowerCase();
+  if (source.includes("ai")) {
+    return "user_confirmed_ai_suggestion";
+  }
+  return "user_confirmed_classification";
 }
 
 function reviewItemRecord(reviewItem, records) {

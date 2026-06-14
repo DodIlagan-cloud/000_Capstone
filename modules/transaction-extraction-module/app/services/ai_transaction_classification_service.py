@@ -48,6 +48,7 @@ def ai_classify_transaction(
     document_subtype: str,
     transaction_result: dict[str, object],
     category_result: dict[str, object],
+    active_recognition_context: dict[str, Any] | None = None,
 ) -> dict[str, object] | None:
     skip_reason = ai_skip_reason()
     if skip_reason:
@@ -60,6 +61,7 @@ def ai_classify_transaction(
         document_subtype=document_subtype,
         transaction_result=transaction_result,
         category_result=category_result,
+        active_recognition_context=active_recognition_context or {},
     )
     endpoint = _request_endpoint()
 
@@ -176,15 +178,19 @@ def _request_payload(
     document_subtype: str,
     transaction_result: dict[str, object],
     category_result: dict[str, object],
+    active_recognition_context: dict[str, Any],
 ) -> dict[str, Any]:
     system_prompt = (
         "Classify one financial transaction for the Stats app. Return only compact JSON "
         "with transaction_type, transaction_subtype, spending_category, spending_subcategory, "
-        "confidence, reason_codes, explanation, and requires_review."
+        "confidence, reason_codes, explanation, requires_review, transaction_vocabulary_status, "
+        "and spending_vocabulary_status. Prefer active_recognition_context labels when they fit. "
+        "Propose a new transaction or spending label only when no active label fits."
     )
     user_prompt = {
         "document_type": document_type,
         "document_subtype": document_subtype,
+        "active_recognition_context": active_recognition_context,
         "rule_transaction_result": transaction_result,
         "rule_spending_category_result": category_result,
         "candidate": {
@@ -268,6 +274,7 @@ def _minimal_prompt(user_prompt: dict[str, Any], max_chars: int) -> str:
     minimal = {
         "document_type": user_prompt.get("document_type"),
         "document_subtype": user_prompt.get("document_subtype"),
+        "active_recognition_context": _minimal_recognition_context(user_prompt.get("active_recognition_context")),
         "candidate": {
             "description": str(candidate.get("description") or ""),
             "amount": candidate.get("amount"),
@@ -297,6 +304,19 @@ def _minimal_prompt(user_prompt: dict[str, Any], max_chars: int) -> str:
     if len(best) <= max_chars:
         return best
     return "{}"
+
+
+def _minimal_recognition_context(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    context: dict[str, Any] = {}
+    if value.get("version"):
+        context["version"] = value.get("version")
+    for scope in ["transaction", "spending"]:
+        scoped = value.get(scope)
+        if isinstance(scoped, dict):
+            context[scope] = {"vocabulary": scoped.get("vocabulary", {})}
+    return context
 
 
 def _request_headers(api_key: str) -> dict[str, str]:
@@ -350,6 +370,8 @@ def _parse_ai_response(raw_response: str) -> dict[str, object] | None:
         "review_reason_codes": _reason_codes(parsed.get("review_reason_codes")),
         "ai_model_name": settings.transaction_classification_ai_model,
         "ai_model_version": settings.transaction_classification_ai_model_version or settings.transaction_classification_ai_model,
+        "transaction_vocabulary_status": _clean_status(parsed.get("transaction_vocabulary_status")),
+        "spending_vocabulary_status": _clean_status(parsed.get("spending_vocabulary_status")),
     }
 
 
@@ -435,6 +457,11 @@ def _confidence(value: object) -> float:
 def _clean_label(value: object, default: str) -> str:
     text = str(value or default).strip().lower().replace(" ", "_")
     return re.sub(r"[^a-z0-9_]+", "", text) or default
+
+
+def _clean_status(value: object) -> str:
+    text = str(value or "unknown").strip().lower().replace(" ", "_")
+    return re.sub(r"[^a-z0-9_]+", "", text) or "unknown"
 
 
 def _reason_codes(value: object) -> list[str]:

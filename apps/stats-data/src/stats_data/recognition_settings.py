@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 import uuid
 from pathlib import Path
 from typing import Any
@@ -20,14 +21,87 @@ def active_recognition_settings(connection: Any) -> dict[str, Any]:
     seed_recognition_settings_if_empty(connection)
     labels = _load_labels(connection)
     rules = _load_rules(connection)
+    document_vocabulary = _vocabulary(labels, "document", "document_types", "document_subtypes")
+    transaction_vocabulary = _vocabulary(labels, "transaction", "transaction_types", "transaction_subtypes")
+    spending_vocabulary = _vocabulary(labels, "spending", "spending_categories", "spending_subcategories")
+    context = _recognition_context(
+        document_vocabulary=document_vocabulary,
+        document_rules={"rules": rules["document"]},
+        transaction_vocabulary=transaction_vocabulary,
+        transaction_rules={"rules": rules["transaction"]},
+        spending_vocabulary=spending_vocabulary,
+        spending_rules={"rules": rules["spending"]},
+    )
     return {
-        "document_vocabulary": _vocabulary(labels, "document", "document_types", "document_subtypes"),
+        "recognition_context_version": context["version"],
+        "recognition_context": context,
+        "document_vocabulary": document_vocabulary,
         "document_rules": {"rules": rules["document"]},
-        "transaction_vocabulary": _vocabulary(labels, "transaction", "transaction_types", "transaction_subtypes"),
+        "transaction_vocabulary": transaction_vocabulary,
         "transaction_rules": {"rules": rules["transaction"]},
-        "spending_vocabulary": _vocabulary(labels, "spending", "spending_categories", "spending_subcategories"),
+        "spending_vocabulary": spending_vocabulary,
         "spending_rules": {"rules": rules["spending"]},
     }
+
+
+def _recognition_context(
+    *,
+    document_vocabulary: dict[str, Any],
+    document_rules: dict[str, Any],
+    transaction_vocabulary: dict[str, Any],
+    transaction_rules: dict[str, Any],
+    spending_vocabulary: dict[str, Any],
+    spending_rules: dict[str, Any],
+) -> dict[str, Any]:
+    context = {
+        "document": {
+            "vocabulary": document_vocabulary,
+            "rules": _compact_rules(document_rules),
+            "aliases": {},
+            "deprecation_hints": {},
+            "merge_hints": {},
+        },
+        "transaction": {
+            "vocabulary": transaction_vocabulary,
+            "rules": _compact_rules(transaction_rules),
+            "aliases": {},
+            "deprecation_hints": {},
+            "merge_hints": {},
+        },
+        "spending": {
+            "vocabulary": spending_vocabulary,
+            "rules": _compact_rules(spending_rules),
+            "aliases": {},
+            "deprecation_hints": {},
+            "merge_hints": {},
+        },
+    }
+    version = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+    return {"version": version, **context}
+
+
+def _compact_rules(rules: dict[str, Any]) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for rule in rules.get("rules", []):
+        compact.append(
+            {
+                key: rule.get(key)
+                for key in [
+                    "document_type",
+                    "document_subtype",
+                    "transaction_type",
+                    "transaction_subtype",
+                    "spending_category",
+                    "spending_subcategory",
+                    "reason_code",
+                    "required_any",
+                    "signals",
+                    "minimum_score",
+                ]
+                if key in rule
+            }
+        )
+    return compact
 
 
 def save_label(connection: Any, *, scope: str, original_label: str, label: str, values: list[str]) -> None:

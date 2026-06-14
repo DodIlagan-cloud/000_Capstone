@@ -15,10 +15,10 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 
 | File | Change Type | Description |
 | --- | --- | --- |
-| `docs/M7-transaction-extraction-module-spec.md` | Created/Modified | Defines goals, non-goals, inputs, outputs, API contract, extraction strategy, finding codes, OCR-quality input handling, configuration, tests, acceptance criteria, and deferred items. Updated on 2026-06-11 to require plain-language stale-review messages for transaction and spending recognition suggestions. |
+| `docs/M7-transaction-extraction-module-spec.md` | Created/Modified | Defines goals, non-goals, inputs, outputs, API contract, extraction strategy, finding codes, OCR-quality input handling, configuration, tests, acceptance criteria, and deferred items. Updated on 2026-06-13 to make reviewed MVP manual Upload transaction accept/save a human-confirmation path for AI-suggested transaction and spending labels outside active vocabulary, with admin suggestions reserved for post-MVP automated/email workflows and broader governance. |
 | `docs/M7-transaction-extraction-file-inventory.md` | Created | Tracks M7 files, verification commands, and current implementation notes. |
 | `docs/module-test-flow-playbook.md` | Modified | Adds the planned M7 browser-first Docker acceptance flow, evidence boundaries, M5 handoff expectations, required classification gates, M8 handoff proof, and cleanup expectations without executing tests. |
-| `contracts/transactions/README.md` | Modified | Adds the M7 transaction extraction contract and clarifies that M7 returns candidates for M8 validation and M9 persistence, while surfacing weak M5 OCR quality as input-quality findings. |
+| `contracts/transactions/README.md` | Modified | Adds the M7 transaction extraction contract and clarifies that M7 returns candidates for M8 validation and M9 persistence, while surfacing weak M5 OCR quality as input-quality findings. Updated to include user-confirmable AI transaction/spending classification metadata for the MVP manual Upload review/save path and reserve admin suggestions for post-MVP automated/email flows. |
 
 ## Runtime Files
 
@@ -29,7 +29,7 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 | `modules/transaction-extraction-module/.env.example` | Created | Provides safe local override examples. |
 | `modules/transaction-extraction-module/config/defaults.env` | Created | Provides committed safe runtime defaults. |
 | `modules/transaction-extraction-module/app/__init__.py` | Created | Marks the module package. |
-| `modules/transaction-extraction-module/app/config.py` | Created/Modified | Loads defaults, local overrides, and environment values. Planned update: include M9 recognition settings API URL/cache settings. |
+| `modules/transaction-extraction-module/app/config.py` | Created/Modified | Loads defaults, local overrides, environment values, M9 recognition settings API URL/internal key/cache settings, and optional AI-assisted classification configuration. |
 | `modules/transaction-extraction-module/app/main.py` | Created | Creates the FastAPI app and registers health/extraction routes. |
 | `modules/transaction-extraction-module/app/models/common.py` | Created | Defines health/root response models. |
 | `modules/transaction-extraction-module/app/models/extraction.py` | Created/Modified | Defines request/result, classification subtype, OCR word-block input, transaction/field/section/entity/reference/line-item/installment candidates, finding, summary, reconciliation, extracted table groups, and evaluation models. |
@@ -56,8 +56,8 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 
 <!-- M7 AI Suggestion Governance Start - 2026-06-11 -->
 | `modules/transaction-extraction-module/app/models/extraction.py` | Modified | Adds pending recognition suggestion fields so M7 can hand off AI-proposed labels separately from approved active labels. |
-| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Keeps approved active values when AI proposes labels outside M9 active vocabulary and emits pending suggestion metadata for M8/M9 governance. |
-| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Adds focused coverage for AI-proposed outside-vocabulary labels producing pending suggestion metadata instead of approved active labels. |
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Preserves AI-proposed outside-vocabulary transaction/spending labels as reviewable candidate values for Upload confirmation while still supporting admin-governed suggestions when a transaction is not user-confirmed through save. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Covers AI-proposed outside-vocabulary labels requiring Upload user confirmation instead of being silently replaced by fallback labels. |
 <!-- M7 AI Suggestion Governance End - 2026-06-11 -->
 | `tests/unit/transaction_extraction_module/test_extraction_api.py` | Created | Verifies the JSON extraction endpoint returns candidates, explicit missing-text findings, and accepts M5-shaped parse results. |
 | `tests/scripts/M7-TransactionExtraction/M7-TransactionExtraction-test-flow.md` | Created | Defines the detailed M7 acceptance test flow to refine before a future Docker evidence run, including browser states, supporting API checks, reviewer walkthrough requirements, pass/fail gates, and cleanup. |
@@ -148,8 +148,14 @@ From M13 onward, official M7 verification must run inside `stats-runtime` throug
 | --- | --- | --- |
 | `docs/M7-transaction-extraction-module-spec.md` | Modified | Requires M7 to use a successful prior M9 in-memory settings cache during temporary M9/API outages and to preserve valid JSON when limiting AI prompt size. |
 | `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Returns the stale active-settings cache when the M9 recognition settings API is temporarily unavailable after a successful prior load. |
-| `modules/transaction-extraction-module/app/services/ai_transaction_classification_service.py` | Modified | Trims redacted source text before JSON serialization instead of slicing serialized prompt JSON. |
-| `tests/unit/transaction_extraction_module/test_classification_hardening.py` | Created | Verifies stale-cache fallback and valid JSON prompt limiting. |
+| `modules/transaction-extraction-module/app/services/ai_transaction_classification_service.py` | Modified | Trims redacted source text before JSON serialization instead of slicing serialized prompt JSON and includes bounded active M9 transaction/spending recognition context in AI prompts. |
+| `tests/unit/transaction_extraction_module/test_classification_hardening.py` | Created/Modified | Verifies stale-cache fallback, valid JSON prompt limiting, and active recognition-context handoff to AI prompts. |
+
+<!-- M7 AI Recognition Context Update Start - 2026-06-15 -->
+| `modules/transaction-extraction-module/app/models/extraction.py` | Modified | Adds classification vocabulary status, recognition-context version, confirmation mode, and human-confirmed metadata fields to transaction candidates. |
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Passes active M9 transaction/spending recognition context to AI classification, preserves outside-vocabulary AI labels as reviewable candidate values, and marks them for Upload review/save confirmation. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Verifies outside-vocabulary AI transaction/spending labels remain visible on candidates and require user confirmation instead of being silently replaced with fallback labels. |
+<!-- M7 AI Recognition Context Update End - 2026-06-15 -->
 
 <!-- M7 Recognition Resilience Update End - 2026-06-12 -->
 

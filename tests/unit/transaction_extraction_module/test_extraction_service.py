@@ -1250,13 +1250,16 @@ def test_ai_outside_active_vocabulary_becomes_pending_suggestion(monkeypatch):
     )
     candidate = result.transaction_candidates[0]
 
-    assert candidate.transaction_type == "unknown"
-    assert candidate.spending_category == "uncategorized"
-    assert candidate.recognition_suggestion_status == "pending"
+    assert candidate.transaction_type == "membership_topup"
+    assert candidate.spending_category == "public_transport"
+    assert candidate.recognition_suggestion_status == "outside_vocabulary"
     assert candidate.recognition_suggestion_id.startswith("suggestion_")
     assert candidate.suggested_transaction_type == "membership_topup"
     assert candidate.suggested_spending_category == "public_transport"
     assert candidate.suggestion_source == "ai"
+    assert candidate.classification_vocabulary_status == "outside_vocabulary_proposal"
+    assert candidate.classification_confirmation_mode == "transaction_review_save"
+    assert "AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED" in candidate.classification_review_reason_codes
     assert "AI_RECOGNITION_LABEL_SUGGESTION" in candidate.suggestion_reason_codes
 
 

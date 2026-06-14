@@ -139,6 +139,42 @@ def test_pending_recognition_suggestion_is_preserved_and_marked_for_review():
     assert result.evaluation.finding_counts["PENDING_RECOGNITION_LABEL_SUGGESTION"] == 1
 
 
+def test_ai_outside_vocabulary_suggestion_requires_user_confirmation():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="receipt",
+            transaction_candidates=[
+                _classified_candidate(**{
+                    "candidate_id": "txn_ai_new_label",
+                    "transaction_type": "membership_topup",
+                    "transaction_subtype": "transport_card_topup",
+                    "spending_category": "public_transport",
+                    "spending_subcategory": "stored_value_topup",
+                    "recognition_suggestion_id": "suggestion_ai_new",
+                    "recognition_suggestion_status": "outside_vocabulary",
+                    "suggested_transaction_type": "membership_topup",
+                    "suggested_transaction_subtype": "transport_card_topup",
+                    "suggested_spending_category": "public_transport",
+                    "suggested_spending_subcategory": "stored_value_topup",
+                    "suggestion_confidence": 0.91,
+                    "suggestion_reason_codes": ["AI_RECOGNITION_LABEL_SUGGESTION"],
+                    "suggestion_source": "ai",
+                    "classification_vocabulary_status": "outside_vocabulary_proposal",
+                    "classification_confirmation_mode": "transaction_review_save",
+                    "classification_review_required": True,
+                })
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert record.classification_vocabulary_status == "outside_vocabulary_proposal"
+    assert record.classification_confirmation_mode == "transaction_review_save"
+    assert "AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED" in record.reason_codes
+    assert result.evaluation.finding_counts["AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED"] == 1
+
+
 def test_invalid_amount_and_blank_description_mark_record_invalid():
     result = validate_data(
         DataValidationRequest(

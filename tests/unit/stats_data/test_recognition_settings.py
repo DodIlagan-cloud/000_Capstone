@@ -135,3 +135,34 @@ def test_seed_recognition_settings_skips_when_database_is_already_seeded():
     assert "MERGE dbo.recognition_labels" not in sql_text
     assert "MERGE dbo.recognition_rules" not in sql_text
     assert connection.committed is False
+
+
+def test_active_recognition_settings_includes_versioned_ai_context(monkeypatch):
+    cursor = RecordingCursor()
+    connection = RecordingConnection(cursor)
+    monkeypatch.setattr(recognition_settings, "seed_recognition_settings_if_empty", lambda _connection: None)
+    monkeypatch.setattr(
+        recognition_settings,
+        "_load_labels",
+        lambda _connection: {
+            "document": {"receipt": ["payment_terminal_receipt"], "unknown": ["unknown"]},
+            "transaction": {"purchase": ["card_purchase"], "unknown": ["unknown"]},
+            "spending": {"transport": ["stored_value_topup"], "uncategorized": ["unknown"]},
+        },
+    )
+    monkeypatch.setattr(
+        recognition_settings,
+        "_load_rules",
+        lambda _connection: {
+            "document": [{"document_type": "receipt", "document_subtype": "payment_terminal_receipt"}],
+            "transaction": [{"transaction_type": "purchase", "transaction_subtype": "card_purchase"}],
+            "spending": [{"spending_category": "transport", "spending_subcategory": "stored_value_topup"}],
+        },
+    )
+
+    payload = recognition_settings.active_recognition_settings(connection)
+
+    assert payload["recognition_context_version"] == payload["recognition_context"]["version"]
+    assert len(payload["recognition_context_version"]) == 16
+    assert payload["recognition_context"]["transaction"]["vocabulary"]["transaction_types"] == ["purchase", "unknown"]
+    assert payload["recognition_context"]["spending"]["vocabulary"]["spending_categories"] == ["transport", "uncategorized"]

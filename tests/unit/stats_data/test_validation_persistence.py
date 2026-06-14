@@ -23,6 +23,7 @@ if str(STATS_DATA_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(STATS_DATA_SCRIPTS))
 
 from stats_data.validation_persistence import (  # noqa: E402
+    _activate_confirmed_classifications,
     _execute_insert_if_missing,
     _mark_promoted,
     build_validation_persistence_plan,
@@ -134,6 +135,195 @@ def test_build_validation_persistence_plan_persists_recognition_suggestion_row()
     assert suggestion["suggested_transaction_type"] == "membership_topup"
     assert suggestion["suggested_spending_category"] == "public_transport"
     assert suggestion["suggestion_source"] == "ai"
+
+
+def test_build_validation_persistence_plan_skips_admin_suggestion_for_human_confirmed_classification():
+    result, _fixture_file = _actual_validation_result()
+    record = result["normalized_records"][0]
+    record.update(
+        {
+            "classification_human_confirmed": True,
+            "classification_confirmation_mode": "upload_transaction_review",
+            "classification_source": "user_confirmed_ai_suggestion",
+            "classification_vocabulary_status": "outside_vocabulary_proposal",
+            "recognition_suggestion_id": "suggestion_confirmed_123",
+            "recognition_suggestion_status": "confirmed_by_upload_review",
+            "transaction_type": "membership_topup",
+            "transaction_subtype": "transport_card_topup",
+            "spending_category": "public_transport",
+            "spending_subcategory": "stored_value_topup",
+            "suggested_transaction_type": "membership_topup",
+            "suggested_transaction_subtype": "transport_card_topup",
+            "suggested_spending_category": "public_transport",
+            "suggested_spending_subcategory": "stored_value_topup",
+        }
+    )
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transaction = _only(plan, "transactions")
+
+    assert not [operation for operation in plan.operations if operation.table == "recognition_label_suggestions"]
+    assert transaction["transaction_type"] == "membership_topup"
+    assert transaction["spending_category"] == "public_transport"
+    assert transaction["classification_human_confirmed"] == 1
+    assert transaction["recognition_suggestion_id"] is None
+    assert transaction["recognition_suggestion_status"] == "none"
+
+
+def test_activate_confirmed_classifications_upserts_labels_and_audit_rows():
+    cursor = _FakeRecognitionCursor()
+    result = {
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "classification_human_confirmed": True,
+                "classification_source": "user_confirmed_ai_suggestion",
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_vocabulary_status": "outside_vocabulary_proposal",
+                "recognition_suggestion_id": "suggestion_confirmed_1",
+                "transaction_type": "membership_topup",
+                "transaction_subtype": "transport_card_topup",
+                "spending_category": "public_transport",
+                "spending_subcategory": "stored_value_topup",
+                "suggested_transaction_type": "membership_topup",
+                "suggested_transaction_subtype": "transport_card_topup",
+                "suggested_spending_category": "public_transport",
+                "suggested_spending_subcategory": "stored_value_topup",
+            }
+        ]
+    }
+
+    _activate_confirmed_classifications(cursor, result, saved_by_user_id="user_1")
+
+    sql_text = "\n".join(sql for sql, _params in cursor.calls)
+    params = [params for _sql, params in cursor.calls]
+
+    assert "INSERT INTO dbo.recognition_labels" in sql_text
+    assert "MERGE dbo.recognition_config_changes" in sql_text
+    assert any(
+        len(call_params) > 2 and call_params[1] == "transaction" and call_params[2] == "membership_topup"
+        for call_params in params
+    )
+    assert any("transaction:membership_topup" in call_params for call_params in params)
+
+
+def test_unconfirmed_outside_vocabulary_label_persists_fallback_and_admin_suggestion():
+    result, _fixture_file = _actual_validation_result()
+    record = result["normalized_records"][0]
+    record.update(
+        {
+            "classification_human_confirmed": False,
+            "classification_vocabulary_status": "outside_vocabulary_proposal",
+            "recognition_suggestion_id": "suggestion_unconfirmed_123",
+            "recognition_suggestion_status": "outside_vocabulary",
+            "transaction_type": "membership_topup",
+            "transaction_subtype": "transport_card_topup",
+            "spending_category": "public_transport",
+            "spending_subcategory": "stored_value_topup",
+            "suggested_transaction_type": "membership_topup",
+            "suggested_transaction_subtype": "transport_card_topup",
+            "suggested_spending_category": "public_transport",
+            "suggested_spending_subcategory": "stored_value_topup",
+        }
+    )
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transaction = _only(plan, "transactions")
+    suggestion = _only(plan, "recognition_label_suggestions")
+
+    assert transaction["transaction_type"] == "unknown"
+    assert transaction["spending_category"] == "uncategorized"
+    assert transaction["recognition_suggestion_id"] == "suggestion_unconfirmed_123"
+    assert suggestion["suggested_transaction_type"] == "membership_topup"
+
+
+def test_rules_confirmed_outside_vocabulary_keeps_admin_suggestion_trace():
+    result, _fixture_file = _actual_validation_result()
+    record = result["normalized_records"][0]
+    record.update(
+        {
+            "classification_human_confirmed": True,
+            "classification_confirmation_mode": "upload_transaction_review",
+            "classification_source": "user_confirmed_classification",
+            "classification_vocabulary_status": "outside_vocabulary_proposal",
+            "recognition_suggestion_id": "suggestion_rules_123",
+            "recognition_suggestion_status": "pending",
+            "transaction_type": "membership_topup",
+            "transaction_subtype": "transport_card_topup",
+            "spending_category": "public_transport",
+            "spending_subcategory": "stored_value_topup",
+            "suggested_transaction_type": "membership_topup",
+            "suggested_transaction_subtype": "transport_card_topup",
+            "suggested_spending_category": "public_transport",
+            "suggested_spending_subcategory": "stored_value_topup",
+            "suggestion_source": "rules",
+        }
+    )
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transaction = _only(plan, "transactions")
+    suggestion = _only(plan, "recognition_label_suggestions")
+
+    assert transaction["transaction_type"] == "membership_topup"
+    assert transaction["recognition_suggestion_id"] == "suggestion_rules_123"
+    assert transaction["classification_human_confirmed"] == 1
+    assert suggestion["suggestion_id"] == "suggestion_rules_123"
+    assert suggestion["suggestion_source"] == "rules"
+
+
+def test_client_confirmation_without_review_shape_does_not_activate_label():
+    cursor = _FakeRecognitionCursor()
+    result = {
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "classification_human_confirmed": True,
+                "classification_source": "unknown",
+                "classification_confirmation_mode": "upload_transaction_review",
+                "transaction_type": "tax_evasion_crypto",
+                "transaction_subtype": "unknown",
+                "spending_category": "uncategorized",
+                "spending_subcategory": "unknown",
+            }
+        ]
+    }
+
+    _activate_confirmed_classifications(cursor, result, saved_by_user_id="user_1")
+
+    assert cursor.calls == []
+
+
+def test_ai_confirmed_label_activation_allows_user_refined_subtype():
+    cursor = _FakeRecognitionCursor()
+    result = {
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "classification_human_confirmed": True,
+                "classification_source": "user_confirmed_ai_suggestion",
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_vocabulary_status": "outside_vocabulary_proposal",
+                "recognition_suggestion_id": "suggestion_confirmed_2",
+                "transaction_type": "membership_topup",
+                "transaction_subtype": "top_up",
+                "spending_category": "uncategorized",
+                "spending_subcategory": "unknown",
+                "suggested_transaction_type": "membership_topup",
+                "suggested_transaction_subtype": "unknown",
+            }
+        ]
+    }
+
+    _activate_confirmed_classifications(cursor, result, saved_by_user_id="user_1")
+
+    sql_text = "\n".join(sql for sql, _params in cursor.calls)
+    params = [params for _sql, params in cursor.calls]
+
+    assert "INSERT INTO dbo.recognition_labels" in sql_text
+    assert any(
+        len(call_params) > 4 and call_params[1] == "transaction" and call_params[2] == "membership_topup" and call_params[4] == '["unknown", "top_up"]'
+        for call_params in params
+    )
 
 
 def test_build_validation_persistence_plan_persists_document_recognition_suggestion_row():
@@ -558,6 +748,18 @@ class _FakeMergeCursor:
         self.executed_sql = sql
         self.executed_params = params
         return self
+
+
+class _FakeRecognitionCursor:
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, sql, *params):
+        self.calls.append((sql, params))
+        return self
+
+    def fetchone(self):
+        return None
 
 
 class _FakeListConnection:

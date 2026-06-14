@@ -66,6 +66,10 @@ class ParsedClassification(BaseModel):
     suggestion_reason_codes: list[str] = Field(default_factory=list)
     suggestion_source: Optional[str] = None
     suggestion_evidence_ref: Optional[str] = None
+    classification_vocabulary_status: str = "active_vocabulary_match"
+    recognition_context_version: Optional[str] = None
+    classification_confirmation_mode: Optional[str] = None
+    classification_human_confirmed: bool = False
 
 
 class ParsedQuality(BaseModel):
@@ -154,6 +158,10 @@ class TransactionCandidate(BaseModel):
     suggestion_reason_codes: list[str] = Field(default_factory=list)
     suggestion_source: Optional[str] = None
     suggestion_evidence_ref: Optional[str] = None
+    classification_vocabulary_status: str = "active_vocabulary_match"
+    recognition_context_version: Optional[str] = None
+    classification_confirmation_mode: Optional[str] = None
+    classification_human_confirmed: bool = False
 
 
 class FinancialFieldCandidate(BaseModel):

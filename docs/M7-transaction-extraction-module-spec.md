@@ -164,25 +164,24 @@ Those files are deprecated for runtime use. They may be retained temporarily as 
 
 AI assistance must be optional and environment-driven. It must not send raw unredacted OCR text, account/card/customer/patient identifiers, full document text, connection strings, or secrets. The AI request should use the smallest redacted candidate context needed: candidate description, redacted source snippet, document type/subtype, section label, direction, amount band or amount when required, entity/reference types, and existing rule scores. AI prompt size limiting must preserve valid JSON by trimming large source fields before serialization rather than slicing an already-serialized JSON payload.
 
-M7 remains the owner of these classification suggestions. M8 validates and flags them, M9 persists them, and M11 reports over persisted outcomes.
+M7 remains the owner of these classification suggestions. M8 validates and flags them, M9 persists them or activates human-confirmed labels after save, and M11 reports over persisted outcomes.
 
-### Admin-Approved Label Lifecycle
+### Recognition Label Lifecycle
 
-Transaction and spending labels use an approved-configuration plus pending-suggestion model:
+Transaction and spending labels use approved configuration plus two human-confirmation paths:
 
 1. M7 classifies each candidate with approved transaction and spending vocabulary/rules first.
-2. If deterministic rules and optional AI assistance detect a plausible new label, M7 emits a pending label suggestion instead of changing JSON configuration directly.
-3. Non-admin upload users are not blocked by pending suggestions. The transaction remains reviewable and may be saved with the safest approved value, such as `unknown` or `uncategorized`, until an admin approves a better label.
-4. Stats Web must allow a user to accept an otherwise valid extracted transaction for saving when only the transaction type, transaction subtype, spending category, or spending subcategory is unknown. The saved record must remain review-required and must keep pending suggestion metadata for admin approval; the upload screen must not force the uploader to invent an approved classification before persistence.
-5. Recognition approval failures must show a user-actionable reason. The UI must distinguish missing or stale review items from general save failures, and browser form submissions must use the generated page action URL even when field names overlap browser form properties.
-6. If deterministic rule evidence points to a label/subtype that is not currently active in M9, M7 must keep the active transaction fields at safe fallback values and may emit a pending non-AI suggestion with redacted evidence and reason codes. This prevents label deactivation or missing seed data from making content-based recognition disappear.
-7. Stats Web shows pending suggestions to administrators with redacted source evidence, source document/transaction links, confidence, and reason codes.
-8. Administrators may approve, edit then approve, reject, rename, or merge a label suggestion.
-9. Approved changes update the active M9 recognition settings inside an audited database operation.
-10. When an approved edit renames, merges, or applies a label, M9 must synchronize affected persisted transaction records according to the admin's selected policy.
-11. Pending AI/user/rule suggestions must be stored separately from the active transaction fields. A transaction may reference the suggestion for review, but its active persisted labels remain the safest approved values until the suggestion is approved.
+2. If deterministic rules and optional AI assistance detect a plausible new label outside the current active vocabulary, M7 marks the candidate for review and preserves the proposed transaction type, transaction subtype, spending category, and spending subcategory as the active candidate values for the upload review flow.
+3. The Upload transaction review/accept/save flow is a human-confirmation path. If the user reviews and accepts the transaction before saving, the saved transaction keeps the accepted AI-suggested classification, the classification is marked human-confirmed, and M9 adds the new label or subtype to active recognition vocabulary as part of the save workflow.
+4. This transaction-review confirmation path bypasses the separate `/Admin/Classifications` pending-suggestion approval path for that reviewed transaction. No separate administrator approval is required when the user has reviewed and accepted the transaction before saving.
+5. The admin pending-suggestions workflow remains available for post-MVP email ingestion, automated workflows, background suggestions, batch governance, cleanup, merge/rename decisions, or suggestions that should not be activated by a single user save.
+6. If deterministic rule evidence points to a label/subtype that is not currently active in M9, M7 must keep source evidence and may emit a pending non-AI suggestion for admin governance unless the user explicitly edits/accepts the classification in the upload review flow.
+7. Recognition approval and save failures must show a user-actionable reason. The UI must distinguish stale admin review items, save-time vocabulary activation failures, and general save failures without showing raw HTTP status text, raw API JSON, stack traces, or secret-bearing diagnostics.
+8. Administrators may still approve, edit then approve, reject, rename, or merge suggestions that were not completed through the upload transaction-review save path.
+9. Approved admin changes and user-confirmed save-time vocabulary activations both update active M9 recognition settings through controlled audited database operations.
+10. When an admin edit renames, merges, or applies a label, M9 must synchronize affected persisted transaction records according to the admin's selected policy. Save-time user confirmation applies only to the transactions included in that save and to activation of the accepted new labels/subtypes.
 
-AI may propose labels and rules while running, but AI must not become the final authority for approved configuration. Admin approval is required before active database settings or historical database labels are changed.
+AI may propose labels and rules while running, but AI must not silently become the final authority. Either upload transaction review/save or admin governance must provide the human confirmation before new active database settings or persisted reporting rows rely on a new label.
 
 Admin review and evidence failures must be plain-language. If a transaction or spending recognition suggestion can no longer be approved because it was already reviewed, removed, or created by a stale test run, Stats Web must show a message such as `This review item is no longer available. Refresh the items to review and try again.` It must not show raw HTTP status text, raw API JSON, stack traces, or secret-bearing diagnostics to the user.
 <!-- M7 - Transaction Classification End -->
@@ -191,10 +190,9 @@ Admin review and evidence failures must be plain-language. If a transaction or s
 <!-- M7 AI Suggestion Governance Start - 2026-06-11 -->
 ### AI Suggestion Governance Handoff
 
-When AI-assisted transaction or spending classification proposes a label or subtype that is not currently present in M9 active recognition settings, M7 must not treat the proposed value as an approved active label. M7 must keep the safest approved current value on the transaction candidate, usually `unknown / unknown` for transaction labels and `uncategorized / unknown` for spending labels, and emit separate pending-suggestion metadata for M8 and M9:
+When AI-assisted transaction or spending classification proposes a label or subtype that is not currently present in M9 active recognition settings, M7 must keep the proposed value on the transaction candidate for the Upload review flow and mark the row as review-required. The proposed value is not yet globally approved, but it is the candidate value the user can inspect, edit, accept, and save. M7 should include review/confirmation metadata so M8, Stats Web, and M9 can distinguish user-confirmable AI suggestions from already-active vocabulary:
 
 - `recognition_suggestion_id`
-- `recognition_suggestion_status = pending`
 - `suggested_transaction_type`
 - `suggested_transaction_subtype`
 - `suggested_spending_category`
@@ -203,8 +201,11 @@ When AI-assisted transaction or spending classification proposes a label or subt
 - `suggestion_reason_codes`
 - `suggestion_source`
 - `suggestion_evidence_ref`
+- `classification_review_required = true`
+- `classification_confirmation_mode = transaction_review_save`
+- `classification_human_confirmed = false`
 
-M7 may still use an approved AI-assisted value immediately when the AI result maps to active M9 vocabulary. Proposed labels outside active settings must be admin-reviewed in M9 before active settings or persisted reporting rows are changed.
+M7 may still use an approved AI-assisted value immediately when the AI result maps to active M9 vocabulary. Proposed labels outside active settings must be confirmed by the manual Upload transaction review/save path before they become persisted reporting labels or active vocabulary in the MVP flow. If the transaction comes from post-MVP email ingestion, automated workflow, or another path where no user reviews it before save, the suggestion remains eligible for the admin pending-suggestion workflow.
 <!-- M7 AI Suggestion Governance End - 2026-06-11 -->
 
 <!-- M7 - Robust Candidate Output Start -->
@@ -306,6 +307,8 @@ M7 starts with deterministic rules so results are explainable and testable:
 Future implementation may add model-assisted extraction behind configuration, but deterministic behavior is the initial acceptance boundary. Issuer-specific templates are not part of the accepted direction for M7.
 
 Transaction type and spending category classification follow M5's classification direction: deterministic vocabulary/rules are the primary path; AI-assisted classification is a configured fallback for weak, ambiguous, or unknown cases. AI assistance must improve coverage without replacing traceable rule outputs or hiding review-needed classifications.
+
+Before M7 sends any transaction or spending candidate to an AI-assisted classifier, it must load the current active recognition context from M9 and include only that bounded context in the prompt: approved transaction types/subtypes, approved spending categories/subcategories, enabled aliases/rules, deprecation or merge hints, the deterministic rule result, and minimal redacted transaction evidence. The AI prompt must prefer existing active labels whenever they fit and may propose a new transaction/spending label or subtype only when the candidate cannot be safely mapped to the active vocabulary. The response must state whether each suggested value matched active vocabulary or is a proposed new value that requires review/confirmation.
 
 ## Finding Codes
 
@@ -410,6 +413,7 @@ Module-local automated tests must cover:
 - Classification loading from M9 active recognition settings, with controlled unavailable-settings findings and no stale JSON fallback.
 - Optional AI-assisted transaction/category classification fallback is called only when configured and when deterministic rules are weak, ambiguous, or unknown.
 - AI-assisted classification tests use redacted/minimal candidate context and must not require real secrets or network access.
+- AI-assisted outside-vocabulary transaction/spending labels remain visible on the candidate for Upload review, require user confirmation before save, and carry metadata that lets M9 activate the accepted labels during the save workflow without requiring separate admin approval.
 - Long statement headers, advisory text, and rate disclosures not being misclassified as transaction rows.
 - Unknown document handling.
 - Ambiguous amount/date findings.
@@ -455,6 +459,8 @@ M7 is complete when:
 - M5 low/no-text and OCR readiness findings are surfaced as M7 input-quality findings.
 - Transaction candidates include date/description/amount/source/confidence metadata where available.
 - Transaction candidates include transaction type and spending category suggestions with confidence, status, reason codes, and source when classification is enabled.
+- If AI suggests a transaction type, transaction subtype, spending category, or spending subcategory outside the current active vocabulary, M7 flags the transaction candidate for user review before save.
+- AI-suggested transaction/spending labels outside active vocabulary are preserved as reviewable candidate labels and are not silently replaced by `unknown` or `uncategorized` when the Upload review/save flow can provide human confirmation.
 - Financial field candidates include field name/value/source/confidence metadata where available.
 - Section, entity, reference, and line-item candidates are included when present and supported by source evidence.
 - Extracted document tables are returned so Stats Web can display all extracted data in tabular form without owning extraction logic.

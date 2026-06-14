@@ -4,6 +4,7 @@ M7 End"""
 
 import json
 
+from app.models.extraction import SourceReference, TransactionCandidate
 from app.services import ai_transaction_classification_service, transaction_classification_service
 
 
@@ -82,3 +83,37 @@ def test_ai_prompt_limiting_enforces_budget_when_non_source_fields_are_large():
     decoded = json.loads(encoded)
     assert decoded["candidate"]["source_text"] == ""
     assert len(decoded["candidate"]["description"]) < 2000
+
+
+def test_ai_request_payload_includes_active_recognition_context(monkeypatch):
+    monkeypatch.setattr(ai_transaction_classification_service.settings, "transaction_classification_ai_provider", "gemini")
+    monkeypatch.setattr(ai_transaction_classification_service.settings, "transaction_classification_ai_max_chars", 5000)
+    candidate = TransactionCandidate(
+        candidate_id="txn_context",
+        description="HOP card topup",
+        amount=55.0,
+        currency="NZD",
+        direction="debit",
+        source=SourceReference(line_number=1, text="HOP card topup NZD55.00"),
+        confidence=0.9,
+    )
+    context = {
+        "version": "ctx_test_1",
+        "transaction": {"vocabulary": {"transaction_types": ["purchase", "unknown"]}},
+        "spending": {"vocabulary": {"spending_categories": ["transport", "uncategorized"]}},
+    }
+
+    payload = ai_transaction_classification_service._request_payload(
+        candidate=candidate,
+        document_type="receipt",
+        document_subtype="payment_terminal_receipt",
+        transaction_result={"label": "unknown", "status": "unknown"},
+        category_result={"label": "uncategorized", "status": "unknown"},
+        active_recognition_context=context,
+    )
+
+    prompt = payload["contents"][0]["parts"][0]["text"]
+    decoded = json.loads(prompt)
+
+    assert decoded["active_recognition_context"]["version"] == "ctx_test_1"
+    assert decoded["active_recognition_context"]["transaction"]["vocabulary"]["transaction_types"] == ["purchase", "unknown"]
