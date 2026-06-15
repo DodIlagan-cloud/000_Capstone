@@ -43,7 +43,7 @@ This spec is aligned to the current Stats app state as of the M9/M14 work now pr
 | `/` | Authenticated dashboard-first shell with static counts for documents, transactions, and warnings | Replace static readiness cards with Power BI-backed financial KPI cards: last month expenses, current month running expenses, top expense contributor, prior-month change, monthly history, and notable expenses |
 | `/Upload` | Authenticated upload workflow calls M3/M4, M5, M7, M8, and now M9 save endpoint through `StatsDataBaseUrl` | Remains the intake/save source for dashboard data; M11 should link users back to upload when no data exists |
 | `/Documents` | Authenticated page lists recent saved M9 document records and supports removal through Stats Data API | Owns data provenance: source summary, document status, document type, source institution, quality, review counts, and drilldown |
-| `/Reports` | Authenticated reports shell with deferred reporting state | Becomes the primary Power BI embedded reporting host, with controlled not-configured/error states |
+| `/Reports` | Authenticated reports shell with deferred reporting state | Becomes a native Stats insights workspace powered by curated Fabric/Power BI analytics, focused on explanation, classification, source coverage, and trust rather than duplicating Home KPI cards or showing a pasted report canvas |
 | `/EmailSetup` | Shell placeholder for future email ingestion setup | Can later feed document source filters but is not an M11 dependency |
 | `/Users` | Admin user management from M1 | M11 only consumes authenticated user context and role-aware visibility |
 | `/Admin/Classifications` | Admin classification management from M2 with M5/M7 ownership | M11 may link classification metrics back to this admin surface but must not own rule editing or classification decisions |
@@ -121,6 +121,18 @@ Every important number should answer:
 - What should the user do next?
 
 The Home dashboard should prioritize financial outcomes over processing counters, and those financial KPI cards should be Power BI-backed once reporting is connected. Document counts, saved-row counts, and review counts belong primarily on the Documents provenance tab, not as primary Home cards. Home may show small native trust warnings only when data quality materially affects a financial insight.
+
+## Page Responsibility Split
+
+M11 must keep the main app pages distinct so users do not see the same dashboard repeated in different places.
+
+| Page | Primary Job | Should Avoid |
+| --- | --- | --- |
+| Home | Executive financial snapshot: current/last period expenses, top contributor, notable expense, change against prior month, monthly history, currency, and freshness | Dense tables, source provenance summaries, full report canvases, category diagnostics, or long explanations |
+| Reports | Explanation and diagnosis: why totals changed, what categories drive spend, how complete classification is, whether source coverage is sufficient, and what trust blockers affect the numbers | Repeating Home KPI cards as primary content or acting as a simple embedded Power BI report frame |
+| Documents | Provenance/source records: which files were saved, where records came from, document quality, row counts, review counts, and source drilldown | Becoming the primary financial summary or category analysis page |
+
+Home answers "what happened?". Reports answers "why did it happen and can I trust it?". Documents answers "where did the data come from?".
 
 ## User Questions M11 Must Answer
 
@@ -315,18 +327,37 @@ Expected fields:
 
 ### Reports
 
-The Reports view contains embedded analytical report pages when reporting configuration is available. It should support the literature-backed value proposition that Stats turns scattered financial documents into useful and trustworthy financial information.
+The Reports view is a native Stats insights workspace powered by curated Fabric/Power BI analytics. It should support the literature-backed value proposition that Stats turns scattered financial documents into useful and trustworthy financial information.
+
+Reports should not repeat the Home KPI cards as its primary content. It may share the same reporting period, currency, and freshness context, but its purpose is to explain and diagnose the financial snapshot: which categories drove the numbers, how complete classification is, which sources are represented, and what quality or review issues affect trust.
+
+Expected header context:
+
+- Reporting period.
+- Currency.
+- Last analytics refresh.
+- Data readiness or classification coverage.
+- Source summary, such as document and transaction counts, as compact context rather than primary KPI cards.
 
 Initial report sections:
 
-- Financial overview.
 - Spending categories.
-- Transaction classification.
+- Classification quality.
 - Source document coverage.
 - Data quality and confidence.
-- Review and exceptions.
+- Transaction drilldown.
 
-The Reports page must include selected-report context so users understand what each report answers, which data it uses, and what should be reviewed before trusting the numbers.
+The Reports page must include selected-section context so users understand what each section answers, which data it uses, and what should be reviewed before trusting the numbers.
+
+Expected initial sections:
+
+| Section | Question Answered | Expected Content |
+| --- | --- | --- |
+| Spending categories | Where is the money going, and which categories drive spend? | Category breakdown, amount, share of total, confidence/readiness, review count, uncategorized total, and link to review uncategorized transactions |
+| Classification quality | How reliable are category and transaction labels? | Categorized vs uncategorized counts, unknown transaction type counts, low-confidence labels, pending/approved/rejected suggestion counts when available, and labels needing review |
+| Source coverage | Is the report based on enough source material? | Months covered, documents per month, transactions per month, missing/weak months, source institution mix, and OCR/validation issue impact |
+| Data quality and confidence | What weakens trust in the reported numbers? | Review-required transactions, low OCR quality documents, validation warnings, missing dates/amounts/categories, duplicates/exclusions, and affected totals |
+| Transaction drilldown | Which records explain a category, issue, or trend? | Filterable transaction table with date, description, category, amount, confidence, source document, and review status |
 
 Deferred report sections:
 
@@ -340,7 +371,8 @@ When Power BI is not configured, the Reports page must show a clear not-configur
 Current alignment:
 
 - `/Reports` already exists as an authenticated deferred reports shell.
-- First M11 work should replace the generic deferred panel with a Power BI embed host and a not-configured state.
+- First M11 work should replace the generic deferred panel with native report-section navigation, context copy, not-configured/error states, and placeholders that can later bind to Fabric/Power BI-backed analytics data.
+- A full Power BI report canvas may remain available for validation, analyst exploration, or future export workflows, but it should not be the default production Reports experience.
 
 ## First Dashboard Cards
 
@@ -491,7 +523,10 @@ M9 persists trusted financial data in Azure SQL
 M11 native views read M9 APIs for operational workflow and provenance
         |
         v
-Fabric / Power BI consumes curated M9 data for financial KPI dashboards and analytical reports
+Fabric / Power BI consumes curated M9 data for measures, semantic models, and analytical outputs
+        |
+        v
+M11 renders native Stats report sections for product-facing investigation and trust workflows
 ```
 
 ### Native Stats Web Views
@@ -505,9 +540,9 @@ Use native M11 views for daily workflow:
 - Evidence drilldowns.
 - Empty/loading/error states.
 
-### Power BI Reports
+### Power BI And Fabric Analytics
 
-Use Power BI for financial KPI cards and richer analytical reporting:
+Use Power BI/Fabric to provide curated analytical outputs behind Stats-native reporting:
 
 - Last month expenses.
 - This month running expenses.
@@ -515,21 +550,26 @@ Use Power BI for financial KPI cards and richer analytical reporting:
 - Current-month change against the prior month.
 - Monthly spending history.
 - Category and merchant analysis.
+- Classification coverage and uncategorized spend.
+- Source coverage and document quality indicators.
 - Obligation/payable summaries only after stable obligation and payment-status data exists.
 - Payment history.
 - Document processing KPIs.
 - Quality and review backlog trends.
-- Export-ready report pages.
+- Export-ready report pages when approved.
+
+Stats Web should render the default user-facing Reports experience itself. Full embedded Power BI report pages are acceptable for validation, development, analyst exploration, and future export-ready report views, but the primary production UX should be a native, question-led Stats view.
 
 ### Fabric
 
-Use Fabric later for curated analytical modelling:
+Use Fabric for curated analytical modelling:
 
 - Lakehouse, warehouse, or semantic model fed from approved M9 data.
 - Business-friendly measures and dimensions.
-- Power BI report hosting and modelling.
+- Power BI report hosting and modelling where needed.
+- Stable analytical outputs that Stats Web can present as native insights.
 
-M11 should not require Fabric/Power BI to be configured before native document/provenance and operational workflow views are useful. However, financial KPI cards and analytical dashboard visuals are considered reporting features and should display a controlled not-configured state until Power BI is connected.
+M11 should not require Fabric/Power BI to be configured before native document/provenance and operational workflow views are useful. However, financial KPI cards and analytical report sections are considered reporting features and should display a controlled not-configured state until the approved analytics layer is connected.
 
 Current cloud-dev alignment:
 
@@ -706,24 +746,24 @@ M11 should display masked account/card/reference values only. Full sensitive val
 
 ### Phase 1: Native Dashboard Contract
 
-- Define M11 Power BI dashboard views, embed expectations, and native provenance API expectations.
+- Define M11 dashboard views, native report-section expectations, analytics integration expectations, and native provenance API expectations.
 - Keep `/` as the dashboard-first route.
-- Replace static Home cards with Power BI-backed financial insight cards when embed configuration is available.
+- Replace static Home cards with analytics-backed financial insight cards when reporting configuration is available.
 - Treat `/Documents` as the first current M9-backed view and the owner of provenance/source summaries.
-- Keep `/Reports` as the Power BI embedded report shell plus not-configured state.
+- Define `/Reports` as a native insights workspace for spending categories, classification quality, source coverage, data quality, and transaction drilldown, with controlled not-configured states.
 
 ### Phase 2: M9 API Integration
 
 - Continue using implemented `GET /api/v1/documents` on `/Documents`.
 - Add or consume M9 transaction, document summary, statement, financial summary, finding, and review endpoints as they become available.
-- Render real Home financial cards, recent notable expenses, top contributors, and trends from Power BI embed visuals over curated M9 data.
+- Render real Home financial cards, recent notable expenses, top contributors, and trends from curated M9/Fabric/Power BI analytics data.
 - Render document counts, source summaries, row counts, review counts, and quality summaries on `/Documents`.
 - Add filters and drilldowns.
 - Add user-facing error and partial-data states.
 
 ### Phase 3: Reporting Views
 
-- Add reports for financial overview, spending categories, transaction classification, source document coverage, data quality/confidence, and review exceptions.
+- Add native Reports sections for spending categories, classification quality, source document coverage, data quality/confidence, and transaction drilldown.
 - Keep obligations, credit-card exposure, budget-vs-actual, and reconciliation as future report sections until the supporting M9 read models are stable.
 - Add export-ready view structure when output requirements are approved.
 - Keep native provenance and workflow views usable when Power BI is unavailable.
@@ -732,9 +772,9 @@ M11 should display masked account/card/reference values only. Full sensitive val
 
 - Create curated M9 reporting views or exports.
 - Build a Fabric semantic model or compatible Power BI dataset over approved M9 data.
-- Build first Power BI financial KPI cards and report pages.
+- Build first analytics-backed measures for Home KPI cards and Reports diagnostic sections.
 - Add embed config endpoint through the appropriate backend/cloud boundary.
-- Embed reports in the M11 Reports page when configured.
+- Use Power BI/Fabric outputs to populate native Stats Web report sections when configured. Keep full embedded reports as a secondary validation/export path, not the default Reports UX.
 
 ## Test Plan
 
@@ -753,9 +793,13 @@ M11 should display masked account/card/reference values only. Full sensitive val
 - M11 reads native operational/provenance data from M9 APIs or controlled deferred states only.
 - M11 does not call processing modules directly for report totals.
 - Home dashboard views show Power BI-backed financial insights first: last month expenses, current month running expenses, top expense contributor, prior-month change, monthly history, and recent notable expenses.
+- Home remains a snapshot dashboard and does not become the category analysis, transaction table, source coverage, or report explanation page.
+- Reports does not duplicate Home KPI cards as primary content; it explains category drivers, classification coverage, source coverage, data quality, and review impact behind the Home numbers.
 - Documents views show provenance first: document counts, source/type summaries, saved records, quality, row counts, review counts, and source drilldowns.
+- Reports includes selected reporting period, currency, data readiness/classification coverage, source context, and review impact.
 - Each displayed financial number can trace to M9 source document/transaction/evidence metadata when available.
-- Power BI/Fabric are treated as the financial dashboard and analytics/reporting layers over curated M9 data.
+- Power BI/Fabric are treated as analytical services over curated M9 data; Stats Web renders the primary product-facing dashboard and report investigation experience.
+- A full pasted Power BI report canvas is not required for the default Reports UX and should not be the only way users understand reporting results.
 - Missing Power BI/Fabric configuration does not block native document/provenance and operational workflow views.
 - No secrets, real connection strings, tenant IDs, subscription IDs, passwords, or secret values are committed.
 
