@@ -663,36 +663,58 @@ EVALUATE
 VAR SelectedCurrency = "{{currency}}"
 VAR AsOfDate = {{asOfDateLiteral}}
 VAR CurrentMonthStart = DATE(YEAR(AsOfDate), MONTH(AsOfDate), 1)
-VAR LastMonthStart = EDATE(CurrentMonthStart, -1)
-VAR PreviousMonthStart = EDATE(CurrentMonthStart, -2)
 VAR FxRates = {{fxRates}}
+VAR MonthlyBase =
+    ADDCOLUMNS(
+        SUMMARIZE(
+            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] <= CurrentMonthStart),
+            'Monthly Expenses'[month_start_date]
+        ),
+        "converted_expense_total",
+            VAR HistoryMonth = 'Monthly Expenses'[month_start_date]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = HistoryMonth),
+                    VAR SourceCurrency = 'Monthly Expenses'[currency]
+                    VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                    RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
+                ),
+                0
+            )
+    )
+VAR LatestReportingMonth =
+    MAXX(MonthlyBase, 'Monthly Expenses'[month_start_date])
+VAR PreviousReportingMonth =
+    MAXX(
+        FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] < LatestReportingMonth),
+        'Monthly Expenses'[month_start_date]
+    )
+VAR PriorReportingMonth =
+    MAXX(
+        FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] < PreviousReportingMonth),
+        'Monthly Expenses'[month_start_date]
+    )
 VAR CurrentMonthExpenses =
     COALESCE(
-        SUMX(
-            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = CurrentMonthStart),
-            VAR SourceCurrency = 'Monthly Expenses'[currency]
-            VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
-            RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
+        MAXX(
+            FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = LatestReportingMonth),
+            [converted_expense_total]
         ),
         0
     )
 VAR LastMonthExpenses =
     COALESCE(
-        SUMX(
-            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = LastMonthStart),
-            VAR SourceCurrency = 'Monthly Expenses'[currency]
-            VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
-            RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
+        MAXX(
+            FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = PreviousReportingMonth),
+            [converted_expense_total]
         ),
         0
     )
 VAR PreviousMonthExpenses =
     COALESCE(
-        SUMX(
-            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = PreviousMonthStart),
-            VAR SourceCurrency = 'Monthly Expenses'[currency]
-            VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
-            RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
+        MAXX(
+            FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = PriorReportingMonth),
+            [converted_expense_total]
         ),
         0
     )
@@ -700,7 +722,7 @@ VAR CurrentTopContributor =
     TOPN(
         1,
         ADDCOLUMNS(
-            FILTER('Top Expense Contributors', 'Top Expense Contributors'[month_start_date] = CurrentMonthStart),
+            FILTER('Top Expense Contributors', 'Top Expense Contributors'[month_start_date] = LatestReportingMonth),
             "converted_expense_total",
                 VAR SourceCurrency = 'Top Expense Contributors'[currency]
                 VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
@@ -724,28 +746,10 @@ VAR NotableExpense =
         [converted_expense_amount],
         DESC
     )
-VAR MonthlyHistoryBase =
-    ADDCOLUMNS(
-        SUMMARIZE(
-            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] <= CurrentMonthStart),
-            'Monthly Expenses'[month_start_date]
-        ),
-        "converted_expense_total",
-            VAR HistoryMonth = 'Monthly Expenses'[month_start_date]
-            RETURN COALESCE(
-                SUMX(
-                    FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = HistoryMonth),
-                    VAR SourceCurrency = 'Monthly Expenses'[currency]
-                    VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
-                    RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
-                ),
-                0
-            )
-    )
 VAR MonthlyHistoryRows =
     TOPN(
         6,
-        MonthlyHistoryBase,
+        MonthlyBase,
         'Monthly Expenses'[month_start_date],
         DESC
     )

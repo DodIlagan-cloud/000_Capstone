@@ -290,6 +290,13 @@ def test_stats_web_reporting_guards_historical_as_of_date_and_clamps_quality_wid
     program_source = PROGRAM_FILE.read_text(encoding="utf-8")
     reporting_source = REPORTING_JS_FILE.read_text(encoding="utf-8")
 
+    assert "VAR MonthlyBase =" in program_source
+    assert "VAR LatestReportingMonth =" in program_source
+    assert "VAR PreviousReportingMonth =" in program_source
+    assert "FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = LatestReportingMonth)" in program_source
+    assert "FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = PreviousReportingMonth)" in program_source
+    assert "FILTER('Top Expense Contributors', 'Top Expense Contributors'[month_start_date] = LatestReportingMonth)" in program_source
+    assert "MonthlyHistoryRows =\n    TOPN(\n        6,\n        MonthlyBase," in program_source
     assert "'Spending Categories'[month_start_date] <= CurrentMonthStart" in program_source
     assert "'Classification Quality'[month_start_date] <= CurrentMonthStart" in program_source
     assert "Math.min(100, Math.max(0, Math.round((classified / total) * 100)))" in reporting_source
