@@ -262,7 +262,7 @@ def _normalize_transaction_candidate(
         )
 
     required_field_reason_codes = _required_save_field_reason_codes(request, candidate, min_confidence, findings)
-    classification_reason_codes = _classification_review_reason_codes(candidate, min_confidence, findings)
+    classification_reason_codes = _classification_review_reason_codes(candidate, request, min_confidence, findings)
     reason_codes.extend(required_field_reason_codes)
     reason_codes.extend(classification_reason_codes)
 
@@ -298,6 +298,9 @@ def _normalize_transaction_candidate(
             "PENDING_RECOGNITION_LABEL_SUGGESTION",
             "UNAPPROVED_RECOGNITION_LABEL",
             "REJECTED_RECOGNITION_LABEL_SUGGESTION",
+            "PRIOR_MERCHANT_CLASSIFICATION_CONFLICT",
+            "PRIOR_MERCHANT_CLASSIFICATION_INACTIVE",
+            "PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH",
         ]
     ):
         quality_status = "warning"
@@ -348,6 +351,16 @@ def _normalize_transaction_candidate(
         suggestion_evidence_ref=candidate.suggestion_evidence_ref,
         classification_vocabulary_status=(candidate.classification_vocabulary_status or "active_vocabulary_match").strip().lower(),
         recognition_context_version=candidate.recognition_context_version,
+        transaction_subtype_parent_map=_context_parent_map(
+            request.active_recognition_context,
+            group="transaction",
+            map_key="subtype_parent_map",
+        ),
+        spending_subcategory_parent_map=_context_parent_map(
+            request.active_recognition_context,
+            group="spending",
+            map_key="subcategory_parent_map",
+        ),
         classification_confirmation_mode=_optional_lower(candidate.classification_confirmation_mode),
         classification_human_confirmed=bool(candidate.classification_human_confirmed),
     )
@@ -634,13 +647,59 @@ def _required_save_field_reason_codes(
     return reason_codes
 
 
-def _classification_review_reason_codes(candidate, min_confidence: float, findings: list[ValidationFinding]) -> list[str]:
+def _classification_review_reason_codes(
+    candidate,
+    request: DataValidationRequest,
+    min_confidence: float,
+    findings: list[ValidationFinding],
+) -> list[str]:
     reason_codes: list[str] = []
     record_id = f"record_{candidate.candidate_id}"
     transaction_status = (candidate.transaction_type_status or "unknown").lower()
     category_status = (candidate.spending_category_status or "unknown").lower()
     transaction_type = (candidate.transaction_type or "unknown").lower()
     spending_category = (candidate.spending_category or "uncategorized").lower()
+
+    transaction_parent = _mapped_parent(
+        request.active_recognition_context,
+        group="transaction",
+        map_key="subtype_parent_map",
+        child=candidate.transaction_subtype,
+    )
+    spending_parent = _mapped_parent(
+        request.active_recognition_context,
+        group="spending",
+        map_key="subcategory_parent_map",
+        child=candidate.spending_subcategory,
+    )
+    if transaction_parent and transaction_type != transaction_parent:
+        candidate.transaction_type = transaction_parent
+        reason_codes.append("CLASSIFICATION_PARENT_CHILD_MISMATCH")
+        findings.append(
+            ValidationFinding(
+                code="CLASSIFICATION_PARENT_CHILD_MISMATCH",
+                severity="warning",
+                message="Transaction subtype parent did not match the supplied transaction type and was derived from active recognition settings.",
+                record_id=record_id,
+            )
+        )
+    if spending_parent and spending_category != spending_parent:
+        candidate.spending_category = spending_parent
+        reason_codes.append("CLASSIFICATION_PARENT_CHILD_MISMATCH")
+        findings.append(
+            ValidationFinding(
+                code="CLASSIFICATION_PARENT_CHILD_MISMATCH",
+                severity="warning",
+                message="Spending subcategory parent did not match the supplied spending category and was derived from active recognition settings.",
+                record_id=record_id,
+            )
+        )
+
+    transaction_type = (candidate.transaction_type or "unknown").lower()
+    spending_category = (candidate.spending_category or "uncategorized").lower()
+
+    if _trusted_learned_classification(candidate, transaction_type, spending_category, reason_codes):
+        return reason_codes
 
     if transaction_type == "unknown" or transaction_status == "unknown":
         reason_codes.append("UNKNOWN_TRANSACTION_TYPE")
@@ -763,6 +822,62 @@ def _classification_review_reason_codes(candidate, min_confidence: float, findin
         )
 
     return reason_codes
+
+
+def _trusted_learned_classification(candidate, transaction_type: str, spending_category: str, reason_codes: list[str]) -> bool:
+    if (candidate.classification_source or "").strip().lower() != "prior_merchant_human_confirmed":
+        return False
+    unsafe_codes = {
+        "PRIOR_MERCHANT_CLASSIFICATION_CONFLICT",
+        "PRIOR_MERCHANT_CLASSIFICATION_INACTIVE",
+        "PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH",
+        "CLASSIFICATION_PARENT_CHILD_MISMATCH",
+    }
+    supplied_codes = {
+        *[str(code) for code in reason_codes],
+        *[str(code) for code in candidate.classification_review_reason_codes],
+    }
+    if unsafe_codes.intersection(supplied_codes):
+        return False
+    if candidate.classification_review_required:
+        return False
+    if transaction_type == "unknown" or spending_category in {"unknown", "uncategorized"}:
+        return False
+    if (candidate.transaction_subtype or "").strip().lower() == "unknown":
+        return False
+    if (candidate.spending_subcategory or "").strip().lower() == "unknown":
+        return False
+    if (candidate.classification_vocabulary_status or "active_vocabulary_match").strip().lower() != "active_vocabulary_match":
+        return False
+    return True
+
+
+def _mapped_parent(context: dict, *, group: str, map_key: str, child: str | None) -> str | None:
+    child_key = (child or "").strip().lower()
+    if not child_key or child_key == "unknown":
+        return None
+    group_context = context.get(group) if isinstance(context, dict) else None
+    if not isinstance(group_context, dict):
+        return None
+    mapping = group_context.get(map_key)
+    if not isinstance(mapping, dict):
+        return None
+    parent = mapping.get(child_key)
+    return str(parent).strip().lower() if parent else None
+
+
+def _context_parent_map(context: dict, *, group: str, map_key: str) -> dict[str, str]:
+    group_context = context.get(group) if isinstance(context, dict) else None
+    if not isinstance(group_context, dict):
+        return {}
+    mapping = group_context.get(map_key)
+    if not isinstance(mapping, dict):
+        return {}
+    return {
+        str(child).strip().lower(): str(parent).strip().lower()
+        for child, parent in mapping.items()
+        if str(child).strip() and str(parent).strip()
+    }
 
 
 def _optional_lower(value: str | None) -> str | None:

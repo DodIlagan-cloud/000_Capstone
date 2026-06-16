@@ -47,7 +47,7 @@ M7 is aligned with:
 - Extract line-item candidates from receipts, invoices, statements, and itemized proof documents when row structure is available.
 - Extract section candidates so downstream modules can tell whether a value came from a statement summary, transaction table, receipt totals block, invoice summary, payment proof block, fees/interest block, rewards/points block, or unknown financial block.
 - Own transaction classification behavior for extracted transaction candidates, including transaction type, transaction subtype, spending category, spending subcategory, confidence, reason codes, source, and review triggers.
-- Use the same classification architecture as M5: M9-approved vocabulary/rules first, optional AI-assisted classification fallback when deterministic rules are weak, ambiguous, or unknown, and no dashboard-side classification logic.
+- Use the same classification architecture as M5 with an added Stats learning layer: M9-approved learned merchant profiles first when safe, M9-approved vocabulary/rules next, optional AI-assisted classification fallback when deterministic signals are weak, ambiguous, or unknown, and no dashboard-side classification logic.
 - Return explicit findings for missing text, low-confidence extraction, unsupported document type, ambiguous amount/date, no transaction candidates, and page limit application.
 - Surface M5 OCR-quality findings as input-quality warnings so poor upstream OCR is measurable without M7 rerunning Tesseract.
 - Return evaluation-ready metadata for downstream testing and evidence.
@@ -115,14 +115,16 @@ M7 owns transaction type and spending category classification behavior. Stats We
 <!-- M7 - Transaction Classification Start -->
 ## Transaction Type And Spending Category Classification
 
-M7 must classify extracted transaction candidates using the same layered pattern as M5 document classification:
+M7 must classify extracted transaction candidates using the same layered pattern as M5 document classification, extended with M9 learned merchant classifications:
 
 1. Load active approved vocabulary from M9 recognition settings.
 2. Load active approved deterministic rules from M9 recognition settings.
-3. Score generic signals from candidate description, amount, direction, document type/subtype, section context, entity/reference candidates, payment method, source text, and reason codes.
-4. Return a structured classification result with label, subtype, confidence, status, reason codes, and diagnostic scores.
-5. When deterministic rules are weak, ambiguous, or unknown, optionally call an AI-assisted classifier behind configuration.
-6. Merge rule-based and AI-assisted results conservatively, preserving classification source, model/provider metadata where safe, confidence, and review triggers.
+3. Normalize the merchant/counterparty description and query M9 for an exact learned merchant classification profile.
+4. If M9 returns a non-conflicted learned profile whose subtype/subcategory values map to active parent-child vocabulary and fit the candidate direction/document context, apply it as the classification result and do not call AI.
+5. If no safe learned profile applies, score generic signals from candidate description, amount, direction, document type/subtype, section context, entity/reference candidates, payment method, source text, and reason codes.
+6. Return a structured classification result with label, subtype, confidence, status, reason codes, and diagnostic scores.
+7. When deterministic rules are weak, ambiguous, or unknown, optionally call an AI-assisted classifier behind configuration.
+8. Merge rule-based and AI-assisted results conservatively, preserving classification source, model/provider metadata where safe, confidence, and review triggers.
 
 M7 must keep **transaction type** separate from **spending category**:
 
@@ -133,23 +135,34 @@ M7 must keep **transaction type** separate from **spending category**:
 | `spending_category` | Reporting bucket: what the spend/payment is for | `medical`, `pharmacy`, `groceries`, `utilities`, `transport`, `housing`, `insurance`, `banking_fees`, `interest`, `transfers`, `shopping`, `food_dining`, `income`, `tax`, `uncategorized` |
 | `spending_subcategory` | Optional finer reporting bucket | `lab_tests`, `prescriptions`, `public_transport`, `electricity`, `card_repayment`, `unknown` |
 
+### Controlled Classification Choices
+
+MVP review must use child-first controlled choices so users make fewer, more consistent classification decisions:
+
+1. `transaction_subtype` is the only visible movement-classification dropdown in the Upload transaction review flow. M7 still returns `transaction_type`, but it must be derived from the selected or suggested subtype through the active M9 parent-child mapping.
+2. `spending_subcategory` is the only visible spending-classification dropdown in the Upload transaction review flow. M7 still returns `spending_category`, but it must be derived from the selected or suggested subcategory through the active M9 parent-child mapping.
+3. Parent fields remain required in M7/M8/M9 payloads because M11 reporting groups by parent category/type. They are system-derived fields, not separately chosen user fields in the normal review UI.
+4. When deterministic rules or AI can identify only a parent but no reliable child, M7 must return the configured `unknown` child under that parent when available, lower confidence, and mark the row for review.
+5. When deterministic rules or AI propose a new child value outside active M9 vocabulary, M7 must preserve the proposed child value, include the proposed or inferred parent, and mark the row for Upload review/save confirmation. The parent must also be reviewed if no active parent can be inferred safely.
+6. AI prompts must prefer active subtype/subcategory choices and treat parent type/category as derived context. AI may return parent fields for explanation, but M7 must verify or recompute them from the child mapping before handing candidates to M8.
+
 Suggested candidate-level fields:
 
 | Field | Purpose |
 | --- | --- |
-| `transaction_type` | Rule/AI-suggested financial movement type. |
-| `transaction_subtype` | Optional subtype under the transaction type. |
+| `transaction_type` | Derived parent financial movement type for reporting and persistence. |
+| `transaction_subtype` | Primary controlled movement choice selected by rules, AI, or user review. |
 | `transaction_type_confidence` | Confidence for movement classification. |
 | `transaction_type_status` | `classified`, `ambiguous`, `unknown`, or `unsupported`. |
 | `transaction_type_reason_codes` | Rule/AI reason codes. |
 | `transaction_type_scores` | Diagnostic scores by type/subtype. |
-| `spending_category` | Rule/AI-suggested MVP reporting category. |
-| `spending_subcategory` | Optional category subtype. |
+| `spending_category` | Derived parent MVP reporting category for reporting and persistence. |
+| `spending_subcategory` | Primary controlled spending choice selected by rules, AI, or user review. |
 | `spending_category_confidence` | Confidence for spending-category classification. |
 | `spending_category_status` | `classified`, `ambiguous`, `unknown`, or `unsupported`. |
 | `spending_category_reason_codes` | Rule/AI reason codes. |
 | `spending_category_scores` | Diagnostic scores by category/subcategory. |
-| `classification_source` | `rules`, `ai`, `rules_ai_merged`, `user_override`, or `unknown`. |
+| `classification_source` | `prior_merchant_human_confirmed`, `rules`, `ai`, `rules_ai_merged`, `user_override`, or `unknown`. |
 
 Historical shared config files may exist from the earlier implementation pattern:
 
@@ -165,6 +178,35 @@ Those files are deprecated for runtime use. They may be retained temporarily as 
 AI assistance must be optional and environment-driven. It must not send raw unredacted OCR text, account/card/customer/patient identifiers, full document text, connection strings, or secrets. The AI request should use the smallest redacted candidate context needed: candidate description, redacted source snippet, document type/subtype, section label, direction, amount band or amount when required, entity/reference types, and existing rule scores. AI prompt size limiting must preserve valid JSON by trimming large source fields before serialization rather than slicing an already-serialized JSON payload.
 
 M7 remains the owner of these classification suggestions. M8 validates and flags them, M9 persists them or activates human-confirmed labels after save, and M11 reports over persisted outcomes.
+
+### Learned Merchant Classification Reuse
+
+M7 must use M9 learned merchant profiles to reduce repeat review and AI cost after a user has already confirmed a merchant classification.
+
+Required behavior:
+
+1. M7 computes or requests a normalized merchant key from the candidate description and optional merchant/counterparty entity evidence.
+2. M7 calls the M9 internal learned merchant lookup before AI-assisted classification.
+3. M7 applies a learned profile only when all of these are true:
+   - the match type is exact normalized merchant match;
+   - the profile was created from human-confirmed saved transactions;
+   - the profile is active and not conflicted;
+   - `transaction_subtype` and `spending_subcategory` are present and not `unknown`;
+   - the child values map to active M9 parent values;
+   - the profile is compatible with the candidate direction, document type/subtype, and row context.
+4. A safe learned match must set:
+   - `classification_source = prior_merchant_human_confirmed`
+   - `classification_review_required = false`
+   - `recognition_suggestion_status = none`
+   - `classification_vocabulary_status = active_vocabulary_match`
+   - reason code `PRIOR_MERCHANT_CLASSIFICATION_REUSED`
+5. A safe learned match must not call AI and must not create an admin pending suggestion.
+6. If M9 returns a conflicted or inactive learned profile, M7 must not silently apply it. The candidate remains review-required with controlled reason codes such as:
+   - `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT`
+   - `PRIOR_MERCHANT_CLASSIFICATION_INACTIVE`
+   - `PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH`
+
+MVP merchant matching is exact normalized matching only. Fuzzy merchant matching is deferred and must later use a distinct source such as `prior_merchant_fuzzy_human_confirmed`, a high similarity threshold, ambiguity detection, and review gating for unsafe matches.
 
 ### Recognition Label Lifecycle
 
@@ -289,6 +331,12 @@ M7 starts with deterministic rules so results are explainable and testable:
 - Receipt OCR amount parsing should also tolerate labels and amounts split across nearby lines, such as `TOTAL:` followed by an amount line, `TOTAL: $34 33`, or `EFTPOS:` followed by an amount line. This repair must be a fallback after stronger purchase/card/payment-method evidence, must prefer final-total labels over item-like `sale` amounts when they conflict, and must avoid tax/GST-only labels.
 - Receipt total extraction must not treat GST/tax-only lines as the transaction amount when subtotal, total, sale, purchase, card, EFTPOS, or due amount evidence is also available. Tax/GST values should remain document-level tax fields and should not drive the derived debit transaction.
 - Receipt-derived transaction descriptions should prefer generic sale, service, product, fare, top-up, reload, payment, merchant, store, or station/location labels over terminal/reference prefixes. Terminal metadata such as RRN, authorisation, reference, card, EFTPOS, approval, and customer-copy text should remain source evidence but should not become the primary transaction description when a clearer sale/service description is present.
+<!-- M7 Statement Fallback Guard Start - 2026-06-15 -->
+- M7 must treat M5 `document_type` and `document_subtype` as the primary routing hint, but it must still inspect extracted text, financial fields, sections, and OCR word-block layout for strong statement-shape evidence before running receipt/invoice total-derived transaction fallback.
+- Strong statement-shape evidence includes generic labels or normalized field names such as `statement date`, `payment due date`, `credit limit`, `previous balance`, `payments and credits`, `purchases and debits`, `total account balance`, `total amount due`, and `minimum amount due`.
+- When statement-shape evidence is present, M7 must suppress receipt-style total-derived single-transaction fallback. It should attempt statement/table extraction first, then return explicit statement-needs-review or no-candidate findings if rows cannot be reconstructed. It must not create a bogus receipt transaction from a statement summary total.
+- Amount parsing must be defensive for malformed OCR tokens, including values with multiple decimal separators such as `3.225.00`. Malformed tokens should be skipped, split/repair attempted only when structurally safe, or reported as ambiguous with a finding. They must not raise an unhandled exception or turn the extraction request into a 500 response.
+<!-- M7 Statement Fallback Guard End - 2026-06-15 -->
 - Return candidates rather than final records when a line has partial but plausible transaction data.
 - Avoid converting whole document headers, statement summaries, advisory text, or interest-rate disclosures into transaction rows. These should become section, field, reference, or warning candidates unless row structure supports a transaction interpretation.
 - Prefer reconstructed transaction-table rows over loose line-based transaction candidates when both approaches identify the same source area.
@@ -303,12 +351,23 @@ M7 starts with deterministic rules so results are explainable and testable:
   - Emit repair reason codes such as `OCR_LAYOUT_REPAIRED`, `DESCRIPTION_PREFIX_REPAIRED`, `DESCRIPTION_SUFFIX_REPAIRED`, `SIDE_COLUMN_TEXT_EXCLUDED`, and `CREDIT_MARKER_REPAIRED` so Upload review can explain why a row was changed.
   - Extract issuer/provider, card product, masked card, statement period, currency, and statement summary values as data candidates, not parser-control branches.
   - Reconcile statement totals where present using `previous_balance + debits - credits = total_due`; emit reconciliation status and review findings.
+<!-- M7 Scanned Statement Layout Extraction Start - 2026-06-15 -->
+- For scanned/image-backed statement PDFs where M5 supplies OCR word blocks, M7 must attempt a layout-region extraction pass before flattened text and loose statement-row fallbacks.
+- The layout-region pass must detect generic statement-page regions from geometry and labels, not issuer names:
+  - A transaction-table region with headers such as `post date`, `tran date`, `transaction date`, `description`, and `amount`.
+  - A right-side or side-panel summary region with labels such as `account summary`, `payment summary`, `rewards summary`, `credit limit`, `available credit`, `payment due date`, and `minimum payment`.
+  - A lower detachable payment slip or remittance region that repeats due-date and amount values but is not a transaction table.
+- When these regions are detected, M7 must reconstruct transaction rows only from the transaction-table region. It must exclude side-panel summary values, rewards/points text, advisory paragraphs, and detachable payment-slip values from transaction candidates.
+- Column inference must come from observed x-position bands inside the transaction table: post date, transaction date, description, amount, and nearby credit marker. Row grouping must use y-position/vertical overlap and may merge continuation description lines only when they remain inside the transaction-table description band.
+- The layout-region pass must preserve the previous hardening behavior as fallbacks. If region detection fails or a row cannot be reconstructed safely, existing flattened statement parsing, split-row repair, side-column exclusion, split `CR` repair, malformed amount handling, and receipt-fallback suppression still apply.
+- This feature must remain institution-agnostic. HSBC-style scanned statements are regression examples, but code branches and tests must refer to layout structure, generic labels, and table geometry rather than issuer or filename.
+<!-- M7 Scanned Statement Layout Extraction End - 2026-06-15 -->
 
 Future implementation may add model-assisted extraction behind configuration, but deterministic behavior is the initial acceptance boundary. Issuer-specific templates are not part of the accepted direction for M7.
 
 Transaction type and spending category classification follow M5's classification direction: deterministic vocabulary/rules are the primary path; AI-assisted classification is a configured fallback for weak, ambiguous, or unknown cases. AI assistance must improve coverage without replacing traceable rule outputs or hiding review-needed classifications.
 
-Before M7 sends any transaction or spending candidate to an AI-assisted classifier, it must load the current active recognition context from M9 and include only that bounded context in the prompt: approved transaction types/subtypes, approved spending categories/subcategories, enabled aliases/rules, deprecation or merge hints, the deterministic rule result, and minimal redacted transaction evidence. The AI prompt must prefer existing active labels whenever they fit and may propose a new transaction/spending label or subtype only when the candidate cannot be safely mapped to the active vocabulary. The response must state whether each suggested value matched active vocabulary or is a proposed new value that requires review/confirmation.
+Before M7 sends any transaction or spending candidate to an AI-assisted classifier, it must load the current active recognition context from M9 and include only that bounded context in the prompt: approved transaction subtype-to-type mappings, approved spending subcategory-to-category mappings, enabled aliases/rules, deprecation or merge hints, the deterministic rule result, and minimal redacted transaction evidence. The AI prompt must prefer existing active subtype/subcategory choices whenever they fit and may propose a new transaction/spending child label only when the candidate cannot be safely mapped to the active vocabulary. The response must state whether each suggested value matched active vocabulary or is a proposed new value that requires review/confirmation. Parent type/category values returned by AI are advisory and must be verified or recomputed from the accepted child mapping.
 
 ## Finding Codes
 
@@ -322,6 +381,10 @@ Before M7 sends any transaction or spending candidate to an AI-assisted classifi
 | `LOW_CONFIDENCE_EXTRACTION` | Warning | Extracted candidates are below the configured confidence threshold. |
 | `LOW_CONFIDENCE_AMOUNT_TOKEN` | Warning | OCR supplied a transaction amount token below the configured confidence threshold; M7 must preserve that token confidence for M8 review gating. |
 | `OCR_RECEIPT_TOTAL_FALLBACK` | Info/Reason code | Receipt-like or invoice-like OCR produced usable totals but no explicit transaction row; M7 derived a reviewable debit transaction from a receipt purchase/total amount or a computed invoice line-item total. |
+<!-- M7 Statement Fallback Guard Start - 2026-06-15 -->
+| `STATEMENT_SHAPE_RECEIPT_FALLBACK_SUPPRESSED` | Warning/Reason code | Statement-like labels, fields, sections, or layout evidence were present, so M7 suppressed receipt-style total fallback and required statement extraction or review instead. |
+| `MALFORMED_AMOUNT_TOKEN` | Warning | OCR or source text produced an amount-like token that could not be safely parsed, such as multiple decimal separators. |
+<!-- M7 Statement Fallback Guard End - 2026-06-15 -->
 | `AMBIGUOUS_AMOUNT` | Warning | Multiple amounts on a source line make direction or value uncertain. |
 | `AMBIGUOUS_DATE` | Warning | Date text was detected but could not be normalized confidently. |
 | `NON_TRANSACTION_FINANCIAL_BLOCK` | Info | A financial-looking block was detected but intentionally not treated as a transaction row. |
@@ -340,12 +403,20 @@ Before M7 sends any transaction or spending candidate to an AI-assisted classifi
 | `LOW_CONFIDENCE_SPENDING_CATEGORY` | Warning | Spending category confidence is below the configured threshold. |
 | `AMBIGUOUS_SPENDING_CATEGORY` | Warning | Multiple spending categories are close enough to require review. |
 | `AI_TRANSACTION_CLASSIFICATION_USED` | Info | Optional AI-assisted transaction classification contributed to the result. |
+| `PRIOR_MERCHANT_CLASSIFICATION_REUSED` | Info/Reason code | M7 reused an exact learned merchant profile created from a prior human-confirmed saved transaction. |
+| `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT` | Warning | M9 found conflicting human-confirmed classifications for the normalized merchant, so the row requires review. |
+| `PRIOR_MERCHANT_CLASSIFICATION_INACTIVE` | Warning | M9 found a learned merchant profile that is inactive or points to inactive recognition labels. |
+| `PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH` | Warning | A learned profile's subtype or subcategory no longer maps cleanly to active parent vocabulary. |
 
 Repair reason codes may appear on transaction candidates when OCR layout reconstruction changes or protects a row:
 
 | Reason Code | Meaning |
 | --- | --- |
 | `OCR_LAYOUT_REPAIRED` | M7 repaired a row using nearby OCR layout context. |
+<!-- M7 Scanned Statement Layout Extraction Start - 2026-06-15 -->
+| `OCR_STATEMENT_REGION_DETECTED` | M7 detected transaction-table, side-summary, and/or payment-slip regions from OCR word-block geometry. |
+| `OCR_STATEMENT_REGION_EXCLUDED` | M7 excluded side-summary, advisory, rewards, credit-limit, or payment-slip text from transaction row reconstruction. |
+<!-- M7 Scanned Statement Layout Extraction End - 2026-06-15 -->
 | `DESCRIPTION_PREFIX_REPAIRED` | M7 attached a nearby preceding description fragment inside the transaction table. |
 | `DESCRIPTION_SUFFIX_REPAIRED` | M7 attached a nearby following description fragment inside the transaction table. |
 | `SIDE_COLUMN_TEXT_EXCLUDED` | M7 excluded side-column or advisory text while reconstructing the row. |
@@ -411,6 +482,8 @@ Module-local automated tests must cover:
 - Transaction type classification using shared vocabulary/rules for purchase, payment, transfer, refund, fee, interest, cash advance, installment, adjustment, tax, and unknown cases.
 - Spending category classification using shared vocabulary/rules for MVP reporting buckets such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, and uncategorized.
 - Classification loading from M9 active recognition settings, with controlled unavailable-settings findings and no stale JSON fallback.
+- Exact learned merchant classification lookup against M9 before AI, including safe reuse, inactive profile review gating, and conflict review gating.
+- Learned classifications with `classification_source = prior_merchant_human_confirmed` skip AI and are not marked review-required when the learned values are active, complete, and compatible.
 - Optional AI-assisted transaction/category classification fallback is called only when configured and when deterministic rules are weak, ambiguous, or unknown.
 - AI-assisted classification tests use redacted/minimal candidate context and must not require real secrets or network access.
 - AI-assisted outside-vocabulary transaction/spending labels remain visible on the candidate for Upload review, require user confirmation before save, and carry metadata that lets M9 activate the accepted labels during the save workflow without requiring separate admin approval.
@@ -421,6 +494,14 @@ Module-local automated tests must cover:
 - M5-shaped classification subtype handling, including `statement / credit_card_statement` transaction extraction.
 - M5-shaped OCR word-block layout input using real `tests/input` fixtures, including the HSBC scanned credit-card statement.
 - OCR layout repair for generic split statement rows, including orphan description prefixes/suffixes, side-column exclusion, and split `CR` marker repair.
+<!-- M7 Scanned Statement Layout Extraction Start - 2026-06-15 -->
+- Scanned two-column statement layout where OCR word blocks contain a left transaction table, right summary panels, and a lower payment slip. Tests must prove M7 extracts table-region rows, excludes side-summary/payment-slip amounts from transactions, preserves credit markers, and keeps prior OCR repair paths as fallback behavior.
+- Regression coverage for older scanned statement PDFs whose visual table is readable but flattened OCR text has too few reliable date+amount lines. The expected result should be based on visible table-region rows and privacy-safe candidate counts/fields, not full raw financial text.
+<!-- M7 Scanned Statement Layout Extraction End - 2026-06-15 -->
+<!-- M7 Statement Fallback Guard Start - 2026-06-15 -->
+- Statement-shaped inputs that were misclassified upstream, where M7 detects statement evidence, suppresses receipt total fallback, and returns statement extraction candidates or review findings instead of one bogus receipt transaction.
+- Malformed OCR amount-token handling, including tokens such as `3.225.00`, so extraction returns controlled findings rather than an unhandled exception.
+<!-- M7 Statement Fallback Guard End - 2026-06-15 -->
 <!-- Review Hardening - 2026-06-02 Start -->
 - Regression coverage for stale orphan-description prefixes so a prefix from one transaction row cannot leak into the next reconstructed row.
 - Regression coverage for side-column summary amounts so statement summary values cannot overwrite the transaction-table amount.
@@ -458,7 +539,16 @@ M7 is complete when:
 - M5 classification and quality fields are accepted directly without rerunning OCR.
 - M5 low/no-text and OCR readiness findings are surfaced as M7 input-quality findings.
 - Transaction candidates include date/description/amount/source/confidence metadata where available.
+<!-- M7 Scanned Statement Layout Extraction Start - 2026-06-15 -->
+- Scanned statement OCR word-block inputs with visible transaction tables are reconstructed from the transaction-table region before flattened text fallbacks are used.
+- Side-summary, rewards, advisory, credit-limit, and detachable payment-slip regions are preserved as fields/sections or ignored as non-transaction context, and are not emitted as transaction rows.
+<!-- M7 Scanned Statement Layout Extraction End - 2026-06-15 -->
+<!-- M7 Statement Fallback Guard Start - 2026-06-15 -->
+- Statement-shape evidence suppresses receipt-style total fallback, so statement PDFs cannot become one bogus receipt transaction when summary fields are present but transaction rows need review.
+- Malformed OCR amount tokens return controlled findings and do not produce unhandled extraction failures.
+<!-- M7 Statement Fallback Guard End - 2026-06-15 -->
 - Transaction candidates include transaction type and spending category suggestions with confidence, status, reason codes, and source when classification is enabled.
+- Exact learned merchant classifications from M9 are reused before AI, marked with `classification_source = prior_merchant_human_confirmed`, and handed to M8 as ready when active, complete, and non-conflicted.
 - If AI suggests a transaction type, transaction subtype, spending category, or spending subcategory outside the current active vocabulary, M7 flags the transaction candidate for user review before save.
 - AI-suggested transaction/spending labels outside active vocabulary are preserved as reviewable candidate labels and are not silently replaced by `unknown` or `uncategorized` when the Upload review/save flow can provide human confirmation.
 - Financial field candidates include field name/value/source/confidence metadata where available.
@@ -479,6 +569,7 @@ M7 is complete when:
 
 - Record normalization, cleaning, duplicate checks, and validation belong to M8.
 - Database persistence belongs to M9.
+- Fuzzy merchant matching for learned classifications belongs to a post-MVP enhancement after exact normalized matching is proven safe.
 - Full workflow orchestration belongs to M10.
 - Dashboard/reporting belongs to M11.
 - Email attachment retrieval belongs to M12.

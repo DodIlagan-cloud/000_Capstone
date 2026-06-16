@@ -120,6 +120,37 @@ def test_create_ingestion_returns_duplicate_for_idempotent_real_pdf_submission(c
     assert "DUPLICATE_SUBMISSION" in codes
 
 
+def test_create_ingestion_allows_new_attempt_for_same_unsaved_file_hash(client, real_pdf_file):
+    pdf_content = real_pdf_file.read_bytes()
+    first_response = client.post(
+        "/api/v1/ingestions",
+        data={
+            "validation_status": "accepted",
+            "validation_sha256": "same-unsaved-file",
+            "idempotency_key": "upload-attempt-1",
+        },
+        files={"file": (real_pdf_file.name, pdf_content, "application/pdf")},
+    )
+    second_response = client.post(
+        "/api/v1/ingestions",
+        data={
+            "validation_status": "accepted",
+            "validation_sha256": "same-unsaved-file",
+            "idempotency_key": "upload-attempt-2",
+        },
+        files={"file": (real_pdf_file.name, pdf_content, "application/pdf")},
+    )
+
+    first_payload = first_response.json()
+    second_payload = second_response.json()
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_payload["status"] == "queued"
+    assert second_payload["status"] == "queued"
+    assert second_payload["ingestion_id"] != first_payload["ingestion_id"]
+
+
 def test_get_ingestion_status_returns_404_for_missing_record(client):
     response = client.get("/api/v1/ingestions/missing")
 

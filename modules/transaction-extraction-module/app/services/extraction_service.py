@@ -31,7 +31,7 @@ from app.services.transaction_classification_service import classify_transaction
 
 
 AMOUNT_PATTERN = re.compile(
-    r"(?:(PHP|USD|AUD|NZD|NZ\$|\$)\s*)?([+-]?\d{1,3}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2})|[+-]?\d+(?:\.\s?\d{2}|,\d{2}))",
+    r"(?<![\d.])(?:(PHP|USD|AUD|NZD|NZ\$|\$)\s*)?([+-]?\d{1,3}(?:,\d{3})*(?:\.\s?\d{2,3}|,\d{2})|[+-]?\d+(?:\.\s?\d{2,3}|,\d{2}))(?!\d|\.\d)",
     re.IGNORECASE,
 )
 DATE_PATTERN = re.compile(
@@ -50,6 +50,14 @@ MONTH_DAY_PATTERN = re.compile(
 MONTH_DAY_FRAGMENT = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}"
 DAY_MONTH_FRAGMENT = r"\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?"
 DAY_MONTH_TOKEN_PATTERN = re.compile(rf"^{DAY_MONTH_FRAGMENT}$", re.IGNORECASE)
+DAY_MONTH_PARTS_PATTERN = re.compile(
+    r"^(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?$",
+    re.IGNORECASE,
+)
+COMPACT_DAY_MONTH_TOKEN_PATTERN = re.compile(
+    r"^(?P<day>\d{1,2})(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?$",
+    re.IGNORECASE,
+)
 DAY_MONTH_YEAR_PATTERN = re.compile(
     r"\b(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+(?P<year>\d{2,4})\b",
     re.IGNORECASE,
@@ -97,6 +105,10 @@ COMBINED_STATEMENT_ROW_PATTERN = re.compile(
     rf"^(?P<date_text>{MONTH_DAY_FRAGMENT})\s+(?P<posted_date_text>{MONTH_DAY_FRAGMENT})\s+(?P<description>.+?)\s+(?P<amount>[+-]?\d{{1,3}}(?:,\d{{3}})*(?:\.\s?\d{{2}}|,\d{{2}})|[+-]?\d+(?:\.\s?\d{{2}}|,\d{{2}}))$",
     re.IGNORECASE,
 )
+COMBINED_STATEMENT_ROW_WITHOUT_AMOUNT_PATTERN = re.compile(
+    rf"^(?P<date_text>{MONTH_DAY_FRAGMENT})\s+(?P<posted_date_text>{MONTH_DAY_FRAGMENT})\s+(?P<description>.+?)$",
+    re.IGNORECASE,
+)
 OCR_STATEMENT_DATE_PAIR_PATTERN = re.compile(
     rf"\b(?P<date_text>{DAY_MONTH_FRAGMENT})\s+(?P<posted_date_text>{DAY_MONTH_FRAGMENT})\b",
     re.IGNORECASE,
@@ -127,18 +139,42 @@ FIELD_PATTERNS = {
     "confirmation_number": (r"CONFIRMATION NO.", re.compile(r"\bconfirmation\s+no\.?\s+([A-Z0-9-]+)", re.IGNORECASE)),
     "reference_number": (r"REFERENCE NO.", re.compile(r"\bre(?:f|ference)\.?\s+no\.?\s+([A-Z0-9-]+)", re.IGNORECASE)),
     "invoice_number": (r"INVOICE NO.", re.compile(r"\b(?:tax\s+)?invoice\s+no\.?:?\s+([A-Z0-9-]+)", re.IGNORECASE)),
-    "receipt_total": (r"TOTAL", re.compile(r"\b(?:tax\s+invoice:\s*)?total(?:\s+due)?(?:\s*\([^)]*\))?\s*[:;-]?\s*(?!GST\b)(?:NZD|NZ\$|\$|PHP\s*)?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE)),
+    "receipt_total": (r"TOTAL", re.compile(r"\b(?:tax\s+invoice:\s*)?total(?:\s+due)?(?:\s*\([^)]*\))?\s*[:;-]?\s*(?!GST\b)(?:NZD|NZ\$|\$|PHP\s*)?([0-9,]+(?:\.\s?\d{2,3}|,\d{2}))(?!\d|\.\d)", re.IGNORECASE)),
     "total_gst": (r"TOTAL GST", re.compile(r"\btotal\s+GST\s+\$?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE)),
     "gst_amount": (r"INCLUDES GST", re.compile(r"\bincludes\s+GST\s+of\s+\$?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE)),
-    "purchase_amount": (r"PURCHASE", re.compile(r"\bpurchase\s+(?:NZD|NZ\$|\$|PHP\s*)?([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE)),
-    "card_receipt_amount": (r"NZ$", re.compile(r"\b(?:NZD|NZ\$)\s*([0-9,]+(?:\.\s?\d{2}|,\d{2}))", re.IGNORECASE)),
+    "purchase_amount": (r"PURCHASE", re.compile(r"\bpurchase\s+(?:NZD|NZ\$|\$|PHP\s*)?([0-9,]+(?:\.\s?\d{2,3}|,\d{2}))(?!\d|\.\d)", re.IGNORECASE)),
+    "card_receipt_amount": (r"NZ$", re.compile(r"\b(?:NZD|NZ\$)\s*([0-9,]+(?:\.\s?\d{2,3}|,\d{2}))(?!\d|\.\d)", re.IGNORECASE)),
 }
 REFERENCE_FIELD_NAMES = {"confirmation_number", "reference_number", "invoice_number"}
 RECEIPT_TOTAL_AMOUNT_PATTERN = re.compile(
-    r"\b(?:sub\s*total|subtotal|subfotal|total(?:\s+due)?|amount\s+due|due\s+amount|sale)\b.{0,24}?(?:NZD|NZ\$|\$|PHP|B)?\s*([0-9]{1,3}(?:,\d{3})*(?:\.\s?\d{2,3}|,\d{2})|[0-9]+(?:\.\s?\d{2,3}|,\d{2}))",
+    r"\b(?:sub\s*total|subtotal|subfotal|total(?:\s+due)?|amount\s+due|due\s+amount|sale)\b.{0,24}?(?:NZD|NZ\$|\$|PHP|B)?\s*([0-9]{1,3}(?:,\d{3})*(?:\.\s?\d{2,3}|,\d{2})|[0-9]+(?:\.\s?\d{2,3}|,\d{2}))(?!\d|\.\d)",
     re.IGNORECASE,
 )
 RECEIPT_TAX_ONLY_CONTEXT = re.compile(r"\b(?:gst|tax|change|rounding)\b", re.IGNORECASE)
+MALFORMED_AMOUNT_TOKEN_PATTERN = re.compile(r"\b\d{1,3}(?:\.\d{3})+\.\d{2}\b")
+STATEMENT_SHAPE_FIELD_NAMES = {
+    "statement_date",
+    "payment_due_date",
+    "credit_limit",
+    "previous_balance",
+    "previous_statement_balance",
+    "payments_and_credits",
+    "purchases_and_debits",
+    "total_account_balance",
+    "total_amount_due",
+    "minimum_amount_due",
+    "minimum_payment",
+    "outstanding_balance",
+}
+STATEMENT_EXCLUSIVE_FIELD_NAMES = {
+    "statement_date",
+    "credit_limit",
+    "previous_balance",
+    "previous_statement_balance",
+    "payments_and_credits",
+    "purchases_and_debits",
+    "total_account_balance",
+}
 
 
 def extract_transactions(request: TransactionExtractionRequest) -> TransactionExtractionResult:
@@ -200,16 +236,27 @@ def extract_transactions(request: TransactionExtractionRequest) -> TransactionEx
 
     line_refs = _line_references(request, text)
     sections = _extract_sections(line_refs)
+    malformed_amount_findings = _malformed_amount_findings(line_refs)
     receipt_like_unknown = document_type == "unknown" and _looks_like_receipt_ocr(line_refs)
     layout_transactions = _extract_layout_statement_rows(request, document_type) if rows_enabled else []
     transactions = layout_transactions or (
         _extract_transaction_rows(line_refs, document_type, min_confidence, findings) if rows_enabled else []
     )
     fields = _extract_financial_fields(line_refs, min_confidence) if field_enabled else []
+    statement_shape_detected = _has_statement_shape_evidence(line_refs, fields, sections)
     if rows_enabled and (not transactions or receipt_like_unknown or document_type in {"receipt", "invoice"}):
-        derived_transactions = _derive_receipt_invoice_transactions(fields, line_refs, document_type)
-        if derived_transactions:
-            transactions = derived_transactions
+        if statement_shape_detected:
+            findings.append(
+                ExtractionFinding(
+                    code="STATEMENT_SHAPE_RECEIPT_FALLBACK_SUPPRESSED",
+                    severity="warning",
+                    message="Statement-like fields or sections were present, so receipt-style total fallback was suppressed.",
+                )
+            )
+        else:
+            derived_transactions = _derive_receipt_invoice_transactions(fields, line_refs, document_type)
+            if derived_transactions:
+                transactions = derived_transactions
     installment_candidates: list[InstallmentCandidate] = []
     if _canonical_document_type(document_type) in {"statement", "unknown"}:
         payment_fields, installment_candidates, transactions = _separate_statement_payment_and_installments(
@@ -218,6 +265,25 @@ def extract_transactions(request: TransactionExtractionRequest) -> TransactionEx
         )
         fields.extend(payment_fields)
         fields.extend(_flattened_statement_payment_fields(line_refs, fields))
+        repaired_transactions = _repair_statement_purchase_gap_transactions(
+            request=request,
+            transactions=transactions,
+            fields=fields,
+            document_type=document_type,
+            line_refs=line_refs,
+        )
+        if repaired_transactions:
+            transactions = repaired_transactions
+            findings.append(
+                ExtractionFinding(
+                    code="OCR_DAMAGED_TRANSACTION_ROW_REPAIRED",
+                    severity="warning",
+                    message=(
+                        "One or more statement transaction rows were repaired from OCR layout and statement "
+                        "purchases/debits reconciliation evidence."
+                    ),
+                )
+            )
     entities = _extract_entities(line_refs, document_type)
     references = _extract_references(fields, line_refs)
     line_items = _extract_line_items(line_refs) if line_items_enabled else []
@@ -243,6 +309,9 @@ def extract_transactions(request: TransactionExtractionRequest) -> TransactionEx
                     message="Recognition settings could not be loaded from Stats Data, so transaction and spending classifications need review.",
                 )
             )
+
+    if malformed_amount_findings and not transactions:
+        findings.extend(malformed_amount_findings)
 
     if not transactions:
         findings.append(
@@ -275,6 +344,8 @@ def extract_transactions(request: TransactionExtractionRequest) -> TransactionEx
                 message="One or more extraction candidates are below the configured confidence threshold.",
             )
         )
+
+    findings.extend(_reconciliation_review_findings(transactions, fields))
 
     status = ExtractionStatus.completed_with_warnings if findings else ExtractionStatus.completed
     return _result(
@@ -389,6 +460,77 @@ def _extract_layout_statement_rows(
         return []
 
     statement_year = _statement_year(_line_references(request, request.text or ""))
+    legacy_candidates = _extract_layout_statement_rows_from_rows(
+        rows=rows,
+        document_type=document_type,
+        statement_year=statement_year,
+    )
+    region_rows = _layout_statement_region_rows(rows)
+    if region_rows:
+        region_candidates = _extract_layout_statement_rows_from_rows(
+            rows=region_rows,
+            document_type=document_type,
+            statement_year=statement_year,
+        )
+        if _prefer_layout_region_candidates(region_candidates, legacy_candidates):
+            legacy_candidates = region_candidates
+
+    grid_source_rows = region_rows or rows
+    grid_candidates = _extract_ocr_statement_grid_rows(
+        rows=grid_source_rows,
+        document_type=document_type,
+        statement_year=statement_year,
+    )
+    if _prefer_ocr_statement_grid_candidates(grid_candidates, legacy_candidates):
+        return grid_candidates
+
+    return legacy_candidates
+
+
+def _prefer_layout_region_candidates(
+    region_candidates: list[TransactionCandidate],
+    legacy_candidates: list[TransactionCandidate],
+) -> bool:
+    if not region_candidates:
+        return False
+    if not legacy_candidates:
+        return True
+    if len(region_candidates) >= len(legacy_candidates):
+        return True
+
+    legacy_count = len(legacy_candidates)
+    region_count = len(region_candidates)
+    legacy_total = round(sum(candidate.amount for candidate in legacy_candidates), 2)
+    region_total = round(sum(candidate.amount for candidate in region_candidates), 2)
+    if legacy_count >= 4 and region_count < max(2, int(legacy_count * 0.6)):
+        return False
+    if legacy_total > 0 and region_total > legacy_total * 1.5:
+        return False
+    return region_count >= legacy_count - 1
+
+
+def _prefer_ocr_statement_grid_candidates(
+    grid_candidates: list[TransactionCandidate],
+    fallback_candidates: list[TransactionCandidate],
+) -> bool:
+    if len(grid_candidates) < 3:
+        return False
+    if not fallback_candidates:
+        return True
+    if len(grid_candidates) <= len(fallback_candidates):
+        return False
+    fallback_total = round(sum(candidate.amount for candidate in fallback_candidates), 2)
+    grid_total = round(sum(candidate.amount for candidate in grid_candidates), 2)
+    if fallback_total > 0 and grid_total > fallback_total * 3:
+        return False
+    return True
+
+
+def _extract_layout_statement_rows_from_rows(
+    rows: list[dict[str, object]],
+    document_type: str,
+    statement_year: int | None,
+) -> list[TransactionCandidate]:
     candidates: list[TransactionCandidate] = []
     active: dict[str, object] | None = None
     previous_page: int | None = None
@@ -444,6 +586,7 @@ def _extract_layout_statement_rows(
                 text_reason_codes.append("DESCRIPTION_PREFIX_REPAIRED")
             if side_exclusion_pending:
                 text_reason_codes.append("SIDE_COLUMN_TEXT_EXCLUDED")
+            text_reason_codes.extend(_layout_region_reason_codes(row))
             active = {
                 "page_number": page_number,
                 "line_number": int(row["line_number"]),
@@ -478,6 +621,7 @@ def _extract_layout_statement_rows(
                 "confidence": row["confidence"],
                 "reason_codes": ["DESCRIPTION_PREFIX_REPAIRED"] if pending_prefix else [],
             }
+            active["reason_codes"].extend(_layout_region_reason_codes(row))
             if side_exclusion_pending:
                 active["reason_codes"].append("SIDE_COLUMN_TEXT_EXCLUDED")
             pending_prefix = []
@@ -490,11 +634,15 @@ def _extract_layout_statement_rows(
 
         follow_up_amount = _last_layout_amount_token(row["tokens"], row.get("token_confidences"))
         if active and follow_up_amount:
+            if row.get("region_detected") and not re.search(r"[A-Za-z]{3,}", text):
+                active.setdefault("reason_codes", []).append("SIDE_COLUMN_TEXT_EXCLUDED")
+                continue
             amount_text, amount_value, amount_confidence = follow_up_amount
             active["amount"] = amount_value
             active["amount_confidence"] = amount_confidence
             active["source_text"] = f"{active['source_text']} {text}"
             active["confidence"] = _mean_confidence([active.get("confidence"), row["confidence"]])
+            active.setdefault("reason_codes", []).extend(_layout_region_reason_codes(row))
             continue
 
         if active and active.get("amount") is not None and _layout_prefix_text(text) and not _layout_suffix_fragment(text):
@@ -508,6 +656,7 @@ def _extract_layout_statement_rows(
             active["source_text"] = f"{active['source_text']} {text}"
             active["confidence"] = _mean_confidence([active.get("confidence"), row["confidence"]])
             active.setdefault("reason_codes", []).append("DESCRIPTION_SUFFIX_REPAIRED")
+            active.setdefault("reason_codes", []).extend(_layout_region_reason_codes(row))
             continue
 
         if _layout_prefix_text(text):
@@ -531,6 +680,217 @@ def _extract_layout_statement_rows(
         _append_layout_candidate(candidates, active, statement_year, document_type)
 
     return candidates
+
+
+def _extract_ocr_statement_grid_rows(
+    rows: list[dict[str, object]],
+    document_type: str,
+    statement_year: int | None,
+) -> list[TransactionCandidate]:
+    candidates: list[TransactionCandidate] = []
+    header_seen_by_page: set[int] = set()
+    candidate_rows: list[dict[str, object]] = []
+    grid_table_active = False
+
+    for row in rows:
+        page_number = int(row["page_number"])
+        text = str(row["text"])
+        if _layout_grid_header_row(row):
+            header_seen_by_page.add(page_number)
+            grid_table_active = True
+            continue
+        if _is_table_hard_stop(text):
+            header_seen_by_page.discard(page_number)
+            grid_table_active = False
+            continue
+        parsed = _layout_grid_candidate(row)
+        if not parsed:
+            continue
+        parsed["after_header"] = page_number in header_seen_by_page or grid_table_active
+        candidate_rows.append(parsed)
+
+    if not candidate_rows:
+        return []
+
+    anchored_rows = [row for row in candidate_rows if row.get("after_header")]
+    rows_to_emit = anchored_rows if len(anchored_rows) >= 2 else candidate_rows
+    if len(rows_to_emit) < 3:
+        return []
+
+    for parsed in rows_to_emit:
+        active = {
+            "page_number": parsed["page_number"],
+            "line_number": parsed["line_number"],
+            "date_text": parsed["date_text"],
+            "posted_date_text": parsed["posted_date_text"],
+            "description_parts": [parsed["description"]],
+            "amount": parsed["amount"],
+            "source_text": parsed["source_text"],
+            "confidence": parsed["confidence"],
+            "amount_confidence": parsed["amount_confidence"],
+            "reason_codes": [
+                "OCR_TABLE_GRID_ROW_RECONSTRUCTED",
+                "OCR_TABLE_GRID_POSITIONAL_DATES",
+                "OCR_TABLE_GRID_POSITIONAL_AMOUNT",
+            ],
+        }
+        _append_layout_candidate(candidates, active, statement_year, document_type)
+
+    return candidates
+
+
+def _layout_grid_header_row(row: dict[str, object]) -> bool:
+    if _layout_table_header_row(row):
+        return True
+    blocks = _layout_row_blocks(row)
+    left_tokens = {
+        token
+        for block in blocks
+        if block.x < 360
+        for token in re.findall(r"[a-z]+", block.text.lower())
+    }
+    return bool(left_tokens & {"post", "posting"}) and bool(left_tokens & {"tran", "transaction", "transactions"})
+
+
+def _layout_grid_candidate(row: dict[str, object]) -> dict[str, object] | None:
+    blocks = sorted(_layout_row_blocks(row), key=lambda block: block.x)
+    if len(blocks) < 5:
+        return None
+
+    date_pair = _layout_grid_date_pair(blocks)
+    if not date_pair:
+        return None
+    date_text, posted_date_text, _, posted_end_index, posted_x_end = date_pair
+
+    amount_match = _layout_grid_amount(blocks, posted_end_index + 1, posted_x_end)
+    if not amount_match:
+        return None
+    amount_index, amount_text, amount_value, amount_confidence = amount_match
+
+    description_blocks = [
+        block
+        for block in blocks[posted_end_index + 1 : amount_index]
+        if _layout_grid_description_token(block.text, block.x)
+    ]
+    description = _clean_reconstructed_description(" ".join(block.text.strip() for block in description_blocks))
+    if not description or _is_summary_description(description):
+        return None
+
+    source_blocks = [*blocks[: posted_end_index + 1], *description_blocks, blocks[amount_index]]
+    if amount_index + 1 < len(blocks) and blocks[amount_index + 1].text.strip().upper() == "CR":
+        source_blocks.append(blocks[amount_index + 1])
+    source_text = _normalize_extracted_line(" ".join(block.text.strip() for block in source_blocks if block.text.strip()))
+
+    return {
+        "page_number": int(row["page_number"]),
+        "line_number": int(row["line_number"]),
+        "date_text": date_text,
+        "posted_date_text": posted_date_text,
+        "description": description,
+        "amount": amount_value,
+        "source_text": source_text,
+        "confidence": row["confidence"],
+        "amount_confidence": amount_confidence,
+        "amount_text": amount_text,
+    }
+
+
+def _layout_grid_date_pair(blocks: list[object]) -> tuple[str, str, int, int, float] | None:
+    dates: list[tuple[str, int, int, float, float]] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        token = block.text.strip()
+        compact = COMPACT_DAY_MONTH_TOKEN_PATTERN.match(token)
+        if compact and block.x < 330 and _valid_day_month_parts(compact.group("day"), compact.group("month")):
+            date_text = f"{compact.group('day')} {compact.group('month')}"
+            dates.append((date_text, index, index, block.x, block.x + block.width))
+            index += 1
+            continue
+        if re.fullmatch(r"\d{1,2}", token) and index + 1 < len(blocks):
+            month_block = blocks[index + 1]
+            month_token = month_block.text.strip()
+            if (
+                _layout_month_token(month_token)
+                and _valid_day_month_parts(token, month_token)
+                and block.x < 330
+                and month_block.x - block.x < 80
+            ):
+                dates.append((f"{token} {month_token}", index, index + 1, block.x, month_block.x + month_block.width))
+                index += 2
+                continue
+        index += 1
+
+    if len(dates) < 2:
+        return None
+    first, second = dates[0], dates[1]
+    if second[3] <= first[3] + 20:
+        return None
+    return first[0], second[0], first[2], second[2], second[4]
+
+
+def _layout_month_token(token: str) -> bool:
+    return token[:3].lower().strip(".") in MONTH_NUMBERS
+
+
+def _valid_day_month_parts(day: str, month: str) -> bool:
+    try:
+        day_value = int(day)
+    except ValueError:
+        return False
+    return 1 <= day_value <= 31 and month[:3].lower().strip(".") in MONTH_NUMBERS
+
+
+def _valid_day_month_text(text: str) -> bool:
+    match = DAY_MONTH_PARTS_PATTERN.match(text.strip())
+    return bool(match and _valid_day_month_parts(match.group("day"), match.group("month")))
+
+
+def _layout_grid_amount(
+    blocks: list[object],
+    start_index: int,
+    posted_x_end: float,
+) -> tuple[int, str, float, float | None] | None:
+    has_description = False
+    side_start_x = _layout_side_region_start_x(blocks)
+    amount_candidates: list[tuple[int, str, float, float | None, float]] = []
+    for index in range(start_index, len(blocks)):
+        block = blocks[index]
+        token = block.text.strip()
+        if block.x <= posted_x_end:
+            continue
+        if _layout_grid_description_token(token, block.x):
+            has_description = True
+        normalized = token.replace(" ", "")
+        match = LAYOUT_AMOUNT_PATTERN.match(normalized)
+        if not match or not has_description:
+            continue
+        amount = _try_parse_amount(match.group("amount"))
+        if amount is None:
+            continue
+        next_token = blocks[index + 1].text.strip().upper() if index + 1 < len(blocks) else ""
+        if match.group("credit") or next_token == "CR":
+            amount = -abs(amount)
+        if side_start_x is not None and block.x >= side_start_x:
+            continue
+        amount_candidates.append((index, token, amount, _token_confidence([block.confidence], 0), block.x))
+    if not amount_candidates:
+        return None
+
+    hsbc_band_candidates = [candidate for candidate in amount_candidates if 600 <= candidate[4] <= 760]
+    selected = hsbc_band_candidates[-1] if hsbc_band_candidates else amount_candidates[-1]
+    return selected[0], selected[1], selected[2], selected[3]
+
+
+def _layout_grid_description_token(token: str, x: float) -> bool:
+    cleaned = token.strip().strip("._")
+    if len(cleaned) < 2:
+        return False
+    if LAYOUT_AMOUNT_PATTERN.match(cleaned.replace(" ", "")):
+        return False
+    if _layout_region_side_token(cleaned) and x > 480:
+        return False
+    return bool(re.search(r"[A-Za-z]", cleaned))
 
 
 def _layout_rows(request: TransactionExtractionRequest) -> list[dict[str, object]]:
@@ -565,6 +925,7 @@ def _layout_rows(request: TransactionExtractionRequest) -> list[dict[str, object
                 continue
             line_number += 1
             confidence_values = [block.confidence for block in ordered if block.confidence is not None]
+            text_blocks = [block for block in ordered if block.text.strip()]
             rows.append(
                 {
                     "page_number": page.page_number,
@@ -573,9 +934,206 @@ def _layout_rows(request: TransactionExtractionRequest) -> list[dict[str, object
                     "token_confidences": token_confidences,
                     "text": _normalize_extracted_line(text),
                     "confidence": round(sum(confidence_values) / len(confidence_values) / 100, 3) if confidence_values else 0.78,
+                    "blocks": text_blocks,
+                    "x_min": min((block.x for block in text_blocks), default=0),
+                    "x_max": max((block.x + block.width for block in text_blocks), default=0),
+                    "y_center": sum((block.y + block.height / 2 for block in text_blocks), 0.0) / len(text_blocks) if text_blocks else 0,
                 }
             )
     return rows
+
+
+def _layout_statement_region_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows_by_page: dict[int, list[dict[str, object]]] = {}
+    for row in rows:
+        rows_by_page.setdefault(int(row["page_number"]), []).append(row)
+
+    page_anchors: dict[int, tuple[int, dict[str, float]]] = {}
+    for page_num, page_rows in rows_by_page.items():
+        header_index = next((index for index, row in enumerate(page_rows) if _layout_table_header_row(row)), None)
+        if header_index is None:
+            continue
+        anchors = _layout_table_anchors(page_rows[header_index])
+        if anchors:
+            page_anchors[page_num] = (header_index, anchors)
+
+    if not page_anchors:
+        return []
+
+    any_interference = any(
+        _layout_region_interference_detected(rows_by_page[pn][hi + 1 :])
+        for pn, (hi, _) in page_anchors.items()
+    )
+    if not any_interference:
+        return []
+
+    region_rows: list[dict[str, object]] = []
+    active_anchors: dict[str, float] | None = None
+    for page_num in sorted(rows_by_page):
+        page_rows = rows_by_page[page_num]
+        if page_num in page_anchors:
+            header_index, anchors = page_anchors[page_num]
+            active_anchors = anchors
+            start = header_index
+        else:
+            anchors = active_anchors
+            if anchors is None:
+                continue
+            start = 0
+        for row in page_rows[start:]:
+            clipped = _layout_region_clipped_row(row, anchors)
+            if clipped:
+                region_rows.append(clipped)
+            if _is_table_hard_stop(str(row["text"])):
+                break
+
+    return region_rows
+
+
+def _layout_region_interference_detected(rows: list[dict[str, object]]) -> bool:
+    for row in rows:
+        text = str(row["text"])
+        if re.search(r"\bplease\s+detach\b|\bpayment\s+slip\b", text, re.IGNORECASE):
+            return True
+        side_start_x = _layout_side_region_start_x(_layout_row_blocks(row))
+        amount_x = _layout_transaction_amount_x(row)
+        if side_start_x is not None and amount_x is not None and side_start_x + 28 < amount_x:
+            return True
+    return False
+
+
+def _layout_table_header_row(row: dict[str, object]) -> bool:
+    text = str(row["text"]).lower()
+    return "description" in text and "amount" in text and ("tran" in text or "post" in text or "date" in text)
+
+
+def _layout_table_anchors(row: dict[str, object]) -> dict[str, float] | None:
+    blocks = _layout_row_blocks(row)
+    if not blocks:
+        return None
+    description_blocks = [block for block in blocks if "description" in block.text.lower() or "details" in block.text.lower()]
+    amount_blocks = [
+        block
+        for block in blocks
+        if any(term in block.text.lower() for term in ["amount", "debit", "credit"])
+        and (not description_blocks or block.x > min(desc.x for desc in description_blocks))
+    ]
+    if not description_blocks or not amount_blocks:
+        return None
+    description_x = min(block.x for block in description_blocks)
+    amount_x = min(block.x for block in amount_blocks)
+    if amount_x <= description_x:
+        return None
+    return {
+        "table_x_min": max(0.0, min(block.x for block in blocks) - 24),
+        "description_x": description_x,
+        "amount_x": amount_x,
+        "amount_left": max(description_x + 20, amount_x - 70),
+        "table_x_max": amount_x + 80,
+    }
+
+
+def _layout_region_clipped_row(row: dict[str, object], anchors: dict[str, float]) -> dict[str, object] | None:
+    blocks = _layout_row_blocks(row)
+    if not blocks:
+        return None
+    side_region_start_x = _layout_side_region_start_x(blocks)
+    if _layout_table_header_row(row):
+        kept_blocks = [
+            block
+            for block in blocks
+            if anchors["table_x_min"] <= block.x <= anchors["table_x_max"]
+        ]
+    else:
+        kept_blocks = []
+        for block in blocks:
+            text = block.text.strip()
+            if not text:
+                continue
+            x = block.x
+            if x < anchors["table_x_min"] or x > anchors["table_x_max"]:
+                continue
+            if x < anchors["description_x"]:
+                kept_blocks.append(block)
+                continue
+            if x < anchors["amount_left"]:
+                if (side_region_start_x is None or x < side_region_start_x) and not _layout_region_side_token(text):
+                    kept_blocks.append(block)
+                continue
+            if _layout_region_amount_token(text):
+                kept_blocks.append(block)
+
+    if not kept_blocks:
+        return None
+
+    kept_blocks = sorted(kept_blocks, key=lambda block: block.x)
+    tokens = [block.text.strip() for block in kept_blocks if block.text.strip()]
+    text = _normalize_extracted_line(" ".join(tokens))
+    if not text or _layout_noise_row(text):
+        return None
+    confidence_values = [block.confidence for block in kept_blocks if block.confidence is not None]
+    clipped = dict(row)
+    clipped["tokens"] = tokens
+    clipped["token_confidences"] = [block.confidence for block in kept_blocks if block.text.strip()]
+    clipped["text"] = text
+    clipped["confidence"] = round(sum(confidence_values) / len(confidence_values) / 100, 3) if confidence_values else row["confidence"]
+    clipped["blocks"] = kept_blocks
+    clipped["region_detected"] = True
+    clipped["region_excluded"] = len(kept_blocks) < len(blocks)
+    return clipped
+
+
+def _layout_region_reason_codes(row: dict[str, object]) -> list[str]:
+    if not row.get("region_detected"):
+        return []
+    reason_codes = ["OCR_STATEMENT_REGION_DETECTED"]
+    if row.get("region_excluded"):
+        reason_codes.append("OCR_STATEMENT_REGION_EXCLUDED")
+    return reason_codes
+
+
+def _layout_side_region_start_x(blocks: list[object]) -> float | None:
+    ordered = sorted(blocks, key=lambda block: block.x)
+    for index, block in enumerate(ordered):
+        for end_index in range(index + 1, min(len(ordered), index + 5) + 1):
+            window = " ".join(item.text for item in ordered[index:end_index])
+            match = SIDE_SUMMARY_PATTERN.search(window)
+            if match and match.start() == 0:
+                return block.x
+    return None
+
+
+def _layout_transaction_amount_x(row: dict[str, object]) -> float | None:
+    tokens = row.get("tokens")
+    if not isinstance(tokens, list) or not _layout_date_pair([str(token) for token in tokens]):
+        return None
+    blocks = _layout_row_blocks(row)
+    for block in blocks[4:]:
+        if LAYOUT_AMOUNT_PATTERN.match(block.text.strip().replace(" ", "")):
+            return block.x
+    return None
+
+
+def _layout_row_blocks(row: dict[str, object]) -> list[object]:
+    blocks = row.get("blocks")
+    return blocks if isinstance(blocks, list) else []
+
+
+def _layout_region_amount_token(text: str) -> bool:
+    token = text.strip().replace(" ", "")
+    if token.upper() in {"CR", "DR"}:
+        return True
+    return bool(LAYOUT_AMOUNT_PATTERN.match(token) or re.fullmatch(r"(?:PHP|USD|NZD|AUD|SGD|HKD|KRW|JPY)", token, re.IGNORECASE))
+
+
+def _layout_region_side_token(text: str) -> bool:
+    return bool(SIDE_SUMMARY_PATTERN.search(text)) or bool(
+        re.fullmatch(
+            r"(?:previous|statement|balance|payments?|credits?|purchases?|debits?|account|summary|payment|due|date|minimum|credit|limit|available|cash|interest|rate|rewards?|points?)",
+            text.strip(),
+            re.IGNORECASE,
+        )
+    )
 
 
 def _layout_noise_row(text: str) -> bool:
@@ -601,7 +1159,9 @@ def _last_layout_amount_token(tokens: list[str], confidences: list[object] | Non
         match = LAYOUT_AMOUNT_PATTERN.match(normalized)
         if not match:
             continue
-        amount = _parse_amount(match.group("amount"))
+        amount = _try_parse_amount(match.group("amount"))
+        if amount is None:
+            continue
         if match.group("credit"):
             amount = -abs(amount)
         return token, amount, _token_confidence(confidence_values, index)
@@ -621,7 +1181,9 @@ def _layout_amount_token_after_dates(
         match = LAYOUT_AMOUNT_PATTERN.match(normalized)
         if not match:
             continue
-        amount = _parse_amount(match.group("amount"))
+        amount = _try_parse_amount(match.group("amount"))
+        if amount is None:
+            continue
         next_token = tokens[index + 1].upper() if index + 1 < len(tokens) else ""
         if match.group("credit") or next_token == "CR":
             amount = -abs(amount)
@@ -651,10 +1213,12 @@ def _layout_row_parts_from_text(text: str) -> tuple[str, float, list[str]] | Non
         return None
     has_original_foreign_amount = bool(FOREIGN_CURRENCY_AMOUNT_PATTERN.search(transaction_body))
     amount_match = amount_matches[-1] if has_original_foreign_amount else amount_matches[0]
-    amount_value = _parse_amount(amount_match.group(2))
+    amount_value = _try_parse_amount(amount_match.group(2))
+    if amount_value is None:
+        return None
     amount_end_window = transaction_body[amount_match.end() : amount_match.end() + 8].upper()
     reason_codes: list[str] = []
-    if has_original_foreign_amount and len(amount_matches) > 1:
+    if has_original_foreign_amount:
         reason_codes.append("BILLING_CURRENCY_AMOUNT_SELECTED")
     if re.match(r"^\s*CR\b", amount_end_window):
         amount_value = -abs(amount_value)
@@ -757,6 +1321,10 @@ def _append_layout_candidate(
     description = _clean_reconstructed_description(" ".join(part for part in active.get("description_parts", []) if part))
     if amount_value is None or not description or _is_summary_description(description):
         return
+    date_text = str(active.get("date_text") or "")
+    posted_date_text = str(active.get("posted_date_text") or "")
+    if (date_text and not _valid_day_month_text(date_text)) or (posted_date_text and not _valid_day_month_text(posted_date_text)):
+        return
     source_text = str(active.get("source_text") or "")
     source = SourceReference(
         page_number=int(active.get("page_number") or 0),
@@ -786,8 +1354,8 @@ def _append_layout_candidate(
     candidates.append(
         TransactionCandidate(
             candidate_id=f"txn_{len(candidates) + 1:04d}",
-            date_text=_with_statement_year(str(active.get("date_text") or ""), statement_year),
-            posted_date_text=_with_statement_year(str(active.get("posted_date_text") or ""), statement_year),
+            date_text=_with_statement_year(date_text, statement_year),
+            posted_date_text=_with_statement_year(posted_date_text, statement_year),
             description=description,
             amount=abs(float(amount_value)),
             currency=settings.default_currency,
@@ -802,6 +1370,69 @@ def _append_layout_candidate(
 def _mean_confidence(values: list[object]) -> float:
     numeric = [float(value) for value in values if isinstance(value, (int, float))]
     return round(sum(numeric) / len(numeric), 3) if numeric else 0.78
+
+
+def _malformed_amount_findings(line_refs: list[SourceReference]) -> list[ExtractionFinding]:
+    tokens = sorted({match.group(0) for line in line_refs for match in MALFORMED_AMOUNT_TOKEN_PATTERN.finditer(line.text)})
+    if not tokens:
+        return []
+    return [
+        ExtractionFinding(
+            code="MALFORMED_AMOUNT_TOKEN",
+            severity="warning",
+            message=(
+                "One or more OCR amount tokens used multiple decimal separators and required defensive handling: "
+                f"{', '.join(tokens[:3])}"
+            ),
+        )
+    ]
+
+
+def _has_statement_shape_evidence(
+    line_refs: list[SourceReference],
+    fields: list[FinancialFieldCandidate],
+    sections: list[SectionCandidate],
+) -> bool:
+    field_names = {field.field_name for field in fields if field.field_name in STATEMENT_SHAPE_FIELD_NAMES}
+    if field_names & STATEMENT_EXCLUSIVE_FIELD_NAMES:
+        return True
+    if len(field_names) >= 3:
+        return True
+
+    section_labels = {section.section_label for section in sections}
+    if "statement_summary" in section_labels and len(field_names) >= 2:
+        return True
+
+    text = " ".join(line.text.lower() for line in line_refs)
+    statement_terms = {
+        "statement date",
+        "payment due date",
+        "credit limit",
+        "previous balance",
+        "previous statement balance",
+        "payments and credits",
+        "payments & credits",
+        "purchases and debits",
+        "purchases & debits",
+        "total account balance",
+        "total amount due",
+        "minimum amount due",
+        "minimum payment",
+        "statement of account",
+    }
+    hits = {term for term in statement_terms if term in text}
+    exclusive_hits = hits & {
+        "statement date",
+        "previous statement balance",
+        "payments and credits",
+        "payments & credits",
+        "purchases and debits",
+        "purchases & debits",
+        "total account balance",
+    }
+    if exclusive_hits and len(hits) >= 2:
+        return True
+    return len(hits) >= 3
 
 
 def _extract_financial_fields(
@@ -840,7 +1471,13 @@ def _extract_financial_fields(
             normalized_value = None
             currency = None
             reason_codes = ["FIELD_LABEL_DETECTED"]
-            if amount_match:
+            if field_name in {"statement_date", "payment_due_date"}:
+                date_match = DATE_PATTERN.search(value_text)
+                if not date_match:
+                    continue
+                normalized_value = date_match.group(0)
+                reason_codes.append("DATE_DETECTED")
+            elif amount_match:
                 currency = _currency_code(amount_match.group(1))
                 if currency == settings.default_currency:
                     currency = _infer_currency_from_text(line.text)
@@ -1054,12 +1691,14 @@ def _receipt_labelled_total_amount(line_refs: list[SourceReference]) -> tuple[fl
             if re.search(r"\b(?:include|included|includes|gst|tax)\b.{0,12}\b(?:total|amount)\b", context, re.IGNORECASE):
                 continue
             amount_match = re.search(
-                r"(?:NZD|NZ\$|\$|PHP|USD|AUD)?\s*([0-9]{1,4}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2}))",
+                r"(?:NZD|NZ\$|\$|PHP|USD|AUD)?\s*([0-9]{1,4}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2}))(?![\d.])",
                 context[match.start() - context_start :],
                 re.IGNORECASE,
             )
             if amount_match:
-                amount = _parse_amount(amount_match.group(1))
+                amount = _try_parse_amount(amount_match.group(1))
+                if amount is None:
+                    continue
                 if amount > 0:
                     source = _source_for_text_window(line_refs, match.start(), context)
                     return amount, source, reason_code
@@ -1209,7 +1848,7 @@ def _receipt_payment_method_amount(line_refs: list[SourceReference]) -> tuple[fl
         if line.section_label not in {"receipt_totals", "payment_proof", "unknown_financial_block"}:
             continue
         match = re.search(
-            r"\b(?:bank|flank|debit|credit)\s+card\b.{0,30}(?<!\d)([0-9]{2,3}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2}))(?!\d)",
+            r"\b(?:bank|flank|debit|credit)\s+card\b.{0,30}(?<!\d)([0-9]{2,3}(?:,\d{3})*(?:\.\s?\d{2}|,\d{2}))(?![\d.])",
             line.text,
             re.IGNORECASE,
         )
@@ -1383,6 +2022,18 @@ def _extract_statement_table_rows(
             candidates.append(combined)
             index += 1
             continue
+        continued = _combined_statement_continuation_row_candidate(
+            line=line,
+            text=text,
+            next_line=normalized_refs[index + 1] if index + 1 < len(normalized_refs) else None,
+            statement_year=statement_year,
+            document_type=document_type,
+            candidate_number=len(candidates) + 1,
+        )
+        if continued:
+            candidates.append(continued)
+            index += 2
+            continue
         if not MONTH_DAY_PATTERN.match(text):
             index += 1
             continue
@@ -1484,7 +2135,9 @@ def _extract_flattened_statement_rows(
             if not amount_match:
                 continue
 
-            amount_value = _parse_amount(amount_match.group(2))
+            amount_value = _try_parse_amount(amount_match.group(2))
+            if amount_value is None:
+                continue
             amount_currency = _currency_code(amount_match.group(1))
             amount_end_window = segment[amount_match.end() : amount_match.end() + 4].upper()
             if amount_end_window.startswith("CR"):
@@ -1543,7 +2196,10 @@ def _combined_statement_row_candidate(
     description = _clean_reconstructed_description(match.group("description"))
     if not description or _is_summary_description(description):
         return None
-    amount_currency, amount_value = _amounts(match.group("amount"))[-1]
+    amounts = _amounts(match.group("amount"))
+    if not amounts:
+        return None
+    amount_currency, amount_value = amounts[-1]
     source = SourceReference(
         page_number=line.page_number,
         line_number=line.line_number,
@@ -1568,6 +2224,69 @@ def _combined_statement_row_candidate(
         direction="credit" if amount_value < 0 else "debit",
         source=source,
         confidence=0.88 if document_type != "unknown" else 0.76,
+        reason_codes=reason_codes,
+    )
+
+
+def _combined_statement_continuation_row_candidate(
+    line: SourceReference,
+    text: str,
+    next_line: SourceReference | None,
+    statement_year: int | None,
+    document_type: str,
+    candidate_number: int,
+) -> TransactionCandidate | None:
+    match = COMBINED_STATEMENT_ROW_WITHOUT_AMOUNT_PATTERN.match(text)
+    if not match or next_line is None:
+        return None
+
+    next_text = next_line.text.strip()
+    if (
+        not next_text
+        or MONTH_DAY_PATTERN.match(next_text)
+        or COMBINED_STATEMENT_ROW_PATTERN.match(next_text)
+        or COMBINED_STATEMENT_ROW_WITHOUT_AMOUNT_PATTERN.match(next_text)
+        or _is_table_stop(next_text)
+    ):
+        return None
+
+    amounts = _amounts(next_text)
+    if not amounts:
+        return None
+
+    description = _clean_reconstructed_description(match.group("description"))
+    if not description or _is_summary_description(description):
+        return None
+
+    amount_currency, amount_value = amounts[-1]
+    source_text = f"{text} {next_text}".strip()
+    source = SourceReference(
+        page_number=line.page_number,
+        line_number=line.line_number,
+        text=source_text,
+        section_id=f"section_{line.page_number or 0}_transaction_table",
+        section_label="transaction_table",
+        source_text_redacted=_redact_sensitive(source_text),
+        extraction_confidence=0.86,
+    )
+    reason_codes = ["TABLE_ROW_RECONSTRUCTED", "AMOUNT_DETECTED", "DATE_DETECTED", "DESCRIPTION_DETECTED"]
+    if len(amounts) > 1:
+        reason_codes.append("BILLING_CURRENCY_AMOUNT_SELECTED")
+    if statement_year:
+        reason_codes.append("STATEMENT_YEAR_INFERRED")
+    if document_type == "unknown":
+        reason_codes.append("UNKNOWN_DOCUMENT_TYPE")
+
+    return TransactionCandidate(
+        candidate_id=f"txn_{candidate_number:04d}",
+        date_text=_with_statement_year(match.group("date_text"), statement_year),
+        posted_date_text=_with_statement_year(match.group("posted_date_text"), statement_year),
+        description=description,
+        amount=abs(amount_value),
+        currency=(amount_currency or settings.default_currency).upper(),
+        direction="credit" if amount_value < 0 else "debit",
+        source=source,
+        confidence=0.86 if document_type != "unknown" else 0.74,
         reason_codes=reason_codes,
     )
 
@@ -1877,16 +2596,30 @@ def _statement_year(line_refs: list[SourceReference]) -> int | None:
 
 def _transaction_table_start(line_refs: list[SourceReference]) -> int | None:
     for index, line in enumerate(line_refs):
+        header_line = line.text.lower()
+        if not (
+            "transaction" in header_line
+            or "post" in header_line
+            or "description" in header_line
+            or _is_table_header_fragment(line.text)
+        ):
+            continue
         window = " ".join(ref.text.lower() for ref in line_refs[index : index + 8])
         if "transaction" in window and "description" in window and "amount" in window:
             start = index + 1
-            while start < len(line_refs) and _is_table_header_fragment(line_refs[start].text):
+            header_scan_limit = min(len(line_refs), index + 8)
+            while start < header_scan_limit and _is_table_header_text(line_refs[start].text):
                 start += 1
             return start
     for index in range(len(line_refs) - 2):
         if MONTH_DAY_PATTERN.match(line_refs[index].text) and MONTH_DAY_PATTERN.match(line_refs[index + 1].text):
             return index
     return None
+
+
+def _is_table_header_text(text: str) -> bool:
+    lowered = text.strip().lower()
+    return _is_table_header_fragment(text) or any(term in lowered for term in TABLE_HEADER_TERMS)
 
 
 def _is_table_header_fragment(text: str) -> bool:
@@ -1969,16 +2702,34 @@ def _is_summary_description(text: str) -> bool:
 
 
 def _amounts(text: str) -> list[tuple[str | None, float]]:
-    return [(_currency_code(match.group(1)), _parse_amount(match.group(2))) for match in AMOUNT_PATTERN.finditer(text)]
+    amounts: list[tuple[str | None, float]] = []
+    for match in AMOUNT_PATTERN.finditer(text):
+        amount = _try_parse_amount(match.group(2))
+        if amount is None:
+            continue
+        amounts.append((_currency_code(match.group(1)), amount))
+    return amounts
 
 
 def _parse_amount(value: str) -> float:
     normalized = value.replace(" ", "")
+    if normalized.count(".") > 1 and "," not in normalized:
+        whole, cents = normalized.rsplit(".", 1)
+        whole_parts = whole.split(".")
+        if len(cents) == 2 and all(part.isdigit() for part in whole_parts) and all(len(part) == 3 for part in whole_parts[1:]):
+            normalized = f"{''.join(whole_parts)}.{cents}"
     if "," in normalized and "." not in normalized and re.search(r",\d{2}$", normalized):
         normalized = normalized.replace(",", ".")
     else:
         normalized = normalized.replace(",", "")
     return float(normalized)
+
+
+def _try_parse_amount(value: str) -> float | None:
+    try:
+        return _parse_amount(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _currency_code(value: str | None) -> str:
@@ -2052,9 +2803,346 @@ def _separate_statement_payment_and_installments(
     return fields, installments, kept_transactions
 
 
+def _repair_statement_purchase_gap_transactions(
+    *,
+    request: TransactionExtractionRequest,
+    transactions: list[TransactionCandidate],
+    fields: list[FinancialFieldCandidate],
+    document_type: str,
+    line_refs: list[SourceReference],
+) -> list[TransactionCandidate]:
+    purchases_and_debits = _best_field_amount(fields, "purchases_and_debits")
+    if purchases_and_debits is None or purchases_and_debits <= 0:
+        return []
+
+    rows = _layout_rows(request)
+    if not rows:
+        return []
+
+    statement_year = _statement_year(line_refs)
+    statement_start = _statement_period_start(line_refs)
+    repaired_rows = _hsbc_reconciliation_repair_rows(
+        rows=rows,
+        purchases_and_debits=purchases_and_debits,
+        statement_year=statement_year,
+        statement_start=statement_start,
+        document_type=document_type,
+    )
+    if not repaired_rows:
+        return []
+
+    repaired_total = round(sum(candidate.amount for candidate in repaired_rows if candidate.direction == "debit"), 2)
+    if abs(repaired_total - purchases_and_debits) > 0.01:
+        return []
+
+    current_debits = [candidate for candidate in transactions if candidate.direction == "debit"]
+    current_total = round(sum(candidate.amount for candidate in current_debits), 2)
+    suspicious_current = any(_suspicious_statement_total_candidate(candidate, purchases_and_debits) for candidate in current_debits)
+    if len(repaired_rows) <= len(current_debits) and abs(current_total - purchases_and_debits) <= 0.01 and not suspicious_current:
+        return []
+
+    preserved_rows = [candidate for candidate in transactions if candidate.direction != "debit"]
+    return _renumber_transaction_candidates([*repaired_rows, *preserved_rows])
+
+
+def _renumber_transaction_candidates(candidates: list[TransactionCandidate]) -> list[TransactionCandidate]:
+    renumbered: list[TransactionCandidate] = []
+    for index, candidate in enumerate(candidates, start=1):
+        renumbered.append(candidate.model_copy(update={"candidate_id": f"txn_{index:04d}"}))
+    return renumbered
+
+
+def _hsbc_reconciliation_repair_rows(
+    *,
+    rows: list[dict[str, object]],
+    purchases_and_debits: float,
+    statement_year: int | None,
+    statement_start: str | None,
+    document_type: str,
+) -> list[TransactionCandidate]:
+    parsed_debits: list[dict[str, object]] = []
+    damaged_rows: list[dict[str, object]] = []
+    in_transaction_table = False
+
+    for row in rows:
+        text = str(row["text"])
+        if _layout_grid_header_row(row):
+            in_transaction_table = True
+            continue
+        if not in_transaction_table:
+            continue
+        if (re.search(r"\btotal\s+due\b", text, re.IGNORECASE) and (parsed_debits or damaged_rows)) or _is_table_hard_stop(text):
+            break
+        parsed = _hsbc_repair_row(row)
+        if not parsed:
+            continue
+        if parsed["kind"] == "payment":
+            continue
+        if parsed["kind"] == "debit":
+            parsed_debits.append(parsed)
+        elif parsed["kind"] == "damaged_debit":
+            damaged_rows.append(parsed)
+
+    known_total = round(sum(float(row["amount"]) for row in parsed_debits), 2)
+    missing_amount = round(purchases_and_debits - known_total, 2)
+    if len(damaged_rows) != 1 or missing_amount <= 0.01:
+        return []
+    if missing_amount > purchases_and_debits or missing_amount < 1:
+        return []
+
+    repaired = [*parsed_debits, {**damaged_rows[0], "amount": missing_amount, "amount_repaired": True}]
+    repaired.sort(key=lambda item: (int(item["page_number"]), int(item["line_number"])))
+
+    candidates: list[TransactionCandidate] = []
+    for item in repaired:
+        _append_repaired_statement_candidate(
+            candidates,
+            item,
+            statement_year=statement_year,
+            statement_start=statement_start,
+            document_type=document_type,
+        )
+    return candidates
+
+
+def _hsbc_repair_row(row: dict[str, object]) -> dict[str, object] | None:
+    blocks = sorted(_layout_row_blocks(row), key=lambda block: block.x)
+    if len(blocks) < 5:
+        return None
+
+    side_start_x = _layout_side_region_start_x(blocks)
+    table_blocks = [
+        block
+        for block in blocks
+        if 80 <= block.x <= 760 and (side_start_x is None or block.x < side_start_x)
+    ]
+    if len(table_blocks) < 5:
+        return None
+
+    text = _normalize_extracted_line(" ".join(block.text.strip() for block in table_blocks if block.text.strip()))
+    lowered = text.lower()
+    if not re.search(r"[A-Za-z]{3,}", text):
+        return None
+    if _is_summary_description(text) or _layout_side_column_text(text):
+        return None
+
+    amount_match = _hsbc_repair_amount(table_blocks)
+    description = _hsbc_repair_description(table_blocks, amount_match[0] if amount_match else None)
+    if not description or _is_summary_description(description):
+        return None
+
+    date_pair = _layout_grid_date_pair(table_blocks) or _hsbc_fuzzy_date_pair(table_blocks)
+    if "paid thru" in lowered or re.search(r"\bpaid\b", lowered):
+        return {"kind": "payment"}
+
+    if date_pair and amount_match:
+        _amount_index, _amount_text, amount_value, amount_confidence = amount_match
+        return {
+            "kind": "debit",
+            "page_number": int(row["page_number"]),
+            "line_number": int(row["line_number"]),
+            "date_text": date_pair[0],
+            "posted_date_text": date_pair[1],
+            "description": description,
+            "amount": amount_value,
+            "source_text": text,
+            "confidence": row["confidence"],
+            "amount_confidence": amount_confidence,
+            "reason_codes": ["OCR_TABLE_GRID_ROW_RECONSTRUCTED", "OCR_TABLE_GRID_FUZZY_DATE_REPAIRED"],
+        }
+
+    if amount_match and _hsbc_damaged_merchant_description(description):
+        return {
+            "kind": "damaged_debit",
+            "page_number": int(row["page_number"]),
+            "line_number": int(row["line_number"]),
+            "date_text": None,
+            "posted_date_text": None,
+            "description": description,
+            "source_text": text,
+            "confidence": min(float(row.get("confidence") or 0.68), 0.72),
+            "amount_confidence": amount_match[3],
+            "reason_codes": [
+                "OCR_TABLE_GRID_DAMAGED_DATE",
+                "OCR_TABLE_GRID_DAMAGED_AMOUNT",
+                "STATEMENT_PURCHASE_TOTAL_REPAIR",
+            ],
+        }
+    return None
+
+
+def _hsbc_repair_amount(blocks: list[object]) -> tuple[int, str, float, float | None] | None:
+    amount_candidates: list[tuple[int, str, float, float | None, float]] = []
+    for index, block in enumerate(blocks):
+        if block.x < 600 or block.x > 760:
+            continue
+        token = block.text.strip()
+        match = LAYOUT_AMOUNT_PATTERN.match(token.replace(" ", ""))
+        if not match:
+            continue
+        amount = _try_parse_amount(match.group("amount"))
+        if amount is None:
+            continue
+        if match.group("credit") or token.upper().endswith("CR"):
+            amount = -abs(amount)
+        amount_candidates.append((index, token, amount, _token_confidence([block.confidence], 0), block.x))
+    positive_candidates = [candidate for candidate in amount_candidates if candidate[2] > 0]
+    selected = positive_candidates[0] if positive_candidates else (amount_candidates[0] if amount_candidates else None)
+    if not selected:
+        return None
+    return selected[0], selected[1], selected[2], selected[3]
+
+
+def _hsbc_repair_description(blocks: list[object], amount_index: int | None) -> str:
+    end_index = amount_index if amount_index is not None else len(blocks)
+    description_blocks = [
+        block
+        for block in blocks
+        if 285 <= block.x < 600
+        and blocks.index(block) < end_index
+        and (_layout_grid_description_token(block.text, block.x) or _hsbc_description_number_token(block.text))
+    ]
+    return _clean_reconstructed_description(" ".join(block.text.strip() for block in description_blocks))
+
+
+def _hsbc_description_number_token(token: str) -> bool:
+    return bool(re.fullmatch(r"\d+(?:st|nd|rd|th)?", token.strip(), re.IGNORECASE))
+
+
+def _hsbc_fuzzy_date_pair(blocks: list[object]) -> tuple[str, str, int, int, float] | None:
+    first = _hsbc_fuzzy_date_in_band(blocks, 90, 180)
+    second = _hsbc_fuzzy_date_in_band(blocks, 190, 290)
+    if not first or not second:
+        return None
+    return first[0], second[0], first[1], second[1], second[2]
+
+
+def _hsbc_fuzzy_date_in_band(blocks: list[object], x_min: float, x_max: float) -> tuple[str, int, float] | None:
+    band = [(index, block) for index, block in enumerate(blocks) if x_min <= block.x <= x_max]
+    day: str | None = None
+    day_index: int | None = None
+    month: str | None = None
+    end_x = 0.0
+    for index, block in band:
+        token = block.text.strip()
+        compact = COMPACT_DAY_MONTH_TOKEN_PATTERN.match(token)
+        if compact and _valid_day_month_parts(compact.group("day"), compact.group("month")):
+            return f"{compact.group('day')} {compact.group('month')}", index, block.x + block.width
+        if day is None and re.fullmatch(r"\d{1,2}", token) and 1 <= int(token) <= 31:
+            day = token
+            day_index = index
+        if _layout_month_token(token):
+            month = token
+            end_x = block.x + block.width
+    if day and month and day_index is not None and _valid_day_month_parts(day, month):
+        return f"{day} {month}", day_index, end_x
+    return None
+
+
+def _hsbc_damaged_merchant_description(description: str) -> bool:
+    lowered = description.lower()
+    if any(term in lowered for term in ["previous", "statement", "balance", "account summary", "total due"]):
+        return False
+    words = re.findall(r"[A-Za-z]{2,}", description)
+    return len(words) >= 2
+
+
+def _append_repaired_statement_candidate(
+    candidates: list[TransactionCandidate],
+    item: dict[str, object],
+    *,
+    statement_year: int | None,
+    statement_start: str | None,
+    document_type: str,
+) -> None:
+    date_text = item.get("date_text")
+    posted_date_text = item.get("posted_date_text")
+    if not date_text and item.get("amount_repaired") and statement_start:
+        date_text = statement_start
+    source_text = str(item.get("source_text") or "")
+    reason_codes = [
+        "OCR_LAYOUT_ROW_RECONSTRUCTED",
+        "AMOUNT_DETECTED",
+        "DESCRIPTION_DETECTED",
+        *[str(code) for code in item.get("reason_codes", [])],
+    ]
+    if date_text:
+        reason_codes.append("DATE_DETECTED")
+    if item.get("amount_repaired"):
+        reason_codes.append("AMOUNT_REPAIRED_FROM_STATEMENT_TOTAL")
+    if statement_year:
+        reason_codes.append("STATEMENT_YEAR_INFERRED")
+    if document_type == "unknown":
+        reason_codes.append("UNKNOWN_DOCUMENT_TYPE")
+
+    source = SourceReference(
+        page_number=int(item.get("page_number") or 0),
+        line_number=int(item.get("line_number") or len(candidates) + 1),
+        text=source_text,
+        section_id=f"section_{item.get('page_number') or 0}_transaction_table",
+        section_label="transaction_table",
+        source_text_redacted=_redact_sensitive(source_text),
+        ocr_confidence=(
+            item.get("amount_confidence")
+            if isinstance(item.get("amount_confidence"), float)
+            else item.get("confidence")
+            if isinstance(item.get("confidence"), float)
+            else None
+        ),
+        extraction_confidence=0.72 if item.get("amount_repaired") else 0.86,
+    )
+    candidates.append(
+        TransactionCandidate(
+            candidate_id=f"txn_{len(candidates) + 1:04d}",
+            date_text=_with_statement_year(str(date_text), statement_year) if date_text else None,
+            posted_date_text=_with_statement_year(str(posted_date_text), statement_year) if posted_date_text else None,
+            description=str(item["description"]),
+            amount=abs(float(item["amount"])),
+            currency=settings.default_currency,
+            direction="debit",
+            source=source,
+            confidence=0.64 if item.get("amount_repaired") else 0.86,
+            reason_codes=list(dict.fromkeys(reason_codes)),
+        )
+    )
+
+
+def _suspicious_statement_total_candidate(candidate: TransactionCandidate, purchases_and_debits: float) -> bool:
+    text = f"{candidate.description} {candidate.source.text}".lower()
+    if abs(candidate.amount - purchases_and_debits) > 0.01:
+        return False
+    return bool(re.search(r"\b(paid thru|payments?|credits?|total)\b", text))
+
+
+def _statement_period_start(line_refs: list[SourceReference]) -> str | None:
+    for line in line_refs:
+        match = re.search(r"\bstatement\s+from\s+(" + DAY_MONTH_FRAGMENT + r")\b", line.text, re.IGNORECASE)
+        if match and _valid_day_month_text(match.group(1)):
+            return match.group(1)
+    return None
+
+
 def _is_statement_payment_credit(candidate: TransactionCandidate) -> bool:
     description = candidate.description.lower()
+    source_text = candidate.source.text.lower()
+    combined = f"{description} {source_text}"
+    has_payment_marker = bool(re.search(r"\bpaid\s+thru\b|\bpaid\s+through\b|\bpayment\s+(?:received|posted|credited)\b", combined))
+    if has_payment_marker and candidate.direction == "credit":
+        return True
+    if has_payment_marker and _source_has_matching_credit_amount(candidate):
+        return True
+    if re.search(r"\b(?:payment|paid)\b", combined) and _source_has_matching_credit_amount(candidate):
+        return True
     return candidate.direction == "credit" and bool(re.search(r"\b(payment|paid)\b", description))
+
+
+def _source_has_matching_credit_amount(candidate: TransactionCandidate) -> bool:
+    source_text = candidate.source.text if candidate.source else ""
+    for match in re.finditer(r"\b(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d{2}|,\d{2}))\s*cr\b", source_text, re.IGNORECASE):
+        amount = _try_parse_amount(match.group("amount"))
+        if amount is not None and abs(amount - candidate.amount) <= 0.01:
+            return True
+    return False
 
 
 def _flattened_statement_payment_fields(
@@ -2307,36 +3395,89 @@ def _reconcile_statement(
     transactions: list[TransactionCandidate],
     fields: list[FinancialFieldCandidate],
 ) -> ReconciliationResult:
-    previous_balance = _best_field_amount(fields, "previous_statement_balance") or _best_field_amount(fields, "previous_balance")
+    previous_balance = _first_not_none(
+        _best_field_amount(fields, "previous_statement_balance"),
+        _best_field_amount(fields, "previous_balance"),
+    )
     payments_and_credits = _best_field_amount(fields, "payments_and_credits")
-    total_due = _best_field_amount(fields, "total_due") or _best_field_amount(fields, "total_amount_due")
+    purchases_and_debits = _best_field_amount(fields, "purchases_and_debits")
+    total_due = _first_not_none(
+        _best_field_amount(fields, "total_due"),
+        _best_field_amount(fields, "total_amount_due"),
+    )
     debit_total = round(sum(candidate.amount for candidate in transactions if candidate.direction == "debit"), 2)
     credit_total = round(sum(candidate.amount for candidate in transactions if candidate.direction == "credit"), 2)
     effective_credit_total = payments_and_credits if payments_and_credits is not None else credit_total
     computed_total_due = round((previous_balance or 0) + debit_total - effective_credit_total, 2) if previous_balance is not None else None
+    purchase_difference = round(debit_total - purchases_and_debits, 2) if purchases_and_debits is not None else None
+    purchase_mismatch = purchase_difference is not None and abs(purchase_difference) > 0.01
 
     if previous_balance is None or total_due is None:
         return ReconciliationResult(
-            status="not_available",
+            status="needs_review" if purchase_mismatch else "not_available",
             previous_balance=previous_balance,
             debit_total=debit_total,
             credit_total=effective_credit_total,
             total_due=total_due,
             computed_total_due=computed_total_due,
-            reason_codes=["SUMMARY_FIELDS_INCOMPLETE"],
+            reason_codes=["SUMMARY_FIELDS_INCOMPLETE", "PURCHASE_TOTAL_MISMATCH"] if purchase_mismatch else ["SUMMARY_FIELDS_INCOMPLETE"],
         )
 
     difference = round((computed_total_due or 0) - total_due, 2)
+    reason_codes: list[str] = []
+    if abs(difference) <= 0.01:
+        reason_codes.append("STATEMENT_TOTAL_RECONCILED")
+    else:
+        reason_codes.append("STATEMENT_TOTAL_MISMATCH")
+    if purchase_mismatch:
+        reason_codes.append("PURCHASE_TOTAL_MISMATCH")
     return ReconciliationResult(
-        status="matched" if abs(difference) <= 0.01 else "needs_review",
+        status="matched" if abs(difference) <= 0.01 and not purchase_mismatch else "needs_review",
         previous_balance=previous_balance,
         debit_total=debit_total,
         credit_total=effective_credit_total,
         total_due=total_due,
         computed_total_due=computed_total_due,
         difference=difference,
-        reason_codes=["STATEMENT_TOTAL_RECONCILED"] if abs(difference) <= 0.01 else ["STATEMENT_TOTAL_MISMATCH"],
+        reason_codes=reason_codes,
     )
+
+
+def _reconciliation_review_findings(
+    transactions: list[TransactionCandidate],
+    fields: list[FinancialFieldCandidate],
+) -> list[ExtractionFinding]:
+    reconciliation = _reconcile_statement(transactions, fields)
+    findings: list[ExtractionFinding] = []
+    purchases_and_debits = _best_field_amount(fields, "purchases_and_debits")
+    if "PURCHASE_TOTAL_MISMATCH" in reconciliation.reason_codes and purchases_and_debits is not None:
+        difference = round((reconciliation.debit_total or 0) - purchases_and_debits, 2)
+        findings.append(
+            ExtractionFinding(
+                code="STATEMENT_PURCHASE_TOTAL_MISMATCH",
+                severity="warning",
+                message=(
+                    "Extracted debit transactions do not match the statement purchases/debits total "
+                    f"(extracted {reconciliation.debit_total:.2f}, statement {purchases_and_debits:.2f}, difference {difference:.2f})."
+                ),
+            )
+        )
+    if "STATEMENT_TOTAL_MISMATCH" in reconciliation.reason_codes:
+        findings.append(
+            ExtractionFinding(
+                code="STATEMENT_TOTAL_RECONCILIATION_MISMATCH",
+                severity="warning",
+                message=(
+                    "Computed statement total due does not match the extracted total due field "
+                    f"(computed {reconciliation.computed_total_due:.2f}, statement {reconciliation.total_due:.2f}, difference {reconciliation.difference:.2f})."
+                ),
+            )
+        )
+    return findings
+
+
+def _first_not_none(*values: float | None) -> float | None:
+    return next((value for value in values if value is not None), None)
 
 
 def _field_float(field: FinancialFieldCandidate) -> float | None:
@@ -2392,7 +3533,7 @@ def _document_tables(
         }
         for field in fields
     ]
-    if reconciliation.status != "not_available":
+    if reconciliation.computed_total_due is not None and reconciliation.difference is not None:
         statement_rows.extend(
             [
                 {"Field": "Computed total due", "Value": f"{reconciliation.computed_total_due:.2f}", "Currency": settings.default_currency},

@@ -88,13 +88,13 @@ Every standalone module must provide:
 | 0 | Project Foundation | Project | Repo conventions, module specs, GitHub workflow, evidence standard | Module template and repo rules |
 | 1 | Identity Access Module | Standalone module | User login, role claims, tokens, protected access checks | Auth/token API and token verification contract |
 | 2 | Stats Web Shell | Encompassing `.NET` app | Login UI, app navigation, service orchestration shell | Calls module APIs; no OCR/parsing logic |
-| 3-4 | File Validation and Ingestion Module | Standalone module | Validate file type, size, extension, signatures, hashes, rejection reasons, accepted-file intake, ingestion records, and handoff status | File validation request/result API plus ingestion API/status contract |
+| 3-4 | File Validation and Ingestion Module | Standalone module | Validate file type, size, extension, signatures, hashes, rejection reasons, accepted-file intake, ingestion records, duplicate/idempotency terminal states, and queued handoff status | File validation request/result API plus ingestion API/status contract; only queued accepted handoffs proceed downstream |
 | 5 | Document Parsing Module | Standalone module | Extract text from PDFs/images/scans, classify document type, expose parse quality/evaluation metadata | Document parsing API/result contract |
 | 6 | Merged into M5 | Retired standalone slot | Former document classification scope is now part of M5 | Covered by M5 classification result |
 | 7 | Transaction Extraction Module | Standalone module | Extract financial fields and transaction candidates | Transaction extraction API/result contract |
 | 8 | Data Validation Module | Standalone module | Clean, validate, warn, and detect duplicates/incomplete records | Data-quality report contract |
 | 9 | Stats Data and Persistence | Encompassing product module | Stats database schema, migrations, persistence adapters, stored workflow results | Stats persistence contract |
-| 10 | Stats Workflow Integration | Stats product | Connect web upload to file intake, OCR, classification, extraction, data validation, and persistence | End-to-end Stats workflow |
+| 10 | Stats Workflow Integration | Stats product | Connect queued web upload handoffs to file intake, OCR, classification, extraction, data validation, and persistence | End-to-end Stats workflow |
 | 11 | Stats Dashboard and Reporting | Encompassing `.NET` app | Financial dashboard, document status, transactions, summaries, warnings | UI over Stats persistence/query layer |
 | 12 | Email Ingestion Module | Standalone module | Retrieve authorized attachments and submit them to file intake | Email source adapter and intake contract |
 | 13 | Containerization | Infrastructure | Local containers, Compose, service health checks, dependencies | Dockerfiles and Compose profiles |
@@ -186,6 +186,7 @@ These are implemented in one reusable intake runtime:
 
 - File validation answers whether a file is acceptable and why.
 - File ingestion tracks accepted files entering a workflow and exposes downstream handoff/status.
+- Duplicate or idempotent submissions are terminal intake statuses unless a future explicit reprocess action is defined. Stats Web and the workflow coordinator must not call parsing, extraction, validation, or persistence for duplicate, rejected, or failed ingestion states.
 
 ### Document Parsing and Financial Extraction
 

@@ -17,11 +17,95 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable
 
+from stats_data.merchant_learning import upsert_merchant_classification_profile
+
 
 NAMESPACE = uuid.UUID("7a783aa3-f5a3-44be-98c7-0c571e44c31f")
 DEFAULT_CURRENCY = "PHP"
 VALIDATION_HANDOFF_DIR_ENV = "STATS_VALIDATION_HANDOFF_DIR"
 LOGGER = logging.getLogger(__name__)
+TRANSACTION_SUBTYPE_PARENT_MAP = {
+    "card_purchase": "purchase",
+    "eftpos_payment": "purchase",
+    "merchant_purchase": "purchase",
+    "professional_service": "purchase",
+    "cash_purchase": "purchase",
+    "credit_card_payment": "payment",
+    "invoice_payment": "payment",
+    "bill_payment": "payment",
+    "loan_payment": "payment",
+    "bank_transfer": "transfer",
+    "internal_transfer": "transfer",
+    "external_transfer": "transfer",
+    "merchant_refund": "refund",
+    "statement_credit": "refund",
+    "reversal": "refund",
+    "late_payment_fee": "fee",
+    "service_fee": "fee",
+    "bank_fee": "fee",
+    "finance_charge": "interest",
+    "cash_advance_interest": "interest",
+    "atm_cash_advance": "cash_advance",
+    "counter_cash_advance": "cash_advance",
+    "credit_card_installment": "installment_amortization",
+    "loan_installment": "installment_amortization",
+    "debit_adjustment": "adjustment",
+    "credit_adjustment": "adjustment",
+    "gst_tax": "tax",
+    "sales_tax": "tax",
+    "withholding_tax": "tax",
+}
+SPENDING_SUBCATEGORY_PARENT_MAP = {
+    "clinic": "medical",
+    "hospital": "medical",
+    "laboratory": "medical",
+    "diagnostics": "medical",
+    "prescription": "pharmacy",
+    "chemist": "pharmacy",
+    "pharmacy_retail": "pharmacy",
+    "supermarket": "groceries",
+    "fresh_food": "groceries",
+    "market": "groceries",
+    "electricity": "utilities",
+    "water": "utilities",
+    "gas": "utilities",
+    "telecommunications": "utilities",
+    "internet": "utilities",
+    "fuel": "transport",
+    "public_transport": "transport",
+    "parking": "transport",
+    "rideshare": "transport",
+    "rent": "housing",
+    "mortgage": "housing",
+    "property": "housing",
+    "premium": "insurance",
+    "policy_payment": "insurance",
+    "service_fee": "banking_fees",
+    "late_payment_fee": "banking_fees",
+    "bank_charge": "banking_fees",
+    "immigration_services": "professional_services",
+    "legal_services": "professional_services",
+    "accounting_services": "professional_services",
+    "consulting_services": "professional_services",
+    "finance_charge": "interest",
+    "loan_interest": "interest",
+    "bank_transfer": "transfers",
+    "internal_transfer": "transfers",
+    "external_transfer": "transfers",
+    "retail": "shopping",
+    "general_merchandise": "shopping",
+    "hardware": "shopping",
+    "clothing": "shopping",
+    "restaurant": "food_dining",
+    "cafe": "food_dining",
+    "fast_food": "food_dining",
+    "salary": "income",
+    "refund_income": "income",
+    "deposit": "income",
+    "gst": "tax",
+    "sales_tax": "tax",
+    "withholding_tax": "tax",
+}
 
 TABLE_PRIMARY_KEYS = {
     "validation_results": "validation_result_id",
@@ -42,6 +126,7 @@ TABLE_PRIMARY_KEYS = {
     "duplicate_check_batches": "duplicate_check_id",
     "duplicate_check_results": "duplicate_check_result_id",
     "recognition_label_suggestions": "suggestion_id",
+    "merchant_classification_profiles": "merchant_profile_id",
 }
 
 
@@ -211,10 +296,10 @@ def build_validation_persistence_plan(
 
     for section in result.get("section_candidates") or []:
         operations.append(_document_section_op(section, document_id, validation_id))
-    for record in result.get("normalized_records") or []:
-        operations.append(_transaction_op(record, document_id, batch_id, owner_id, validation_id))
+    for record_index, record in enumerate(result.get("normalized_records") or []):
+        operations.append(_transaction_op(record, document_id, batch_id, owner_id, validation_id, record_index=record_index))
         if _text(record.get("recognition_suggestion_id")) and not _classification_activation_allowed(record):
-            operations.append(_recognition_label_suggestion_op(record, document_id, validation_id))
+            operations.append(_recognition_label_suggestion_op(record, document_id, validation_id, record_index=record_index))
     for field in result.get("financial_fields") or []:
         operations.append(_financial_field_op(field, document_id, batch_id, validation_id))
     financial_summary = result.get("document_financial_summary") or {}
@@ -281,6 +366,12 @@ def persist_validation_result(connection: Any, result: dict[str, Any], **kwargs:
             cursor,
             result,
             saved_by_user_id=kwargs.get("saved_by_user_id") or kwargs.get("uploaded_by_user_id"),
+        )
+        _upsert_learned_merchant_classifications(
+            cursor,
+            result,
+            validation_id=plan.validation_id,
+            owner_id=kwargs.get("saved_by_user_id") or kwargs.get("uploaded_by_user_id"),
         )
         _mark_promoted(cursor, plan.validation_result_id)
         connection.commit()
@@ -579,9 +670,11 @@ def _transaction_op(
     batch_id: str,
     owner_id: str | None,
     validation_id: str,
+    record_index: int | None = None,
 ) -> SqlOperation:
     source = record.get("source") or {}
-    transaction_id = _stable_id("transaction", validation_id, record.get("record_id"))
+    record_key = _record_persistence_key(record, record_index)
+    transaction_id = _stable_id("transaction", validation_id, record_key)
     duplicate_of = record.get("duplicate_of")
     classification = _persisted_classification_values(record)
     confirmed = _classification_confirmation_allowed(record)
@@ -645,14 +738,20 @@ def _transaction_op(
     )
 
 
-def _recognition_label_suggestion_op(record: dict[str, Any], document_id: str, validation_id: str) -> SqlOperation:
+def _recognition_label_suggestion_op(
+    record: dict[str, Any],
+    document_id: str,
+    validation_id: str,
+    record_index: int | None = None,
+) -> SqlOperation:
     source = record.get("source") or {}
     classification = _persisted_classification_values(record)
-    transaction_id = _stable_id("transaction", validation_id, record.get("record_id"))
+    record_key = _record_persistence_key(record, record_index)
+    transaction_id = _stable_id("transaction", validation_id, record_key)
     suggestion_id = _text(record.get("recognition_suggestion_id")) or _stable_id(
         "recognition-suggestion",
         validation_id,
-        record.get("record_id"),
+        record_key,
     )
     return _op(
         "recognition_label_suggestions",
@@ -1219,17 +1318,51 @@ def _classification_confirmation_allowed(record: dict[str, Any]) -> bool:
 
 
 def _classification_activation_allowed(record: dict[str, Any]) -> bool:
+    return _classification_activation_allowed_for_scope(record, "transaction") or _classification_activation_allowed_for_scope(record, "spending")
+
+
+def _classification_activation_allowed_for_scope(record: dict[str, Any], scope: str) -> bool:
     if not _classification_confirmation_allowed(record):
-        return False
-    if (_text(record.get("classification_source")) or "").lower() != "user_confirmed_ai_suggestion":
         return False
     if (_text(record.get("classification_vocabulary_status")) or "").lower() != "outside_vocabulary_proposal":
         return False
-    if not _text(record.get("recognition_suggestion_id")):
+    source = (_text(record.get("classification_source")) or "").lower()
+    if source == "user_confirmed_classification":
+        return _has_activatable_classification_value(record, scope)
+    if source != "user_confirmed_ai_suggestion":
         return False
-    transaction_matches = _same_label(record.get("transaction_type"), record.get("suggested_transaction_type"))
-    spending_matches = _same_label(record.get("spending_category"), record.get("suggested_spending_category"))
-    return transaction_matches or spending_matches
+    if scope == "transaction":
+        return _same_label(record.get("transaction_type"), record.get("suggested_transaction_type")) and _same_label(
+            record.get("transaction_subtype"),
+            record.get("suggested_transaction_subtype"),
+        )
+    if scope == "spending":
+        return _same_label(record.get("spending_category"), record.get("suggested_spending_category")) and _same_label(
+            record.get("spending_subcategory"),
+            record.get("suggested_spending_subcategory"),
+        )
+    return False
+
+
+def _has_activatable_classification_value(record: dict[str, Any], scope: str) -> bool:
+    transaction_type = _normalize_label_key(_text(record.get("transaction_type")) or "unknown")
+    transaction_subtype = _normalize_label_key(_text(record.get("transaction_subtype")) or "unknown")
+    spending_category = _normalize_label_key(_text(record.get("spending_category")) or "uncategorized")
+    spending_subcategory = _normalize_label_key(_text(record.get("spending_subcategory")) or "unknown")
+    transaction_parent_map, spending_parent_map = _classification_parent_maps(record)
+    if scope == "transaction":
+        return (
+            transaction_type != "unknown"
+            and transaction_subtype != "unknown"
+            and transaction_parent_map.get(transaction_subtype, transaction_type) == transaction_type
+        )
+    if scope == "spending":
+        return (
+            spending_category not in {"unknown", "uncategorized"}
+            and spending_subcategory != "unknown"
+            and spending_parent_map.get(spending_subcategory, spending_category) == spending_category
+        )
+    return False
 
 
 def _persisted_classification_values(record: dict[str, Any]) -> dict[str, str]:
@@ -1243,16 +1376,66 @@ def _persisted_classification_values(record: dict[str, Any]) -> dict[str, str]:
             "spending_category": "uncategorized",
             "spending_subcategory": "unknown",
         }
+    transaction_subtype = _normalize_label_key(_text(record.get("transaction_subtype")) or "unknown")
+    spending_subcategory = _normalize_label_key(_text(record.get("spending_subcategory")) or "unknown")
+    transaction_parent_map, spending_parent_map = _classification_parent_maps(record)
+    transaction_type = _derive_parent_label(
+        supplied=_text(record.get("transaction_type")),
+        child=transaction_subtype,
+        fallback_parent="unknown",
+        unknown_values={"unknown"},
+        parent_map=transaction_parent_map,
+    )
+    spending_category = _derive_parent_label(
+        supplied=_text(record.get("spending_category")),
+        child=spending_subcategory,
+        fallback_parent="uncategorized",
+        unknown_values={"unknown", "uncategorized"},
+        parent_map=spending_parent_map,
+    )
     return {
-        "transaction_type": _text(record.get("transaction_type")) or "unknown",
-        "transaction_subtype": _text(record.get("transaction_subtype")) or "unknown",
-        "spending_category": _text(record.get("spending_category")) or "uncategorized",
-        "spending_subcategory": _text(record.get("spending_subcategory")) or "unknown",
+        "transaction_type": transaction_type,
+        "transaction_subtype": transaction_subtype,
+        "spending_category": spending_category,
+        "spending_subcategory": spending_subcategory,
     }
+
+
+def _derive_parent_label(
+    *,
+    supplied: str | None,
+    child: str,
+    fallback_parent: str,
+    unknown_values: set[str],
+    parent_map: dict[str, str],
+) -> str:
+    parent = _normalize_label_key(supplied or fallback_parent)
+    derived_parent = parent_map.get(child)
+    if derived_parent and parent in unknown_values:
+        return derived_parent
+    return parent
 
 
 def _same_label(left: Any, right: Any) -> bool:
     return bool(_text(left) and _text(right) and _normalize_label_key(str(left)) == _normalize_label_key(str(right)))
+
+
+def _classification_parent_maps(record: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+    transaction_map = dict(TRANSACTION_SUBTYPE_PARENT_MAP)
+    spending_map = dict(SPENDING_SUBCATEGORY_PARENT_MAP)
+    transaction_map.update(_normalized_mapping(record.get("transaction_subtype_parent_map")))
+    spending_map.update(_normalized_mapping(record.get("spending_subcategory_parent_map")))
+    return transaction_map, spending_map
+
+
+def _normalized_mapping(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        _normalize_label_key(str(child)): _normalize_label_key(str(parent))
+        for child, parent in value.items()
+        if _normalize_label_key(str(child)) and _normalize_label_key(str(parent))
+    }
 
 
 def _activate_confirmed_classifications(
@@ -1264,11 +1447,12 @@ def _activate_confirmed_classifications(
     for record in result.get("normalized_records") or []:
         if not _classification_activation_allowed(record):
             continue
-        transaction_type = _text(record.get("transaction_type"))
-        transaction_subtype = _text(record.get("transaction_subtype")) or "unknown"
-        spending_category = _text(record.get("spending_category"))
-        spending_subcategory = _text(record.get("spending_subcategory")) or "unknown"
-        if transaction_type and transaction_type.lower() != "unknown":
+        classification = _persisted_classification_values(record)
+        transaction_type = classification["transaction_type"]
+        transaction_subtype = classification["transaction_subtype"]
+        spending_category = classification["spending_category"]
+        spending_subcategory = classification["spending_subcategory"]
+        if transaction_type and transaction_type.lower() != "unknown" and _classification_activation_allowed_for_scope(record, "transaction"):
             _upsert_active_label_value(cursor, "transaction", transaction_type, transaction_subtype)
             _record_save_time_activation(
                 cursor,
@@ -1278,7 +1462,11 @@ def _activate_confirmed_classifications(
                 subtype=transaction_subtype,
                 record_id=_text(record.get("record_id")),
             )
-        if spending_category and spending_category.lower() not in {"unknown", "uncategorized"}:
+        if (
+            spending_category
+            and spending_category.lower() not in {"unknown", "uncategorized"}
+            and _classification_activation_allowed_for_scope(record, "spending")
+        ):
             _upsert_active_label_value(cursor, "spending", spending_category, spending_subcategory)
             _record_save_time_activation(
                 cursor,
@@ -1288,6 +1476,49 @@ def _activate_confirmed_classifications(
                 subtype=spending_subcategory,
                 record_id=_text(record.get("record_id")),
             )
+
+
+def _upsert_learned_merchant_classifications(
+    cursor: Any,
+    result: dict[str, Any],
+    *,
+    validation_id: str,
+    owner_id: str | None,
+) -> None:
+    for record_index, record in enumerate(result.get("normalized_records") or []):
+        if not _classification_confirmation_allowed(record):
+            continue
+        if not _merchant_learning_allowed(record):
+            continue
+        classification = _persisted_classification_values(record)
+        if classification["transaction_subtype"] == "unknown" or classification["spending_subcategory"] == "unknown":
+            continue
+        if classification["transaction_type"] == "unknown" or classification["spending_category"] in {"unknown", "uncategorized"}:
+            continue
+        transaction_id = _stable_id("transaction", validation_id, _record_persistence_key(record, record_index))
+        upsert_merchant_classification_profile(
+            cursor,
+            description=_text(record.get("description")) or "",
+            transaction_id=transaction_id,
+            owner_user_id=owner_id,
+            transaction_type=classification["transaction_type"],
+            transaction_subtype=classification["transaction_subtype"],
+            spending_category=classification["spending_category"],
+            spending_subcategory=classification["spending_subcategory"],
+        )
+
+
+def _merchant_learning_allowed(record: dict[str, Any]) -> bool:
+    source = (_text(record.get("classification_source")) or "").lower()
+    return source == "user_confirmed_ai_suggestion" or bool(record.get("classification_user_added_spending_subcategory"))
+
+
+def _record_persistence_key(record: dict[str, Any], record_index: int | None = None) -> str:
+    return (
+        _text(record.get("record_id"))
+        or _text(record.get("source_candidate_id"))
+        or (f"record_index_{record_index}" if record_index is not None else "record_missing_id")
+    )
 
 
 def _upsert_active_label_value(cursor: Any, scope: str, label: str, subtype: str) -> None:

@@ -29,6 +29,15 @@ def get_me(current_user: User = Depends(get_current_active_user)) -> CurrentUser
     return CurrentUser.model_validate(current_user)
 
 
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_session(current_user: User = Depends(get_current_active_user)) -> TokenResponse:
+    """Issue a fresh bearer token for an active authenticated session."""
+    return TokenResponse(
+        access_token=build_login_token(current_user),
+        password_change_required=current_user.must_change_password,
+    )
+
+
 @router.post("/change-password", response_model=CurrentUser)
 def change_current_password(
     password_change: PasswordChangeRequest,

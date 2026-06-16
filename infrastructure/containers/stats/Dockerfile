@@ -59,6 +59,7 @@ COPY modules/document-parsing-module/ /app/modules/document-parsing-module/
 COPY modules/transaction-extraction-module/ /app/modules/transaction-extraction-module/
 COPY modules/data-validation-module/ /app/modules/data-validation-module/
 COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/
+COPY apps/stats-data/reporting/ /app/apps/stats-data/reporting/
 COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/
 COPY apps/stats-data/src/ /app/apps/stats-data/src/
 COPY config/ /app/config/
@@ -77,10 +78,6 @@ COPY infrastructure/containers/stats/.env.container.example /app/infrastructure/
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/start-stats-runtime.sh
 COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh
 COPY infrastructure/compose/stats-runtime.compose.yml /app/infrastructure/compose/stats-runtime.compose.yml
-COPY apps/stats-web/Program.cs /app/apps/stats-web/Program.cs
-COPY apps/stats-web/appsettings.json /app/apps/stats-web/appsettings.json
-COPY apps/stats-web/Pages/ /app/apps/stats-web/Pages/
-COPY apps/stats-web/wwwroot/ /app/apps/stats-web/wwwroot/
 COPY --from=dotnet-build /app/stats-web /app/stats-web
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/start-stats-runtime.sh
 COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/run-stats-admin-bootstrap.sh

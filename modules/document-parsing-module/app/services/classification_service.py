@@ -288,8 +288,16 @@ def _score_rule(text: str, rule: dict[str, Any]) -> tuple[float, list[str]]:
 
 
 def _contains_signal(text: str, signal: str) -> bool:
-    escaped = re_escape(signal)
-    return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text))
+    tokens = _signal_tokens(signal)
+    if not tokens:
+        return False
+    escaped = [re.escape(token) for token in tokens]
+    pattern = r"[^a-z0-9]+".join(escaped)
+    return bool(re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", text))
+
+
+def _signal_tokens(signal: str) -> list[str]:
+    return [token for token in re.split(r"[^a-z0-9]+", signal.lower().replace("_", " ")) if token]
 
 
 def _receipt_favored_result(scored_rules: list[tuple[str, str, float, list[str], dict[str, Any]]]) -> tuple[str, str, float] | None:

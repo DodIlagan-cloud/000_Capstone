@@ -42,30 +42,31 @@ Initial direct source tables:
 | `dbo.findings` | Notable data-quality or system issues attached to records |
 | `dbo.review_items` | Review backlog and trust indicators |
 
-Future preferred source:
+Current reporting source views:
 
 ```text
 dbo.vw_reporting_transactions
 dbo.vw_reporting_monthly_expenses
 dbo.vw_reporting_top_expense_contributors
+dbo.vw_reporting_spending_categories
+dbo.vw_reporting_classification_quality
 dbo.vw_reporting_upcoming_obligations
 dbo.vw_reporting_recent_notable_expenses
 dbo.vw_reporting_document_provenance
 ```
 
-These views are M9-owned read models. M11 should request them from M9 rather than creating them as ad hoc browser logic.
+These views are M9-owned read models. M11 consumes them through the Fabric/Power BI semantic model and should not recreate the reporting logic in browser code.
 
 ## Relationships
 
 | From | To | Cardinality | Notes |
 | --- | --- | --- | --- |
-| `transactions.document_id` | `stats_documents.document_id` | Many-to-one | Source provenance for each transaction |
-| `statement_summaries.document_id` | `stats_documents.document_id` | Many-to-one | Statement evidence |
-| `document_financial_summaries.document_id` | `stats_documents.document_id` | Many-to-one | Invoice/receipt/payment-proof evidence |
-| `findings.document_id` | `stats_documents.document_id` | Many-to-one | Document-level issues |
-| `findings.transaction_id` | `transactions.transaction_id` | Many-to-one | Transaction-level issues |
-| `review_items.document_id` | `stats_documents.document_id` | Many-to-one | Document-level review tasks |
-| `review_items.transaction_id` | `transactions.transaction_id` | Many-to-one | Transaction-level review tasks |
+| `Transactions.transaction_date` | `Date.Date` | Many-to-one | Transaction-level date filtering |
+| `Monthly Expenses.month_start_date` | `Date.Date` | Many-to-one | Monthly trend filtering |
+| `Spending Categories.month_start_date` | `Date.Date` | Many-to-one | Category trend filtering |
+| `Classification Quality.month_start_date` | `Date.Date` | Many-to-one | Classification quality trend filtering |
+| `Top Expense Contributors.month_start_date` | `Date.Date` | Many-to-one | Contributor trend filtering |
+| `Recent Notable Expenses.transaction_date` | `Date.Date` | Many-to-one | Notable transaction filtering |
 
 ## Base Columns
 
@@ -208,6 +209,19 @@ Review Required Count =
 CALCULATE (
     COUNTROWS ( 'transactions' ),
     'transactions'[review_required] = TRUE ()
+)
+```
+
+```DAX
+Category Expenses =
+SUM ( 'Spending Categories'[expense_total] )
+```
+
+```DAX
+Classification Coverage =
+DIVIDE (
+    [Classified Transactions],
+    SUM ( 'Classification Quality'[transaction_count] )
 )
 ```
 

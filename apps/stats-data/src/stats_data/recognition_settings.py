@@ -63,6 +63,7 @@ def _recognition_context(
         },
         "transaction": {
             "vocabulary": transaction_vocabulary,
+            "subtype_parent_map": _child_parent_map(transaction_vocabulary, "transaction_subtypes"),
             "rules": _compact_rules(transaction_rules),
             "aliases": {},
             "deprecation_hints": {},
@@ -70,6 +71,7 @@ def _recognition_context(
         },
         "spending": {
             "vocabulary": spending_vocabulary,
+            "subcategory_parent_map": _child_parent_map(spending_vocabulary, "spending_subcategories"),
             "rules": _compact_rules(spending_rules),
             "aliases": {},
             "deprecation_hints": {},
@@ -78,6 +80,20 @@ def _recognition_context(
     }
     version = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
     return {"version": version, **context}
+
+
+def _child_parent_map(vocabulary: dict[str, Any], subtypes_key: str) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    ambiguous_children = {"unknown", "uncategorized"}
+    for parent, children in (vocabulary.get(subtypes_key, {}) or {}).items():
+        parent_key = str(parent).strip().lower()
+        for child in children or []:
+            child_key = str(child).strip().lower()
+            if child_key in ambiguous_children:
+                continue
+            if child_key and child_key not in mapping:
+                mapping[child_key] = parent_key
+    return dict(sorted(mapping.items()))
 
 
 def _compact_rules(rules: dict[str, Any]) -> list[dict[str, Any]]:

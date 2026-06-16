@@ -7,9 +7,17 @@ const reportingLastUpdated = document.querySelector("#reporting-last-updated");
 const reportingRateBasis = document.querySelector("#reporting-rate-basis");
 const reportingEmbedHost = document.querySelector("#reporting-embed-host");
 const reportingKpiCards = [...document.querySelectorAll("[data-kpi-card]")];
+const reportMetricElements = [...document.querySelectorAll("[data-report-metric]")];
+const reportAnalyticsSurface = document.querySelector("[data-report-analytics]");
+const categorySummaryElements = [...document.querySelectorAll("[data-category-summary]")];
+const categoryBreakdownList = document.querySelector("#spending-category-breakdown");
+const classificationSummaryElements = [...document.querySelectorAll("[data-classification-summary]")];
+const classificationCoverageBar = document.querySelector("#classification-coverage-bar");
+const classificationCoverageDetail = document.querySelector("#classification-coverage-detail");
 const monthlyExpenseHistory = document.querySelector("#monthly-expense-history");
 const monthlyHistoryCurrency = document.querySelector("#monthly-history-currency");
 const reportPageButtons = [...document.querySelectorAll("[data-report-page]")];
+const reportPanels = [...document.querySelectorAll("[data-report-panel]")];
 const selectedReportTitle = document.querySelector("#selected-report-title");
 const selectedReportPurpose = document.querySelector("#selected-report-purpose");
 const selectedReportDataTitle = document.querySelector("#selected-report-data-title");
@@ -44,6 +52,30 @@ const reportPageContent = {
     data: "Uses transaction descriptions, source institution, amount patterns, document type, existing category rules, and prior user corrections.",
     reviewTitle: "Human confirmation",
     review: "Ambiguous descriptions should be flagged for review instead of forced into a category. Confirmed corrections should improve future suggestions.",
+  },
+  "classification-quality": {
+    title: "Classification quality",
+    purpose: "Shows whether spending categories are complete enough to support financial decisions.",
+    dataTitle: "Classification signals",
+    data: "Uses spending category, confidence, review-required flags, source institution, amount, and transaction date.",
+    reviewTitle: "Unclassified spend",
+    review: "Large uncategorized or review-required totals should be resolved before category reporting is treated as reliable.",
+  },
+  "source-coverage": {
+    title: "Source coverage",
+    purpose: "Shows which source documents support the selected reporting period.",
+    dataTitle: "Document provenance",
+    data: "Uses saved documents, source type, source institution, parsed transaction counts, workflow status, and quality markers.",
+    reviewTitle: "Coverage gaps",
+    review: "Missing months, failed parsing, and documents with no saved transactions limit report completeness.",
+  },
+  "review-impact": {
+    title: "Review impact",
+    purpose: "Shows which issues need attention before the financial story can be trusted.",
+    dataTitle: "Exception records",
+    data: "Uses review-required flags, validation findings, duplicate markers, missing categories, and source quality.",
+    reviewTitle: "Action needed",
+    review: "Resolve high-value uncertain records and repeated unknown descriptions first.",
   },
   "source-document-coverage": {
     title: "Source document coverage",
@@ -149,6 +181,12 @@ function setSelectedReportPage(pageKey) {
     button.setAttribute("aria-pressed", selected ? "true" : "false");
   });
 
+  reportPanels.forEach((panel) => {
+    const selected = panel.dataset.reportPanel === key;
+    panel.classList.toggle("is-active", selected);
+    panel.hidden = !selected;
+  });
+
   if (selectedReportTitle) {
     selectedReportTitle.textContent = content.title;
   }
@@ -214,8 +252,7 @@ function setReportingStatus(status, message) {
   }
 
   if (reportingMessage) {
-    const isHomeKpiSurface = reportingKpiCards.length > 0 && !reportingEmbedHost;
-    if (isHomeKpiSurface && status === "configured") {
+    if (status === "configured") {
       reportingMessage.hidden = true;
       reportingMessage.textContent = "";
     } else {
@@ -266,6 +303,119 @@ function renderKpiCards(cards, currency) {
       detail.textContent = payload?.detail || "Analytics has not returned this KPI yet.";
     }
   });
+}
+
+function renderReportMetrics(cards, currency) {
+  if (!reportMetricElements.length) {
+    return;
+  }
+
+  const cardMap = new Map((cards || []).map((card) => [card.id, card]));
+  reportMetricElements.forEach((element) => {
+    const payload = cardMap.get(element.dataset.reportMetric);
+    element.textContent = payload ? formatMoney(payload.amount, currency) : "No data";
+    element.closest("article")?.setAttribute("data-status", payload ? "configured" : "unavailable");
+  });
+}
+
+function formatCount(value, fallback = "0") {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(numericValue)
+    : fallback;
+}
+
+function setSummaryText(elements, key, value) {
+  elements
+    .filter((element) => element.dataset.categorySummary === key || element.dataset.classificationSummary === key)
+    .forEach((element) => {
+      element.textContent = value;
+    });
+}
+
+function renderSpendingCategories(categories, currency) {
+  const rows = Array.isArray(categories) ? categories : [];
+  const maxAmount = Math.max(...rows.map((row) => Number(row.expense_total) || 0), 1);
+  const topCategory = rows[0];
+  const uncategorizedTotal = rows.reduce((total, row) => total + (Number(row.uncategorized_expense_total) || 0), 0);
+  const reviewRequiredCount = rows.reduce((total, row) => total + (Number(row.review_required_count) || 0), 0);
+
+  setSummaryText(categorySummaryElements, "top-category", topCategory?.spending_category || "No data");
+  setSummaryText(
+    categorySummaryElements,
+    "top-category-detail",
+    topCategory
+      ? `${formatMoney(topCategory.expense_total, currency)} across ${formatCount(topCategory.transaction_count)} transactions.`
+      : "Category totals are not available yet."
+  );
+  setSummaryText(categorySummaryElements, "uncategorized-total", formatMoney(uncategorizedTotal, currency));
+  setSummaryText(categorySummaryElements, "review-required", formatCount(reviewRequiredCount));
+  setSummaryText(categorySummaryElements, "category-currency", currency);
+
+  if (!categoryBreakdownList) {
+    return;
+  }
+
+  categoryBreakdownList.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "panel-copy";
+    empty.textContent = "No spending category data is available yet.";
+    categoryBreakdownList.append(empty);
+    return;
+  }
+
+  rows.forEach((row) => {
+    const amount = Number(row.expense_total) || 0;
+    const percent = Math.round((amount / maxAmount) * 100);
+    const item = document.createElement("article");
+    item.className = "category-breakdown-row";
+    item.setAttribute("role", "listitem");
+
+    const header = document.createElement("header");
+    const label = document.createElement("strong");
+    label.textContent = row.spending_category || "Uncategorized";
+    const value = document.createElement("span");
+    value.textContent = formatMoney(amount, currency);
+    header.append(label, value);
+
+    const track = document.createElement("div");
+    track.className = "category-bar-track";
+    const fill = document.createElement("span");
+    fill.className = "category-bar-fill";
+    fill.style.setProperty("--bar-width", `${percent}%`);
+    track.append(fill);
+
+    const meta = document.createElement("p");
+    meta.className = "category-breakdown-meta";
+    meta.textContent = `${formatCount(row.transaction_count)} transactions; ${formatCount(row.review_required_count)} need review.`;
+
+    item.append(header, track, meta);
+    categoryBreakdownList.append(item);
+  });
+}
+
+function renderClassificationQuality(quality) {
+  const payload = quality || {};
+  const total = Number(payload.transaction_count) || 0;
+  const classified = Number(payload.classified_transaction_count) || 0;
+  const unclassified = Number(payload.unclassified_transaction_count) || 0;
+  const reviewRequired = Number(payload.review_required_count) || 0;
+  const coverage = total > 0 ? Math.min(100, Math.max(0, Math.round((classified / total) * 100))) : 0;
+
+  setSummaryText(classificationSummaryElements, "coverage", total > 0 ? `${coverage}%` : "No data");
+  setSummaryText(classificationSummaryElements, "unclassified", formatCount(unclassified));
+  setSummaryText(classificationSummaryElements, "review-required", formatCount(reviewRequired));
+
+  if (classificationCoverageBar) {
+    classificationCoverageBar.style.setProperty("--bar-width", `${coverage}%`);
+  }
+
+  if (classificationCoverageDetail) {
+    classificationCoverageDetail.textContent = total > 0
+      ? `${formatCount(classified)} of ${formatCount(total)} transactions are classified. ${formatCount(unclassified)} remain unclassified.`
+      : "No classification quality data is available yet.";
+  }
 }
 
 function formatMonthLabel(value) {
@@ -351,7 +501,7 @@ function renderMonthlyHistory(history, currency) {
 }
 
 async function loadReportingKpis() {
-  if (!reportingKpiCards.length) {
+  if (!reportingKpiCards.length && !reportAnalyticsSurface && !monthlyExpenseHistory && !categoryBreakdownList && !classificationCoverageDetail) {
     return false;
   }
 
@@ -365,7 +515,10 @@ async function loadReportingKpis() {
     const status = payload.status || (response.ok ? "configured" : "unavailable");
     setReportingStatus(status, payload.message);
     renderKpiCards(payload.cards, payload.selected_currency || currency);
+    renderReportMetrics(payload.cards, payload.selected_currency || currency);
     renderMonthlyHistory(payload.monthly_history, payload.selected_currency || currency);
+    renderSpendingCategories(payload.spending_categories, payload.selected_currency || currency);
+    renderClassificationQuality(payload.classification_quality);
 
     if (reportingLastUpdated) {
       reportingLastUpdated.textContent = status === "configured"
@@ -379,7 +532,10 @@ async function loadReportingKpis() {
   } catch (error) {
     setReportingStatus("unavailable", error.message || "Financial KPI cards are temporarily unavailable.");
     renderKpiCards([], currency);
+    renderReportMetrics([], currency);
     renderMonthlyHistory([], currency);
+    renderSpendingCategories([], currency);
+    renderClassificationQuality(null);
     if (reportingLastUpdated) {
       reportingLastUpdated.textContent = "Unavailable";
     }

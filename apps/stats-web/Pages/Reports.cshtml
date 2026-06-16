@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="/css/access.css" />
     <script src="/js/access.js" defer asp-append-version="true"></script>
     <script src="/js/app.js" defer asp-append-version="true"></script>
-    <script src="/js/powerbi.min.js" defer asp-append-version="true"></script>
     <script src="/js/reporting.js" defer asp-append-version="true"></script>
   </head>
   <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="reports">
@@ -44,77 +43,236 @@
             <div>
               <p class="session-label">Analytics reports</p>
               <h2 id="reports-title">Financial reports</h2>
-              <p class="panel-copy">Explore spending, transaction classification, source coverage, and data quality from curated financial records.</p>
+              <p class="panel-copy">Explore spending movement, category readiness, source coverage, and review impact from curated financial records.</p>
             </div>
-            <span id="reporting-status-pill" class="state-pill @(Model.ReportingConfigured ? "" : "pending")">
-              @(Model.ReportingConfigured ? "Embed configured" : "Not configured")
-            </span>
           </div>
 
-          <section class="report-layout" aria-label="Analytics report area">
-            <div class="report-main">
-              <div id="reporting-embed-host" class="powerbi-embed-host" role="region" aria-label="Analytics report embed host">
-                @if (Model.ReportingConfigured)
-                {
-                  <p class="session-label">Embed host</p>
-                  <h3>Financial report will load here</h3>
-                  <p id="reporting-message" class="panel-copy">The browser should receive only a short-lived embed configuration from the approved backend endpoint.</p>
-                }
-                else
-                {
-                  <p class="session-label">Not connected</p>
-                  <h3>Report viewer is not connected yet</h3>
-                  <p id="reporting-message" class="panel-copy">Stats can still show document provenance, upload status, review queues, and evidence workflow while reporting configuration is pending.</p>
-                }
-              </div>
-
-              <section class="report-context-grid" aria-label="Selected report context">
-                <article>
-                  <p class="session-label">Selected report</p>
-                  <h3 id="selected-report-title">Financial overview</h3>
-                  <p id="selected-report-purpose" class="panel-copy">Answers how much was spent, how spending moved across recent months, and which records influence current expenses.</p>
-                </article>
-                <article>
-                  <p class="session-label">Data used</p>
-                  <h3 id="selected-report-data-title">Curated transactions</h3>
-                  <p id="selected-report-data" class="panel-copy">Uses saved transaction dates, debit amounts, category labels when available, and source document links from Stats Data.</p>
-                </article>
-                <article>
-                  <p class="session-label">Review before trusting</p>
-                  <h3 id="selected-report-review-title">Classification gaps</h3>
-                  <p id="selected-report-review" class="panel-copy">Check uncategorized transactions, low-confidence category suggestions, duplicate-looking rows, and validation warnings.</p>
-                </article>
-              </section>
-
-              <section class="report-source-summary" aria-label="Source data summary">
-                <div>
-                  <span>Source documents</span>
-                  <strong>Documents tab</strong>
-                  <p>Use the Documents page for document counts, source institutions, workflow status, and parsed row counts.</p>
-                </div>
-                <div>
-                  <span>Reporting records</span>
-                  <strong>Curated data</strong>
-                  <p>Only saved records from the Stats Data layer should be included in financial reporting.</p>
-                </div>
-                <div>
-                  <span>Trust context</span>
-                  <strong>Review queue</strong>
-                  <p>Review-required items and validation findings explain where a report total may need caution.</p>
-                </div>
-              </section>
-            </div>
-            <aside class="report-sidebar" aria-label="Report pages">
-              <p class="session-label">Report pages</p>
+          <section class="report-layout native-report-layout" aria-label="Analytics report area">
+            <nav class="report-tabs" aria-label="Report sections">
               <div class="report-page-list" role="list">
                 <button type="button" class="report-page-button" data-report-page="financial-overview" aria-pressed="true">Financial overview</button>
                 <button type="button" class="report-page-button" data-report-page="spending-categories" aria-pressed="false">Spending categories</button>
-                <button type="button" class="report-page-button" data-report-page="transaction-classification" aria-pressed="false">Transaction classification</button>
-                <button type="button" class="report-page-button" data-report-page="source-document-coverage" aria-pressed="false">Source document coverage</button>
-                <button type="button" class="report-page-button" data-report-page="data-quality-confidence" aria-pressed="false">Data quality and confidence</button>
-                <button type="button" class="report-page-button" data-report-page="review-exceptions" aria-pressed="false">Review and exceptions</button>
+                <button type="button" class="report-page-button" data-report-page="classification-quality" aria-pressed="false">Classification quality</button>
+                <button type="button" class="report-page-button" data-report-page="source-coverage" aria-pressed="false">Source coverage</button>
+                <button type="button" class="report-page-button" data-report-page="review-impact" aria-pressed="false">Review impact</button>
               </div>
-            </aside>
+            </nav>
+
+            <div class="report-main">
+              <section class="dashboard-control-bar report-control-bar" aria-label="Report controls">
+                <label class="currency-control">
+                  <span class="control-label">Currency</span>
+                  <select id="reporting-currency" aria-label="Report currency">
+                    <option selected="@(Model.ReportingDefaultCurrency == "NZD")">NZD</option>
+                    <option selected="@(Model.ReportingDefaultCurrency == "PHP")">PHP</option>
+                    <option selected="@(Model.ReportingDefaultCurrency == "AUD")">AUD</option>
+                    <option selected="@(Model.ReportingDefaultCurrency == "USD")">USD</option>
+                  </select>
+                </label>
+                <div>
+                  <span class="control-label">Last updated</span>
+                  <strong id="reporting-last-updated">@(Model.ReportingConfigured ? "Waiting for analytics refresh" : "Not connected")</strong>
+                </div>
+                <div>
+                  <span class="control-label">Rate basis</span>
+                  <strong id="reporting-rate-basis">Transaction date</strong>
+                </div>
+              </section>
+
+              <p id="reporting-message" class="empty-state report-state-message" role="status" aria-live="polite" hidden></p>
+
+              <section class="report-view is-active" data-report-panel="financial-overview" aria-labelledby="financial-overview-title">
+                <div class="report-view-heading">
+                  <div>
+                    <p class="session-label">Financial overview</p>
+                    <h3 id="financial-overview-title">Spending movement and reporting confidence</h3>
+                    <p class="panel-copy">Use this view to understand expense movement first, then check whether classification and source quality are strong enough to trust category-level decisions.</p>
+                  </div>
+                </div>
+
+                <section class="report-metric-grid" data-report-analytics aria-label="Financial overview metrics">
+                  <article>
+                    <span>Previous month</span>
+                    <strong data-report-metric="last_month_expenses">Waiting</strong>
+                    <p>Total debit spending in the prior calendar month.</p>
+                  </article>
+                  <article>
+                    <span>Current month</span>
+                    <strong data-report-metric="this_month_running">Waiting</strong>
+                    <p>Running month-to-date expense total.</p>
+                  </article>
+                  <article>
+                    <span>Movement</span>
+                    <strong data-report-metric="expense_trend">Waiting</strong>
+                    <p>Difference against the previous month.</p>
+                  </article>
+                </section>
+
+                <section class="monthly-history-panel report-history-panel" aria-labelledby="report-monthly-history-title">
+                  <div class="monthly-history-heading">
+                    <div>
+                      <p class="session-label">Monthly history</p>
+                      <h3 id="report-monthly-history-title">Total expenses</h3>
+                    </div>
+                    <span id="monthly-history-currency">@Model.ReportingDefaultCurrency</span>
+                  </div>
+                  <div id="monthly-expense-history" class="monthly-history-chart" role="img" aria-label="Monthly total expense history">
+                    <p class="panel-copy">Waiting for monthly expense history.</p>
+                  </div>
+                </section>
+
+                <section class="report-context-grid" aria-label="Financial overview interpretation">
+                  <article>
+                    <p class="session-label">What this answers</p>
+                    <h3>Are expenses rising or falling?</h3>
+                    <p class="panel-copy">The trend shows whether the current period is moving above or below recent monthly spending.</p>
+                  </article>
+                  <article>
+                    <p class="session-label">What to check next</p>
+                    <h3>Can categories be trusted?</h3>
+                    <p class="panel-copy">Move to Spending categories only after unclassified or review-required transactions are understood.</p>
+                  </article>
+                  <article>
+                    <p class="session-label">Source boundary</p>
+                    <h3>Saved records only</h3>
+                    <p class="panel-copy">This view should only include transactions already saved through the Stats data layer.</p>
+                  </article>
+                </section>
+              </section>
+
+              <section class="report-view" data-report-panel="spending-categories" aria-labelledby="spending-categories-title" hidden>
+                <div class="report-view-heading">
+                  <div>
+                    <p class="session-label">Spending categories</p>
+                    <h3 id="spending-categories-title">Where money is going</h3>
+                    <p class="panel-copy">This view should compare expense totals by managed spending category and make uncategorized spending visible before conclusions are drawn.</p>
+                  </div>
+                </div>
+
+                <section class="report-metric-grid" aria-label="Spending category summary">
+                  <article>
+                    <span>Top category</span>
+                    <strong data-category-summary="top-category">Waiting</strong>
+                    <p data-category-summary="top-category-detail">Ranked by expense total for the latest reporting month.</p>
+                  </article>
+                  <article>
+                    <span>Uncategorized</span>
+                    <strong data-category-summary="uncategorized-total">Waiting</strong>
+                    <p>Expense value that still needs a usable category label.</p>
+                  </article>
+                  <article>
+                    <span>Review items</span>
+                    <strong data-category-summary="review-required">Waiting</strong>
+                    <p>Category rows affected by review-required transactions.</p>
+                  </article>
+                </section>
+
+                <section class="report-history-panel" aria-labelledby="category-breakdown-title">
+                  <div class="monthly-history-heading">
+                    <div>
+                      <p class="session-label">Category breakdown</p>
+                      <h3 id="category-breakdown-title">Latest month by spending category</h3>
+                    </div>
+                    <span data-category-summary="category-currency">@Model.ReportingDefaultCurrency</span>
+                  </div>
+                  <div id="spending-category-breakdown" class="category-breakdown-list" role="list">
+                    <p class="panel-copy">Waiting for spending category data.</p>
+                  </div>
+                </section>
+              </section>
+
+              <section class="report-view" data-report-panel="classification-quality" aria-labelledby="classification-quality-title" hidden>
+                <div class="report-view-heading">
+                  <div>
+                    <p class="session-label">Classification quality</p>
+                    <h3 id="classification-quality-title">Can the categories be trusted?</h3>
+                    <p class="panel-copy">Track classified, unclassified, low-confidence, and review-required transactions so category reports do not hide weak inputs.</p>
+                  </div>
+                </div>
+                <section class="report-metric-grid" aria-label="Classification quality metrics">
+                  <article>
+                    <span>Coverage</span>
+                    <strong data-classification-summary="coverage">Waiting</strong>
+                    <p>Share of transactions with usable spending labels.</p>
+                  </article>
+                  <article>
+                    <span>Unclassified</span>
+                    <strong data-classification-summary="unclassified">Waiting</strong>
+                    <p>Transactions that still need a category decision.</p>
+                  </article>
+                  <article>
+                    <span>Review required</span>
+                    <strong data-classification-summary="review-required">Waiting</strong>
+                    <p>Rows that should be checked before trusting category totals.</p>
+                  </article>
+                </section>
+
+                <section class="classification-coverage-panel" aria-labelledby="classification-coverage-title">
+                  <div>
+                    <p class="session-label">Classification readiness</p>
+                    <h3 id="classification-coverage-title">Classified vs unclassified transactions</h3>
+                    <p id="classification-coverage-detail" class="panel-copy">Waiting for classification quality data.</p>
+                  </div>
+                  <div class="coverage-meter" aria-hidden="true">
+                    <span id="classification-coverage-bar"></span>
+                  </div>
+                </section>
+              </section>
+
+              <section class="report-view" data-report-panel="source-coverage" aria-labelledby="source-coverage-title" hidden>
+                <div class="report-view-heading">
+                  <div>
+                    <p class="session-label">Source coverage</p>
+                    <h3 id="source-coverage-title">What data supports the report?</h3>
+                    <p class="panel-copy">Use this view to explain which source documents contributed to the reporting period and which records may be missing or incomplete.</p>
+                  </div>
+                </div>
+                <section class="report-source-summary" aria-label="Source data summary">
+                  <div>
+                    <span>Source documents</span>
+                    <strong>Documents tab</strong>
+                    <p>Use the Documents page for source institutions, workflow status, parsed row counts, and quality status.</p>
+                  </div>
+                  <div>
+                    <span>Reporting records</span>
+                    <strong>Curated data</strong>
+                    <p>Only saved records from the Stats Data layer should be included in financial reporting.</p>
+                  </div>
+                  <div>
+                    <span>Trust context</span>
+                    <strong>Review queue</strong>
+                    <p>Review-required items and validation findings explain where a report total may need caution.</p>
+                  </div>
+                </section>
+              </section>
+
+              <section class="report-view" data-report-panel="review-impact" aria-labelledby="review-impact-title" hidden>
+                <div class="report-view-heading">
+                  <div>
+                    <p class="session-label">Review impact</p>
+                    <h3 id="review-impact-title">What needs attention before decisions?</h3>
+                    <p class="panel-copy">Highlight extraction, validation, duplicate, and classification issues that can change financial totals or category conclusions.</p>
+                  </div>
+                </div>
+                <section class="report-context-grid" aria-label="Review impact context">
+                  <article>
+                    <p class="session-label">High impact</p>
+                    <h3>Large uncertain records</h3>
+                    <p class="panel-copy">Prioritize high-value transactions with missing categories, validation findings, or possible duplicate matches.</p>
+                  </article>
+                  <article>
+                    <p class="session-label">Repeated work</p>
+                    <h3>Recurring unknowns</h3>
+                    <p class="panel-copy">Repeated unknown descriptions should become recognition rules instead of remaining one-by-one fixes.</p>
+                  </article>
+                  <article>
+                    <p class="session-label">Outcome</p>
+                    <h3>Cleaner reports</h3>
+                    <p class="panel-copy">Reducing review items improves the reliability of overview and category reporting.</p>
+                  </article>
+                </section>
+              </section>
+            </div>
           </section>
         </section>
       </section>

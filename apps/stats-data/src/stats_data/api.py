@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from stats_data.database import open_azure_sql_connection
 from stats_data.duplicate_checks import check_validation_duplicates
+from stats_data.merchant_learning import lookup_merchant_classification
 from stats_data.processing_jobs import (
     append_processing_step,
     create_processing_job,
@@ -264,6 +265,22 @@ class RecognitionSuggestionReviewRequest(BaseModel):
     action: str
     admin_user_id: str | None = None
     review_note: str | None = None
+
+
+class MerchantClassificationLookupResponse(BaseModel):
+    merchant_key: str
+    match_status: str
+    match_type: str
+    merchant_display_name: str | None = None
+    transaction_type: str | None = None
+    transaction_subtype: str | None = None
+    spending_category: str | None = None
+    spending_subcategory: str | None = None
+    profile_confidence: float
+    confirmation_count: int
+    conflict_count: int
+    profile_status: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
 
 
 app = FastAPI(title="Stats Data API", version="1.0.0")
@@ -612,6 +629,46 @@ def recognition_settings_active(
             connection.close()
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Active recognition settings could not be loaded.") from exc
+
+
+@app.get("/api/v1/internal/merchant-classifications/lookup", response_model=MerchantClassificationLookupResponse)
+def merchant_classification_lookup(
+    description: str,
+    owner_user_id: str | None = None,
+    _authorized: bool = Depends(_require_internal_admin_key),
+) -> MerchantClassificationLookupResponse:
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        try:
+            lookup = lookup_merchant_classification(
+                connection,
+                description=description,
+                owner_user_id=owner_user_id,
+            )
+        finally:
+            connection.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Merchant classification lookup failed.") from exc
+
+    return MerchantClassificationLookupResponse(
+        merchant_key=lookup.merchant_key,
+        match_status=lookup.match_status,
+        match_type=lookup.match_type,
+        merchant_display_name=lookup.merchant_display_name,
+        transaction_type=lookup.transaction_type,
+        transaction_subtype=lookup.transaction_subtype,
+        spending_category=lookup.spending_category,
+        spending_subcategory=lookup.spending_subcategory,
+        profile_confidence=lookup.profile_confidence,
+        confirmation_count=lookup.confirmation_count,
+        conflict_count=lookup.conflict_count,
+        profile_status=lookup.profile_status,
+        reason_codes=lookup.reason_codes or [],
+    )
 
 
 @app.patch("/api/v1/admin/recognition-settings/suggestions/{suggestion_id}")

@@ -32,6 +32,15 @@ SELECT
     COALESCE(NULLIF(t.merchant_or_counterparty, ''), t.normalized_description, t.description) AS expense_contributor,
     t.merchant_or_counterparty,
     t.category,
+    t.transaction_type,
+    t.transaction_subtype,
+    t.spending_category,
+    t.spending_subcategory,
+    t.classification_source,
+    t.classification_review_required,
+    t.classification_vocabulary_status,
+    t.classification_human_confirmed,
+    t.classification_ai_confidence,
     t.payment_method,
     t.masked_account_or_card,
     t.confidence,
@@ -40,6 +49,7 @@ SELECT
     t.source_page_number,
     t.source_line_number,
     t.source_text_redacted,
+    d.uploaded_by_user_id,
     d.original_filename,
     d.document_type,
     d.source_type,
@@ -56,23 +66,28 @@ GO
 
 CREATE OR ALTER VIEW dbo.vw_reporting_monthly_expenses AS
 SELECT
-    DATEFROMPARTS(YEAR(transaction_date), MONTH(transaction_date), 1) AS month_start_date,
-    currency,
-    SUM(CASE WHEN LOWER(direction) = 'debit' THEN ABS(amount) ELSE 0 END) AS expense_total,
-    SUM(CASE WHEN LOWER(direction) = 'credit' THEN ABS(amount) ELSE 0 END) AS credit_total,
-    SUM(CASE WHEN LOWER(direction) = 'credit' THEN ABS(amount) ELSE 0 END)
-        - SUM(CASE WHEN LOWER(direction) = 'debit' THEN ABS(amount) ELSE 0 END) AS net_movement,
+    d.uploaded_by_user_id,
+    DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1) AS month_start_date,
+    t.currency,
+    SUM(CASE WHEN LOWER(t.direction) = 'debit' THEN ABS(t.amount) ELSE 0 END) AS expense_total,
+    SUM(CASE WHEN LOWER(t.direction) = 'credit' THEN ABS(t.amount) ELSE 0 END) AS credit_total,
+    SUM(CASE WHEN LOWER(t.direction) = 'credit' THEN ABS(t.amount) ELSE 0 END)
+        - SUM(CASE WHEN LOWER(t.direction) = 'debit' THEN ABS(t.amount) ELSE 0 END) AS net_movement,
     COUNT_BIG(*) AS transaction_count,
-    SUM(CASE WHEN review_required = 1 THEN 1 ELSE 0 END) AS review_required_count
-FROM dbo.transactions
-WHERE duplicate_of_transaction_id IS NULL
+    SUM(CASE WHEN t.review_required = 1 THEN 1 ELSE 0 END) AS review_required_count
+FROM dbo.transactions AS t
+INNER JOIN dbo.stats_documents AS d
+    ON d.document_id = t.document_id
+WHERE t.duplicate_of_transaction_id IS NULL
 GROUP BY
-    DATEFROMPARTS(YEAR(transaction_date), MONTH(transaction_date), 1),
-    currency;
+    d.uploaded_by_user_id,
+    DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1),
+    t.currency;
 GO
 
 CREATE OR ALTER VIEW dbo.vw_reporting_top_expense_contributors AS
 SELECT
+    d.uploaded_by_user_id,
     DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1) AS month_start_date,
     t.currency,
     COALESCE(NULLIF(t.merchant_or_counterparty, ''), t.category, t.normalized_description, t.description) AS expense_contributor,
@@ -82,9 +97,12 @@ SELECT
     COUNT_BIG(*) AS transaction_count,
     MAX(t.transaction_date) AS latest_transaction_date
 FROM dbo.transactions AS t
+INNER JOIN dbo.stats_documents AS d
+    ON d.document_id = t.document_id
 WHERE t.duplicate_of_transaction_id IS NULL
     AND LOWER(t.direction) = 'debit'
 GROUP BY
+    d.uploaded_by_user_id,
     DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1),
     t.currency,
     COALESCE(NULLIF(t.merchant_or_counterparty, ''), t.category, t.normalized_description, t.description),
@@ -92,10 +110,70 @@ GROUP BY
     t.source_institution;
 GO
 
+CREATE OR ALTER VIEW dbo.vw_reporting_spending_categories AS
+SELECT
+    d.uploaded_by_user_id,
+    DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1) AS month_start_date,
+    t.currency,
+    COALESCE(NULLIF(t.spending_category, ''), 'uncategorized') AS spending_category,
+    SUM(ABS(t.amount)) AS expense_total,
+    COUNT_BIG(*) AS transaction_count,
+    SUM(CASE WHEN t.review_required = 1 OR t.classification_review_required = 1 THEN 1 ELSE 0 END) AS review_required_count,
+    SUM(CASE
+        WHEN LOWER(COALESCE(t.spending_category, 'uncategorized')) IN ('uncategorized', 'unknown') THEN ABS(t.amount)
+        ELSE 0
+    END) AS uncategorized_expense_total,
+    MAX(t.transaction_date) AS latest_transaction_date
+FROM dbo.transactions AS t
+INNER JOIN dbo.stats_documents AS d
+    ON d.document_id = t.document_id
+WHERE t.duplicate_of_transaction_id IS NULL
+    AND LOWER(t.direction) = 'debit'
+GROUP BY
+    d.uploaded_by_user_id,
+    DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1),
+    t.currency,
+    COALESCE(NULLIF(t.spending_category, ''), 'uncategorized');
+GO
+
+CREATE OR ALTER VIEW dbo.vw_reporting_classification_quality AS
+SELECT
+    d.uploaded_by_user_id,
+    DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1) AS month_start_date,
+    t.currency,
+    COUNT_BIG(*) AS transaction_count,
+    SUM(CASE
+        WHEN LOWER(COALESCE(t.spending_category, 'uncategorized')) NOT IN ('uncategorized', 'unknown') THEN 1
+        ELSE 0
+    END) AS classified_transaction_count,
+    SUM(CASE
+        WHEN LOWER(COALESCE(t.spending_category, 'uncategorized')) IN ('uncategorized', 'unknown') THEN 1
+        ELSE 0
+    END) AS unclassified_transaction_count,
+    SUM(CASE WHEN t.review_required = 1 OR t.classification_review_required = 1 THEN 1 ELSE 0 END) AS review_required_count,
+    SUM(CASE WHEN t.classification_human_confirmed = 1 THEN 1 ELSE 0 END) AS human_confirmed_count,
+    SUM(CASE
+        WHEN t.classification_ai_confidence IS NOT NULL AND t.classification_ai_confidence < 0.76 THEN 1
+        ELSE 0
+    END) AS low_confidence_ai_count,
+    SUM(CASE WHEN LOWER(COALESCE(t.classification_vocabulary_status, '')) = 'outside_vocabulary_proposal' THEN 1 ELSE 0 END)
+        AS outside_vocabulary_proposal_count
+FROM dbo.transactions AS t
+INNER JOIN dbo.stats_documents AS d
+    ON d.document_id = t.document_id
+WHERE t.duplicate_of_transaction_id IS NULL
+    AND LOWER(t.direction) = 'debit'
+GROUP BY
+    d.uploaded_by_user_id,
+    DATEFROMPARTS(YEAR(t.transaction_date), MONTH(t.transaction_date), 1),
+    t.currency;
+GO
+
 CREATE OR ALTER VIEW dbo.vw_reporting_upcoming_obligations AS
 SELECT
     ss.statement_summary_id AS obligation_id,
     ss.document_id,
+    d.uploaded_by_user_id,
     CAST('statement' AS nvarchar(40)) AS obligation_type,
     ss.payment_due_date AS due_date,
     ss.minimum_amount_due,
@@ -120,6 +198,7 @@ UNION ALL
 SELECT
     dfs.document_financial_summary_id AS obligation_id,
     dfs.document_id,
+    d.uploaded_by_user_id,
     CAST('invoice' AS nvarchar(40)) AS obligation_type,
     dfs.issue_date AS due_date,
     CAST(NULL AS decimal(19, 4)) AS minimum_amount_due,
@@ -144,6 +223,7 @@ CREATE OR ALTER VIEW dbo.vw_reporting_recent_notable_expenses AS
 SELECT TOP (100)
     t.transaction_id,
     t.document_id,
+    d.uploaded_by_user_id,
     t.transaction_date,
     t.description,
     COALESCE(NULLIF(t.merchant_or_counterparty, ''), t.normalized_description, t.description) AS expense_contributor,
@@ -176,6 +256,7 @@ GO
 CREATE OR ALTER VIEW dbo.vw_reporting_document_provenance AS
 SELECT
     d.document_id,
+    d.uploaded_by_user_id,
     d.original_filename,
     d.source_type,
     d.document_type,
@@ -197,6 +278,7 @@ LEFT JOIN dbo.review_items AS ri
     ON ri.document_id = d.document_id
 GROUP BY
     d.document_id,
+    d.uploaded_by_user_id,
     d.original_filename,
     d.source_type,
     d.document_type,

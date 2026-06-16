@@ -13,6 +13,8 @@ public class ReportsModel(
 
     public bool ReportingConfigured { get; } = shellOptions.ReportingEmbedConfigured;
 
+    public string ReportingDefaultCurrency { get; } = NormalizeCurrency(shellOptions.ReportingDefaultCurrency);
+
     public string EmbedMode { get; } = "AppOwnsData";
 
     public bool IsAdmin { get; private set; }
@@ -20,5 +22,11 @@ public class ReportsModel(
     public async Task OnGetAsync()
     {
         IsAdmin = await userContext.IsAdminAsync(HttpContext);
+    }
+
+    private static string NormalizeCurrency(string value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? "NZD" : value.Trim().ToUpperInvariant();
+        return normalized is "NZD" or "PHP" or "AUD" or "USD" ? normalized : "NZD";
     }
 }

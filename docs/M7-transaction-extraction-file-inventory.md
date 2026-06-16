@@ -29,7 +29,7 @@ M7 deliberately does not clean, validate, deduplicate, persist, or report final 
 | `modules/transaction-extraction-module/.env.example` | Created | Provides safe local override examples. |
 | `modules/transaction-extraction-module/config/defaults.env` | Created | Provides committed safe runtime defaults. |
 | `modules/transaction-extraction-module/app/__init__.py` | Created | Marks the module package. |
-| `modules/transaction-extraction-module/app/config.py` | Created/Modified | Loads defaults, local overrides, environment values, M9 recognition settings API URL/internal key/cache settings, and optional AI-assisted classification configuration. |
+| `modules/transaction-extraction-module/app/config.py` | Created/Modified | Loads defaults, local overrides, environment values, M9 recognition settings API URL/internal key/cache settings, optional learned merchant classification lookup URL, and optional AI-assisted classification configuration. |
 | `modules/transaction-extraction-module/app/main.py` | Created | Creates the FastAPI app and registers health/extraction routes. |
 | `modules/transaction-extraction-module/app/models/common.py` | Created | Defines health/root response models. |
 | `modules/transaction-extraction-module/app/models/extraction.py` | Created/Modified | Defines request/result, classification subtype, OCR word-block input, transaction/field/section/entity/reference/line-item/installment candidates, finding, summary, reconciliation, extracted table groups, and evaluation models. |
@@ -156,6 +156,43 @@ From M13 onward, official M7 verification must run inside `stats-runtime` throug
 | `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Passes active M9 transaction/spending recognition context to AI classification, preserves outside-vocabulary AI labels as reviewable candidate values, and marks them for Upload review/save confirmation. |
 | `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Verifies outside-vocabulary AI transaction/spending labels remain visible on candidates and require user confirmation instead of being silently replaced with fallback labels. |
 <!-- M7 AI Recognition Context Update End - 2026-06-15 -->
+
+<!-- M7 Controlled Classification Choices Start - 2026-06-16 -->
+| `docs/M7-transaction-extraction-module-spec.md` | Modified | Plans the child-first controlled choice model where Upload review selects transaction subtype and spending subcategory while transaction type and spending category are derived from M9 parent-child mappings. |
+| `contracts/transactions/README.md` | Modified | Clarifies that the shared transaction contract keeps four classification fields for persistence/reporting but exposes only two editable controlled choices in the MVP Upload review flow. |
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Derives parent transaction type and spending category from active subtype/subcategory mappings before returning M7 classification candidates, including AI-suggested active child labels. |
+| `modules/transaction-extraction-module/app/services/transaction_classification_service.py` | Modified | Checks M9 learned merchant classification profiles before AI, reuses safe exact human-confirmed merchant matches with `classification_source = prior_merchant_human_confirmed`, and marks conflicted/inactive learned profiles for review. |
+| `modules/transaction-extraction-module/config/defaults.env` | Modified | Adds `MERCHANT_CLASSIFICATION_LOOKUP_URL` for the internal M9 learned merchant lookup endpoint. |
+| `tests/unit/transaction_extraction_module/test_classification_hardening.py` | Modified | Verifies learned merchant classification is reused before AI and hardens module import isolation for combined M7/M8 test runs. |
+<!-- M7 Controlled Classification Choices End - 2026-06-16 -->
+
+<!-- M7 Statement Fallback Guard Update Start - 2026-06-15 -->
+
+## Statement Fallback Guard Update
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `docs/M7-transaction-extraction-module-spec.md` | Modified | Requires M7 to suppress receipt-style total fallback when statement-shape evidence is present, and to return controlled findings for malformed OCR amount tokens instead of unhandled extraction failures. |
+| `docs/module-test-flow-playbook.md` | Modified | Adds M7 PDF statement extraction regression proof to the planned flow without executing evidence. |
+| `modules/transaction-extraction-module/app/services/extraction_service.py` | Modified | Detects statement-shape evidence before receipt fallback, prefers statement/table extraction or review findings, and handles malformed amount tokens defensively. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Covers misclassified statement-shaped input suppressing receipt fallback and malformed amount tokens such as `3.225.00` returning findings rather than 500 errors. |
+| `tests/results/M5-M7-PdfExtractionComparison-2026-06-15/` | Diagnostic | Development diagnostic evidence that showed statement PDFs becoming one bogus receipt-style transaction or failing on malformed OCR amount tokens. It is not acceptance evidence. |
+
+<!-- M7 Statement Fallback Guard Update End - 2026-06-15 -->
+
+<!-- M7 Scanned Statement Layout Update Start - 2026-06-15 -->
+
+## Scanned Statement Layout Update
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `docs/M7-transaction-extraction-module-spec.md` | Modified | Requires a generic OCR word-block layout-region extraction pass for scanned statements, separating transaction tables from side-summary, rewards/advisory, and detachable payment-slip regions while preserving previous hardening as fallbacks. |
+| `docs/module-test-flow-playbook.md` | Modified | Adds scanned statement layout proof to the planned M7 flow without executing evidence. |
+| `modules/transaction-extraction-module/app/services/extraction_service.py` | Modified | Detects transaction-table, side-summary, and payment-slip interference from OCR word-block geometry, reconstructs table-region rows first, and keeps the previous layout/flattened parsing hardening as fallback behavior. |
+| `tests/unit/transaction_extraction_module/test_extraction_service.py` | Modified | Covers two-column scanned statement layouts, side-summary/payment-slip exclusion, credit marker preservation through payment-field handoff, and fallback compatibility with existing OCR repair hardening. |
+| `tests/results/M5-M7-PdfExtractionComparison-PostFix-2026-06-15/` | Diagnostic | Development diagnostic evidence showing the current post-fix flow classifies HSBC-style scanned statements correctly but still under-extracts transaction rows when OCR layout is noisy. It is not acceptance evidence. |
+
+<!-- M7 Scanned Statement Layout Update End - 2026-06-15 -->
 
 <!-- M7 Recognition Resilience Update End - 2026-06-12 -->
 

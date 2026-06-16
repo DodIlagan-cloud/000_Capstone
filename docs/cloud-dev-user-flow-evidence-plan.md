@@ -19,6 +19,7 @@ The test suite should be segmented by logical user function instead of running o
 - When a segment creates or consumes a document-processing job, include the product's own `document_processing_steps` timings in the segment result.
 - Stop after a failed segment when the failure invalidates later evidence.
 - Prefer one known fixture first. Expand to more fixtures only after the single-fixture journey is proven.
+- Treat classification fixture discovery as a one-time gate for the cycle. If existing discovery does not identify a real fixture for a scenario, defer that scenario and continue the next independent user-flow segment.
 - Do not print passwords, tokens, connection strings, full OCR text, tenant IDs, or subscription-sensitive values.
 - Reset or clean up cloud-dev data between scenarios when duplicate state would affect the next result.
 - Treat Segment 1 as the canonical login/navigation evidence. Later segments should still authenticate as needed, but should not recapture login pages unless authentication, role switching, session expiry, or access control is the specific behavior under test.
@@ -306,6 +307,11 @@ Evidence:
 ## Segment 6: Duplicate Handling
 
 Goal: prove duplicate behavior is clear to the user.
+
+Current baseline for the 2026-06-15 run:
+
+- Use the Scenario A saved `recpt.jpeg` transaction as the same-file duplicate baseline.
+- Do not re-run classification discovery before this segment.
 
 Steps:
 

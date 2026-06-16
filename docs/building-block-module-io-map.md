@@ -29,7 +29,7 @@ flowchart LR
 | Module | Primary Input | Primary Output | Output Used By |
 | --- | --- | --- | --- |
 | Identity Access Module | Login credentials, token validation request, role/permission check request | Auth token/session result, user identity claims, authorization decision, auth error | Any module or UI needing protected access |
-| File Validation and Ingestion Module | Uploaded file or file reference, validation policy, source context, ingestion options | Accepted/rejected validation result, ingestion record/status, normalized document handoff | Document Parsing Module and workflow coordinator |
+| File Validation and Ingestion Module | Uploaded file or file reference, validation policy, source context, ingestion options | Accepted/rejected validation result, ingestion record/status, duplicate/idempotency result, normalized document handoff when queued | Document Parsing Module and workflow coordinator |
 | Document Parsing Module | Ingested document reference/content and OCR/parsing options | Extracted text, page/image metadata, parse strategy, OCR readiness, redacted evidence preview, document type label, confidence, quality/evaluation metadata, findings | Transaction Extraction Module and workflow coordinator |
 | Transaction Extraction Module | Extracted text, document type, document metadata, extraction rules/options | Transaction candidates and financial field candidates with source/confidence metadata | Data Validation Module |
 | Data Validation Module | Transaction candidates, document context, data-quality rules/options | Cleaned/normalized records, validation warnings/errors, duplicate flags, completeness/quality report | Stats workflow, reporting, and Stats persistence layer |
@@ -83,8 +83,9 @@ flowchart LR
 | File Metadata | Normalized filename, size, extension, detected type, content type, optional hash. |
 | Validation Findings | Error/warning codes such as unsupported type, empty file, oversize file, signature mismatch. |
 | Ingestion ID | Stable identifier for the document intake attempt. |
-| Ingestion Status | Received, queued, rejected, handed off, failed. |
+| Ingestion Status | Received, queued, duplicate, rejected, handed off, failed. Only queued accepted handoffs are eligible for downstream processing. |
 | Normalized Document Handoff | Document reference/content and metadata for downstream processing. |
+| Duplicate/Idempotency Result | Prior ingestion reference or duplicate reason when the same file/hash/idempotency key has already been submitted. |
 | Ingestion Findings | Duplicate-source warning, source failure, unsupported workflow, handoff error. |
 
 **Minimum test fixtures**
@@ -234,7 +235,7 @@ flowchart LR
 | Step | Producer | Output | Consumer |
 | --- | --- | --- | --- |
 | 1 | Manual upload source or Email Ingestion Module | File candidate plus source context | File Validation and Ingestion Module |
-| 2 | File Validation and Ingestion Module | Normalized document handoff | Document Parsing Module |
+| 2 | File Validation and Ingestion Module | Queued normalized document handoff; duplicate/rejected/failed terminal statuses stop the flow | Document Parsing Module |
 | 3 | Document Parsing Module | Extracted text, parse metadata, and classification result | Transaction Extraction Module |
 | 4 | Transaction Extraction Module | Transaction candidates | Data Validation Module |
 | 5 | Data Validation Module | Cleaned records and quality report | Stats workflow, Stats reporting, and Stats persistence layer |
@@ -245,3 +246,4 @@ flowchart LR
 - Stats data persistence receives results after reusable processing, but the database/persistence layer is not part of this reusable input/output map.
 - Module contracts should be stable enough that another project can replace Stats Web and still use these modules.
 - For each module chat, treat the rows above as the starting contract. Refine fields only when that module spec needs them.
+- Stats Web and workflow orchestration must treat duplicate intake as terminal unless an explicit reprocess path exists. They must not invoke M5 parsing, M7 extraction, M8 validation, or M9 persistence from a duplicate ingestion response.

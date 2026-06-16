@@ -14,85 +14,108 @@ const transactionExtractionBaseUrl = document.body.dataset.transactionExtraction
 const dataValidationBaseUrl = document.body.dataset.dataValidationBaseUrl ?? "";
 const statsDataBaseUrl = document.body.dataset.statsDataBaseUrl ?? "";
 
+window.statsAccess?.startSessionKeepAlive?.();
+
 let selectedFile = null;
 let acceptedValidation = null;
+let uploadAttemptIdempotencyKey = null;
 const uploadSteps = ["File accepted", "Document uploaded", "Text read", "Transactions checked"];
-const transactionTypeOptions = [
-  "unknown",
-  "purchase",
-  "payment",
-  "transfer",
-  "refund",
-  "fee",
-  "interest",
-  "cash_advance",
-  "installment_amortization",
-  "adjustment",
-  "tax",
-];
-const spendingCategoryOptions = [
-  "uncategorized",
-  "medical",
-  "pharmacy",
-  "groceries",
-  "utilities",
-  "transport",
-  "housing",
-  "insurance",
-  "banking_fees",
-  "interest",
-  "transfers",
-  "shopping",
-  "food_dining",
-  "income",
-  "tax",
-];
-const transactionSubtypeOptions = [
-  "unknown",
-  "card_purchase",
-  "eftpos_payment",
-  "merchant_purchase",
-  "cash_purchase",
-  "credit_card_payment",
-  "invoice_payment",
-  "bill_payment",
-  "loan_payment",
-  "bank_transfer",
-  "internal_transfer",
-  "external_transfer",
-  "merchant_refund",
-  "statement_credit",
-  "reversal",
-  "late_payment_fee",
-  "service_fee",
-  "bank_fee",
-  "finance_charge",
-  "cash_advance_interest",
-  "atm_cash_advance",
-  "counter_cash_advance",
-  "credit_card_installment",
-  "loan_installment",
-  "debit_adjustment",
-  "credit_adjustment",
-  "gst_tax",
-  "sales_tax",
-  "withholding_tax",
-];
-const spendingSubcategoryOptions = [
-  "unknown",
-  "diagnostics",
-  "prescription",
-  "supermarket",
-  "telecommunications",
-  "public_transport",
-  "service_fee",
-  "finance_charge",
-  "bank_transfer",
-  "restaurant",
-  "retail",
-  "gst",
-];
+const fallbackTransactionSubtypeParentMap = {
+  unknown: "unknown",
+  card_purchase: "purchase",
+  eftpos_payment: "purchase",
+  merchant_purchase: "purchase",
+  professional_service: "purchase",
+  cash_purchase: "purchase",
+  credit_card_payment: "payment",
+  invoice_payment: "payment",
+  bill_payment: "payment",
+  loan_payment: "payment",
+  bank_transfer: "transfer",
+  internal_transfer: "transfer",
+  external_transfer: "transfer",
+  merchant_refund: "refund",
+  statement_credit: "refund",
+  reversal: "refund",
+  late_payment_fee: "fee",
+  service_fee: "fee",
+  bank_fee: "fee",
+  finance_charge: "interest",
+  cash_advance_interest: "interest",
+  atm_cash_advance: "cash_advance",
+  counter_cash_advance: "cash_advance",
+  credit_card_installment: "installment_amortization",
+  loan_installment: "installment_amortization",
+  debit_adjustment: "adjustment",
+  credit_adjustment: "adjustment",
+  gst_tax: "tax",
+  sales_tax: "tax",
+  withholding_tax: "tax",
+};
+const fallbackSpendingSubcategoryParentMap = {
+  unknown: "uncategorized",
+  clinic: "medical",
+  hospital: "medical",
+  laboratory: "medical",
+  diagnostics: "medical",
+  prescription: "pharmacy",
+  chemist: "pharmacy",
+  pharmacy_retail: "pharmacy",
+  supermarket: "groceries",
+  fresh_food: "groceries",
+  market: "groceries",
+  electricity: "utilities",
+  water: "utilities",
+  gas: "utilities",
+  telecommunications: "utilities",
+  internet: "utilities",
+  fuel: "transport",
+  public_transport: "transport",
+  parking: "transport",
+  rideshare: "transport",
+  rent: "housing",
+  mortgage: "housing",
+  property: "housing",
+  premium: "insurance",
+  policy_payment: "insurance",
+  service_fee: "banking_fees",
+  late_payment_fee: "banking_fees",
+  bank_charge: "banking_fees",
+  immigration_services: "professional_services",
+  legal_services: "professional_services",
+  accounting_services: "professional_services",
+  consulting_services: "professional_services",
+  finance_charge: "interest",
+  loan_interest: "interest",
+  bank_transfer: "transfers",
+  internal_transfer: "transfers",
+  external_transfer: "transfers",
+  restaurant: "food_dining",
+  cafe: "food_dining",
+  fast_food: "food_dining",
+  retail: "shopping",
+  general_merchandise: "shopping",
+  hardware: "shopping",
+  clothing: "shopping",
+  salary: "income",
+  refund_income: "income",
+  deposit: "income",
+  gst: "tax",
+  sales_tax: "tax",
+  withholding_tax: "tax",
+};
+let classificationChoices = {
+  transactionSubtypeParentMap: { ...fallbackTransactionSubtypeParentMap },
+  spendingSubcategoryParentMap: { ...fallbackSpendingSubcategoryParentMap },
+  transactionSubtypeOptions: Object.keys(fallbackTransactionSubtypeParentMap),
+  spendingSubcategoryOptions: Object.keys(fallbackSpendingSubcategoryParentMap),
+  spendingCategoryOptions: orderedParentChoiceKeys(fallbackSpendingSubcategoryParentMap, "uncategorized"),
+};
 const transactionDirectionOptions = ["unknown", "debit", "credit"];
+const addNewSpendingSubcategoryValue = "__add_new_spending_subcategory__";
+const addNewSpendingCategoryValue = "__add_new_spending_category__";
+const userSpendingClassificationStorageKey = "stats.userSpendingSubcategoryParentMap";
+let userSpendingSubcategoryParentMap = loadUserSpendingSubcategoryChoices();
 
 function formatFileSize(bytes) {
   if (bytes < 1024) {
@@ -163,9 +186,21 @@ function ingestionHandoffReady(record) {
   return Boolean(record?.handoff?.content_reference);
 }
 
+function createUploadAttemptIdempotencyKey() {
+  if (window.crypto?.randomUUID) {
+    return `manual-upload-${window.crypto.randomUUID()}`;
+  }
+
+  const values = new Uint32Array(4);
+  window.crypto?.getRandomValues?.(values);
+  const randomPart = Array.from(values, (value) => value.toString(36)).join("-");
+  return `manual-upload-${Date.now().toString(36)}-${randomPart || Math.random().toString(36).slice(2)}`;
+}
+
 function resetUploadPage(message = "Choose a file to validate.", tone = "pending") {
   selectedFile = null;
   acceptedValidation = null;
+  uploadAttemptIdempotencyKey = null;
   if (documentFileInput) {
     documentFileInput.value = "";
   }
@@ -199,6 +234,289 @@ function humanizeStatus(value) {
 
 function titleCaseLabel(value) {
   return humanizeStatus(value || "unknown");
+}
+
+function normalizeChoice(value, fallback = "unknown") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || fallback;
+}
+
+function normalizeLabelKey(value, fallback = "unknown") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replace(/\s+/g, "_")
+    .split("_")
+    .filter(Boolean)
+    .join("_");
+  return normalized || fallback;
+}
+
+function childParentMapFromVocabulary(vocabulary, subtypesKey, suppliedMap = {}) {
+  const mapping = {};
+  Object.entries(suppliedMap || {}).forEach(([child, parent]) => {
+    const childKey = normalizeChoice(child);
+    const parentKey = normalizeChoice(parent, "");
+    if (childKey && !["unknown", "uncategorized"].includes(childKey) && parentKey) {
+      mapping[childKey] = parentKey;
+    }
+  });
+  Object.entries(vocabulary?.[subtypesKey] || {}).forEach(([parent, children]) => {
+    const parentKey = normalizeChoice(parent, "");
+    (children || []).forEach((child) => {
+      const childKey = normalizeChoice(child);
+      if (childKey && !["unknown", "uncategorized"].includes(childKey) && parentKey && !mapping[childKey]) {
+        mapping[childKey] = parentKey;
+      }
+    });
+  });
+  return mapping;
+}
+
+function loadUserSpendingSubcategoryChoices() {
+  try {
+    const saved = JSON.parse(window.localStorage?.getItem(userSpendingClassificationStorageKey) || "{}");
+    const mapping = {};
+    Object.entries(saved || {}).forEach(([subcategory, category]) => {
+      const childKey = normalizeLabelKey(subcategory);
+      const parentKey = normalizeLabelKey(category, "uncategorized");
+      if (childKey !== "unknown" && !["unknown", "uncategorized"].includes(parentKey)) {
+        mapping[childKey] = parentKey;
+      }
+    });
+    return mapping;
+  } catch {
+    return {};
+  }
+}
+
+function saveUserSpendingSubcategoryChoices() {
+  try {
+    window.localStorage?.setItem(userSpendingClassificationStorageKey, JSON.stringify(userSpendingSubcategoryParentMap));
+  } catch {
+    // Browser storage can be disabled; the in-memory choices still keep the current review usable.
+  }
+}
+
+function mergeUserSpendingChoices(activeMap) {
+  return {
+    ...(activeMap || {}),
+    ...userSpendingSubcategoryParentMap,
+  };
+}
+
+function orderedChoiceKeys(mapping, defaultValue = "unknown") {
+  const keys = Object.keys(mapping || {});
+  const defaultKey = normalizeChoice(defaultValue);
+  const remaining = keys.filter((key) => key !== defaultKey).sort();
+  return [defaultKey, ...remaining.filter(Boolean)];
+}
+
+function orderedParentChoiceKeys(mapping, defaultValue = "unknown") {
+  const defaultKey = normalizeChoice(defaultValue);
+  const parents = new Set(Object.values(mapping || {}).map((value) => normalizeChoice(value, "")).filter(Boolean));
+  parents.delete(defaultKey);
+  return [defaultKey, ...Array.from(parents).sort()];
+}
+
+function applyActiveRecognitionSettings(payload) {
+  const context = payload?.recognition_context || {};
+  const transactionVocabulary = payload?.transaction_vocabulary || context.transaction?.vocabulary || {};
+  const spendingVocabulary = payload?.spending_vocabulary || context.spending?.vocabulary || {};
+  const transactionMap = childParentMapFromVocabulary(
+    transactionVocabulary,
+    "transaction_subtypes",
+    context.transaction?.subtype_parent_map,
+  );
+  const spendingMap = childParentMapFromVocabulary(
+    spendingVocabulary,
+    "spending_subcategories",
+    context.spending?.subcategory_parent_map,
+  );
+  const activeSpendingMap = Object.keys(spendingMap).length ? spendingMap : fallbackSpendingSubcategoryParentMap;
+  const mergedSpendingMap = mergeUserSpendingChoices(activeSpendingMap);
+
+  classificationChoices = {
+    transactionSubtypeParentMap: Object.keys(transactionMap).length ? transactionMap : { ...fallbackTransactionSubtypeParentMap },
+    spendingSubcategoryParentMap: mergedSpendingMap,
+    transactionSubtypeOptions: orderedChoiceKeys(
+      Object.keys(transactionMap).length ? transactionMap : fallbackTransactionSubtypeParentMap,
+      "unknown",
+    ),
+    spendingSubcategoryOptions: orderedChoiceKeys(mergedSpendingMap, "unknown"),
+    spendingCategoryOptions: orderedParentChoiceKeys(mergedSpendingMap, "uncategorized"),
+    activeRecognitionContext: context,
+  };
+}
+
+async function loadActiveRecognitionChoices() {
+  try {
+    const response = await fetch("/api/v1/recognition-settings/active", {
+      headers: statsAuthHeaders(),
+    });
+    if (!response.ok) {
+      return;
+    }
+    applyActiveRecognitionSettings(await response.json());
+  } catch {
+    // Static fallback choices keep local upload review usable when M9 is unavailable.
+  }
+}
+
+function statsAuthHeaders() {
+  return window.statsAccess?.authHeaders?.() || {};
+}
+
+async function currentStatsUser() {
+  return await window.statsAccess?.currentUser?.() || {};
+}
+
+function deriveTransactionType(transactionSubtype) {
+  return classificationChoices.transactionSubtypeParentMap[normalizeChoice(transactionSubtype)] || "unknown";
+}
+
+function deriveSpendingCategory(spendingSubcategory) {
+  return classificationChoices.spendingSubcategoryParentMap[normalizeChoice(spendingSubcategory)] || "uncategorized";
+}
+
+function spendingSubcategoryIsKnown(spendingSubcategory) {
+  const child = normalizeLabelKey(spendingSubcategory);
+  return child !== "unknown" && Boolean(classificationChoices.spendingSubcategoryParentMap[child]);
+}
+
+function rememberSpendingSubcategoryChoice(spendingSubcategory, spendingCategory) {
+  const child = normalizeLabelKey(spendingSubcategory);
+  const parent = normalizeLabelKey(spendingCategory, "uncategorized");
+  if (child === "unknown" || ["unknown", "uncategorized"].includes(parent)) {
+    return false;
+  }
+
+  const existingParent = classificationChoices.spendingSubcategoryParentMap[child];
+  classificationChoices.spendingSubcategoryParentMap[child] = parent;
+  userSpendingSubcategoryParentMap[child] = parent;
+  saveUserSpendingSubcategoryChoices();
+  if (!classificationChoices.spendingSubcategoryOptions.includes(child)) {
+    classificationChoices.spendingSubcategoryOptions = [...classificationChoices.spendingSubcategoryOptions, child].sort();
+  }
+  if (!classificationChoices.spendingCategoryOptions.includes(parent)) {
+    classificationChoices.spendingCategoryOptions = [...classificationChoices.spendingCategoryOptions, parent].sort();
+  }
+  return existingParent !== parent;
+}
+
+function spendingCategoryOptionsWithAddNew() {
+  const existing = classificationChoices.spendingCategoryOptions
+    .filter((value) => !["unknown", "uncategorized"].includes(normalizeLabelKey(value, "uncategorized")));
+  return ["uncategorized", ...existing, addNewSpendingCategoryValue];
+}
+
+function showSpendingSubcategoryDialog(initialSubcategory = "") {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "classification-modal-backdrop";
+    backdrop.setAttribute("role", "presentation");
+
+    const panel = document.createElement("section");
+    panel.className = "classification-modal";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "spending-subcategory-dialog-title");
+
+    const heading = document.createElement("h4");
+    heading.id = "spending-subcategory-dialog-title";
+    heading.textContent = "Add spending subcategory";
+
+    const form = document.createElement("form");
+    form.className = "classification-modal-form";
+
+    const subcategoryLabel = document.createElement("label");
+    subcategoryLabel.textContent = "Spending subcategory";
+    const subcategoryInput = document.createElement("input");
+    subcategoryInput.name = "new_spending_subcategory";
+    subcategoryInput.type = "text";
+    subcategoryInput.value = initialSubcategory ? titleCaseLabel(initialSubcategory) : "";
+    subcategoryLabel.append(subcategoryInput);
+
+    const categoryLabel = document.createElement("label");
+    categoryLabel.textContent = "Parent spending category";
+    const categorySelect = document.createElement("select");
+    categorySelect.name = "parent_spending_category";
+    spendingCategoryOptionsWithAddNew().forEach((category) => {
+      const option = document.createElement("option");
+      option.value = category;
+      option.textContent = category === addNewSpendingCategoryValue ? "Add new category..." : titleCaseLabel(category);
+      categorySelect.append(option);
+    });
+    categoryLabel.append(categorySelect);
+
+    const newCategoryLabel = document.createElement("label");
+    newCategoryLabel.textContent = "New parent category";
+    newCategoryLabel.hidden = true;
+    const newCategoryInput = document.createElement("input");
+    newCategoryInput.name = "new_parent_spending_category";
+    newCategoryInput.type = "text";
+    newCategoryLabel.append(newCategoryInput);
+
+    const errorMessage = document.createElement("p");
+    errorMessage.className = "classification-modal-error";
+    errorMessage.setAttribute("role", "alert");
+    errorMessage.hidden = true;
+
+    const actions = document.createElement("div");
+    actions.className = "classification-modal-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.textContent = "Add subcategory";
+    actions.append(cancelButton, saveButton);
+
+    form.append(subcategoryLabel, categoryLabel, newCategoryLabel, errorMessage, actions);
+    panel.append(heading, form);
+    backdrop.append(panel);
+    document.body.append(backdrop);
+
+    const close = (value) => {
+      backdrop.remove();
+      resolve(value);
+    };
+    const showError = (message) => {
+      errorMessage.textContent = message;
+      errorMessage.hidden = false;
+    };
+
+    categorySelect.addEventListener("change", () => {
+      newCategoryLabel.hidden = categorySelect.value !== addNewSpendingCategoryValue;
+      if (!newCategoryLabel.hidden) {
+        newCategoryInput.focus();
+      }
+    });
+    cancelButton.addEventListener("click", () => close(null));
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) {
+        close(null);
+      }
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const subcategory = normalizeLabelKey(subcategoryInput.value);
+      const selectedParent = categorySelect.value === addNewSpendingCategoryValue
+        ? normalizeLabelKey(newCategoryInput.value, "uncategorized")
+        : normalizeLabelKey(categorySelect.value, "uncategorized");
+      if (subcategory === "unknown") {
+        showError("Enter a spending subcategory.");
+        return;
+      }
+      if (["unknown", "uncategorized"].includes(selectedParent)) {
+        showError("Choose or add a parent spending category.");
+        return;
+      }
+      close({ subcategory, parentCategory: selectedParent });
+    });
+    subcategoryInput.focus();
+  });
 }
 
 function documentClassificationLabel(classification = {}, fallbackType = "unknown") {
@@ -243,7 +561,9 @@ function transactionFieldsComplete(record) {
       && record.currency
       && ["debit", "credit"].includes(String(record.direction || "").toLowerCase())
       && String(record.transaction_type || "unknown").toLowerCase() !== "unknown"
-      && !["uncategorized", "unknown"].includes(String(record.spending_category || "uncategorized").toLowerCase()),
+      && String(record.transaction_subtype || "unknown").toLowerCase() !== "unknown"
+      && !["uncategorized", "unknown"].includes(String(record.spending_category || "uncategorized").toLowerCase())
+      && String(record.spending_subcategory || "unknown").toLowerCase() !== "unknown",
   );
 }
 
@@ -258,14 +578,14 @@ function transactionCoreFieldsComplete(record) {
 }
 
 function createReviewState(result) {
-  const records = (result.normalized_records || []).map((record) => ({ ...record }));
+  const records = (result.normalized_records || []).map((record) => normalizeReviewRecord({ ...record }));
   const installments = (result.normalized_installments || []).map((installment) => ({ ...installment }));
   return {
     records,
     installments,
     acceptedRecordIds: new Set(
       records
-        .filter((record) => userRecordStatus(record) === "Ready" && transactionCoreFieldsComplete(record))
+        .filter((record) => userRecordStatus(record) === "Ready" && transactionFieldsComplete(record))
         .map((record) => record.record_id),
     ),
     acceptedInstallmentIds: new Set(
@@ -277,10 +597,25 @@ function createReviewState(result) {
 }
 
 function localRecordStatus(record, reviewState) {
-  if (reviewState.acceptedRecordIds.has(record.record_id) && transactionCoreFieldsComplete(record)) {
+  if (reviewState.acceptedRecordIds.has(record.record_id) && transactionFieldsComplete(record)) {
     return "Ready";
   }
   return userRecordStatus(record);
+}
+
+function normalizeReviewRecord(record) {
+  record.transaction_subtype = normalizeLabelKey(record.transaction_subtype);
+  record.spending_subcategory = normalizeLabelKey(record.spending_subcategory);
+  const derivedTransactionType = deriveTransactionType(record.transaction_subtype);
+  const derivedSpendingCategory = deriveSpendingCategory(record.spending_subcategory);
+  record.transaction_type = derivedTransactionType !== "unknown"
+    ? derivedTransactionType
+    : normalizeLabelKey(record.transaction_type, "unknown");
+  record.spending_category = derivedSpendingCategory !== "uncategorized"
+    ? derivedSpendingCategory
+    : normalizeLabelKey(record.spending_category, "uncategorized");
+  record.category = record.spending_category === "uncategorized" ? "Unknown" : titleCaseLabel(record.spending_category);
+  return record;
 }
 
 function installmentFieldsComplete(installment) {
@@ -303,10 +638,8 @@ function localInstallmentStatus(installment, reviewState) {
 }
 
 function editableRecordFields(record) {
-  const transactionTypes = withSuggestedOption(transactionTypeOptions, record.suggested_transaction_type);
-  const transactionSubtypes = withSuggestedOption(transactionSubtypeOptions, record.suggested_transaction_subtype);
-  const spendingCategories = withSuggestedOption(spendingCategoryOptions, record.suggested_spending_category);
-  const spendingSubcategories = withSuggestedOption(spendingSubcategoryOptions, record.suggested_spending_subcategory);
+  const transactionSubtypes = withSuggestedOption(classificationChoices.transactionSubtypeOptions, record.suggested_transaction_subtype);
+  const spendingSubcategories = withSuggestedOption(classificationChoices.spendingSubcategoryOptions, record.suggested_spending_subcategory);
   return [
     ["transaction_date", "Date", "date"],
     ["posted_date", "Posted date", "date"],
@@ -314,10 +647,8 @@ function editableRecordFields(record) {
     ["amount", "Amount", "number"],
     ["currency", "Currency", "text"],
     ["direction", "Direction", "select", transactionDirectionOptions],
-    ["transaction_type", "Transaction type", "select", transactionTypes],
     ["transaction_subtype", "Transaction subtype", "select", transactionSubtypes],
-    ["spending_category", "Spending category", "select", spendingCategories],
-    ["spending_subcategory", "Spending subcategory", "select", spendingSubcategories],
+    ["spending_subcategory", "Spending subcategory", "selectAddNew", spendingSubcategories],
   ].map(([name, label, type, options]) => ({ name, label, type, options: options || [], value: record[name] ?? "" }));
 }
 
@@ -349,25 +680,57 @@ function fieldValueFromInput(input, fieldName) {
   if (fieldName === "currency") {
     return input.value.trim().toUpperCase() || "PHP";
   }
-  if (["direction", "transaction_type", "transaction_subtype", "spending_category", "spending_subcategory"].includes(fieldName)) {
-    return input.value.trim().toLowerCase() || (fieldName === "spending_category" ? "uncategorized" : "unknown");
+  if (fieldName === "direction") {
+    return normalizeChoice(input.value);
+  }
+  if (["transaction_subtype", "spending_subcategory"].includes(fieldName)) {
+    return normalizeLabelKey(input.value);
+  }
+  if (fieldName === "spending_category") {
+    return normalizeLabelKey(input.value, "uncategorized");
   }
   return input.value.trim();
 }
 
-function applyEditedRecord(record, values) {
+async function applyEditedRecord(record, values) {
+  let nextSpendingSubcategory = normalizeLabelKey(values.spending_subcategory);
+  if (nextSpendingSubcategory === normalizeLabelKey(addNewSpendingSubcategoryValue)) {
+    const newClassification = await showSpendingSubcategoryDialog();
+    if (!newClassification) {
+      return false;
+    }
+    nextSpendingSubcategory = newClassification.subcategory;
+    rememberSpendingSubcategoryChoice(newClassification.subcategory, newClassification.parentCategory);
+    record.classification_user_added_spending_subcategory = true;
+  }
+  let nextSpendingCategory = deriveSpendingCategory(nextSpendingSubcategory);
+  let spendingRelationshipChanged = false;
+  if (nextSpendingSubcategory !== "unknown" && !spendingSubcategoryIsKnown(nextSpendingSubcategory)) {
+    const newClassification = await showSpendingSubcategoryDialog(nextSpendingSubcategory);
+    if (!newClassification) {
+      return false;
+    }
+    nextSpendingSubcategory = newClassification.subcategory;
+    nextSpendingCategory = newClassification.parentCategory;
+    spendingRelationshipChanged = rememberSpendingSubcategoryChoice(nextSpendingSubcategory, nextSpendingCategory);
+  }
+
   Object.assign(record, values);
   record.direction = String(record.direction || "").toLowerCase();
-  record.transaction_type = String(record.transaction_type || "unknown").toLowerCase();
-  record.transaction_subtype = String(record.transaction_subtype || "unknown").toLowerCase();
-  record.spending_category = String(record.spending_category || "uncategorized").toLowerCase();
-  record.spending_subcategory = String(record.spending_subcategory || "unknown").toLowerCase();
+  record.transaction_subtype = normalizeLabelKey(record.transaction_subtype);
+  record.spending_subcategory = nextSpendingSubcategory;
+  if (spendingRelationshipChanged) {
+    record.classification_user_added_spending_subcategory = true;
+  }
+  record.transaction_type = deriveTransactionType(record.transaction_subtype);
+  record.spending_category = nextSpendingCategory;
   record.category = record.spending_category === "uncategorized" ? "Unknown" : titleCaseLabel(record.spending_category);
   record.amount = Math.abs(numericValue(record.amount));
   record.signed_amount = record.direction === "credit" ? record.amount : -record.amount;
   if (transactionFieldsComplete(record) && record.quality_status === "invalid") {
     record.quality_status = "warning";
   }
+  return true;
 }
 
 function applyEditedInstallment(installment, values) {
@@ -618,6 +981,7 @@ function validateFileCandidate(file) {
   parseResult.hidden = true;
   selectedFile = file || null;
   acceptedValidation = null;
+  uploadAttemptIdempotencyKey = null;
 
   if (!file) {
     resetUploadPage();
@@ -653,6 +1017,7 @@ async function validateSelectedFile(file) {
 
     if (result.status === "accepted") {
       acceptedValidation = result;
+      uploadAttemptIdempotencyKey = createUploadAttemptIdempotencyKey();
       renderProcessingProgress(1, "Processing document", "The file is accepted. Stats is uploading it for processing.");
       setValidationState("File accepted. Sending it to processing.", "pending");
       await sendAcceptedFileToProcessing();
@@ -799,6 +1164,7 @@ function buildValidationRequest(extractionResult) {
     line_item_candidates: extractionResult.line_item_candidates || [],
     installment_candidates: extractionResult.installment_candidates || [],
     reconciliation: extractionResult.reconciliation || null,
+    active_recognition_context: classificationChoices.activeRecognitionContext || {},
     findings: extractionResult.findings || [],
   };
 }
@@ -807,15 +1173,16 @@ function buildSaveValidationResult(validationResult, reviewState) {
   const acceptedRecordIds = reviewState.acceptedRecordIds;
   const acceptedInstallmentIds = reviewState.acceptedInstallmentIds;
   const normalizedRecords = reviewState.records.map((record) => {
-    const accepted = acceptedRecordIds.has(record.record_id) && transactionCoreFieldsComplete(record);
-    const saveRecord = accepted ? acceptedClassificationRecord(record) : { ...record };
+    const accepted = acceptedRecordIds.has(record.record_id) && transactionFieldsComplete(record);
+    const saveRecord = normalizeReviewRecord(accepted ? acceptedClassificationRecord(record) : { ...record });
+    const userAddedClassification = hasUserAddedClassification(saveRecord);
     return {
       ...saveRecord,
       category: saveRecord.spending_category && saveRecord.spending_category !== "uncategorized"
         ? titleCaseLabel(saveRecord.spending_category)
         : saveRecord.category || "Unknown",
       classification_source: accepted
-        ? confirmedClassificationSource(saveRecord)
+        ? (userAddedClassification ? "user_confirmed_classification" : confirmedClassificationSource(saveRecord))
         : saveRecord.classification_source,
       classification_review_required: accepted ? false : Boolean(saveRecord.classification_review_required),
       classification_review_reason_codes: accepted ? [] : saveRecord.classification_review_reason_codes || [],
@@ -823,7 +1190,12 @@ function buildSaveValidationResult(validationResult, reviewState) {
       classification_confirmation_mode: accepted
         ? "upload_transaction_review"
         : saveRecord.classification_confirmation_mode,
+      classification_vocabulary_status: accepted && userAddedClassification
+        ? "outside_vocabulary_proposal"
+        : saveRecord.classification_vocabulary_status,
       recognition_suggestion_status: accepted ? "confirmed_by_upload_review" : saveRecord.recognition_suggestion_status,
+      suggested_spending_category: saveRecord.suggested_spending_category || (userAddedClassification ? saveRecord.spending_category : undefined),
+      suggested_spending_subcategory: saveRecord.suggested_spending_subcategory || (userAddedClassification ? saveRecord.spending_subcategory : undefined),
       quality_status: accepted
         ? (transactionFieldsComplete(saveRecord) ? "valid" : "warning")
         : saveRecord.quality_status,
@@ -866,6 +1238,10 @@ function confirmedClassificationSource(record) {
   return "user_confirmed_classification";
 }
 
+function hasUserAddedClassification(record) {
+  return Boolean(record.classification_user_added_spending_subcategory);
+}
+
 function reviewItemRecord(reviewItem, records) {
   return (records || []).find((record) => record.record_id === reviewItem.record_id);
 }
@@ -885,7 +1261,7 @@ function renderReviewItemEditor(record, onChange, options = {}) {
     label.textContent = field.label;
 
     let input;
-    if (field.type === "select") {
+    if (field.type === "select" || field.type === "selectAddNew") {
       input = document.createElement("select");
       field.options.forEach((optionValue) => {
         const option = document.createElement("option");
@@ -894,6 +1270,12 @@ function renderReviewItemEditor(record, onChange, options = {}) {
         option.selected = String(field.value).toLowerCase() === optionValue;
         input.append(option);
       });
+      if (field.type === "selectAddNew") {
+        const addOption = document.createElement("option");
+        addOption.value = addNewSpendingSubcategoryValue;
+        addOption.textContent = "Add new subcategory...";
+        input.append(addOption);
+      }
     } else {
       input = document.createElement("input");
       input.type = field.type;
@@ -910,12 +1292,36 @@ function renderReviewItemEditor(record, onChange, options = {}) {
     form.append(label);
   });
 
+  const spendingSubcategoryInput = inputs.get("spending_subcategory");
+  if (spendingSubcategoryInput?.tagName === "SELECT") {
+    spendingSubcategoryInput.addEventListener("change", async () => {
+      if (spendingSubcategoryInput.value !== addNewSpendingSubcategoryValue) {
+        return;
+      }
+      const previousValue = normalizeLabelKey(record.spending_subcategory);
+      const newClassification = await showSpendingSubcategoryDialog();
+      if (!newClassification) {
+        spendingSubcategoryInput.value = previousValue;
+        return;
+      }
+      rememberSpendingSubcategoryChoice(newClassification.subcategory, newClassification.parentCategory);
+      record.classification_user_added_spending_subcategory = true;
+
+      const option = document.createElement("option");
+      option.value = newClassification.subcategory;
+      option.textContent = titleCaseLabel(newClassification.subcategory);
+      const addNewOption = Array.from(spendingSubcategoryInput.options).find((item) => item.value === addNewSpendingSubcategoryValue);
+      spendingSubcategoryInput.insertBefore(option, addNewOption || null);
+      spendingSubcategoryInput.value = newClassification.subcategory;
+    });
+  }
+
   const saveButton = document.createElement("button");
   saveButton.type = "submit";
   saveButton.textContent = "Save edit";
   form.append(saveButton);
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = {};
     inputs.forEach((input, fieldName) => {
@@ -924,7 +1330,10 @@ function renderReviewItemEditor(record, onChange, options = {}) {
     if (options.kind === "installment") {
       applyEditedInstallment(record, values);
     } else {
-      applyEditedRecord(record, values);
+      const applied = await applyEditedRecord(record, values);
+      if (!applied) {
+        return;
+      }
     }
     onChange();
   });
@@ -1035,8 +1444,8 @@ function renderReviewItems(result, reviewState, onChange) {
       const acceptButton = document.createElement("button");
       acceptButton.type = "button";
       acceptButton.textContent = "Accept";
-      acceptButton.disabled = !transactionCoreFieldsComplete(record);
-      acceptButton.title = acceptButton.disabled ? "Complete date, description, amount, currency, and direction before accepting this row." : "";
+      acceptButton.disabled = !transactionFieldsComplete(record);
+      acceptButton.title = acceptButton.disabled ? "Complete date, description, amount, currency, direction, transaction subtype, and spending subcategory before accepting this row." : "";
       acceptButton.addEventListener("click", () => {
         reviewState.acceptedRecordIds.add(record.record_id);
         record.quality_status = transactionFieldsComplete(record) ? "valid" : "warning";
@@ -1400,13 +1809,14 @@ async function sendAcceptedFileToProcessing() {
   formData.append("detected_mime_type", metadata.detected_mime_type || selectedFile.type || "");
   formData.append("source_type", "manual_upload");
   formData.append("source_id", "stats-web-upload");
+  formData.append("idempotency_key", uploadAttemptIdempotencyKey || createUploadAttemptIdempotencyKey());
 
   try {
     setValidationState("Sending accepted file to processing.", "pending");
     renderProcessingProgress(1, "Processing document", "Uploading the accepted document.");
 
-    const user = await window.statsAccess.currentUser();
-    formData.append("submitted_by", user.email);
+    const user = await currentStatsUser();
+    formData.append("submitted_by", user.email || "");
 
     const response = await fetch(statsApiUrl(fileIngestionBaseUrl, "/api/v1/ingestions"), {
       method: "POST",
@@ -1439,7 +1849,7 @@ async function startAcceptedFileProcessingJob(record) {
   const formData = new FormData();
   formData.append("file", selectedFile);
   formData.append("ingestion_id", record.ingestion_id || "");
-  const user = await window.statsAccess.currentUser();
+  const user = await currentStatsUser();
   formData.append("uploaded_by_user_id", user.id || "");
   formData.append("source_type", "manual_upload");
   formData.append("source_id", "stats-web-upload");
@@ -1476,7 +1886,7 @@ async function pollProcessingJob(jobId) {
 
   while (Date.now() - startedAt < maxWaitMs) {
     const response = await fetch(`/api/v1/upload-processing-jobs/${encodeURIComponent(jobId)}`, {
-      headers: window.statsAccess.authHeaders(),
+      headers: statsAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -1495,6 +1905,7 @@ async function pollProcessingJob(jobId) {
         throw new Error("Document processing completed without the expected review output.");
       }
 
+      await loadActiveRecognitionChoices();
       validation.processing_job_id = job.job_id;
       renderTransactionCheckResult(validation, parseResultPayload, extraction);
       setValidationState("Transactions checked. Review the results before saving.", "success");
@@ -1548,6 +1959,7 @@ async function extractTransactions(parseResultPayload) {
 }
 
 async function validateExtractedData(extractionResult) {
+  await loadActiveRecognitionChoices();
   const response = await fetch(statsApiUrl(dataValidationBaseUrl, "/api/v1/validations"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1562,12 +1974,12 @@ async function validateExtractedData(extractionResult) {
 }
 
 async function saveReadyTransactions(validationResult, reviewState) {
-  const user = await window.statsAccess.currentUser();
+  const user = await currentStatsUser();
   const response = await fetch(statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/batches"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...window.statsAccess.authHeaders(),
+      ...statsAuthHeaders(),
     },
     body: JSON.stringify({
       validation_result: buildSaveValidationResult(validationResult, reviewState),
@@ -1583,16 +1995,18 @@ async function saveReadyTransactions(validationResult, reviewState) {
     throw new Error(payload.detail || "Stats Data did not save the transactions.");
   }
 
-  return response.json();
+  const payload = await response.json();
+  await loadActiveRecognitionChoices();
+  return payload;
 }
 
 async function checkDuplicateTransactions(validationResult, reviewState) {
-  const user = await window.statsAccess.currentUser();
+  const user = await currentStatsUser();
   const response = await fetch(statsApiUrl(statsDataBaseUrl, "/api/v1/transactions/duplicate-checks"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...window.statsAccess.authHeaders(),
+      ...statsAuthHeaders(),
     },
     body: JSON.stringify({
       validation_result: buildSaveValidationResult(validationResult, reviewState),

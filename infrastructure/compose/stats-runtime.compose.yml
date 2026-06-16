@@ -7,7 +7,7 @@
 #   # Edit .env.container with real Azure SQL and secret values (never commit .env.container).
 #   # The active runtime target is AzureSql; local Compose will fail fast without
 #   # AZURE_SQL_CONNECTIONSTRING.
-#   docker compose -f infrastructure/compose/stats-runtime.compose.yml up --build
+#   docker compose --env-file infrastructure/compose/.env.container -f infrastructure/compose/stats-runtime.compose.yml up --build
 
 services:
 
@@ -33,6 +33,11 @@ services:
       STATS_RUNTIME_CONFIG: "${STATS_RUNTIME_CONFIG:-/app/config/stats.runtime.json}"
       STATS_PATHS_CONFIG: "${STATS_PATHS_CONFIG:-/app/config/stats.paths.json}"
       STATS_LOGGING_CONFIG: "${STATS_LOGGING_CONFIG:-/app/config/stats.logging.json}"
+      STATS_AS_OF_DATE: "${STATS_AS_OF_DATE:-}"
+      STATS_REPORTING_DEFAULT_CURRENCY: "${STATS_REPORTING_DEFAULT_CURRENCY:-NZD}"
+      STATS_REPORTING_FX_RATES: "${STATS_REPORTING_FX_RATES:-}"
+      STATS_TESTDATA_DIR: "${STATS_TESTDATA_DIR:-/app/tests/input}"
+      STATS_PARSING_TESTDATA_DIR: "${STATS_PARSING_TESTDATA_DIR:-/app/tests/input}"
       STATS_STORAGE_PROVIDER: "${STATS_STORAGE_PROVIDER:-AzureBlobStorage}"
       STATS_VALIDATION_HANDOFF_DIR: "${STATS_VALIDATION_HANDOFF_DIR:-/app/apps/stats-data/data/validation-handoff}"
       STATS_DATA_PORT: "${STATS_DATA_PORT:-8018}"
@@ -42,23 +47,24 @@ services:
       AZURE_STORAGE_BLOB_PREFIX: "${AZURE_STORAGE_BLOB_PREFIX:-intake}"
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
       CLASSIFICATION_AI_ENABLED: "${CLASSIFICATION_AI_ENABLED:-false}"
-      CLASSIFICATION_AI_PROVIDER: "${CLASSIFICATION_AI_PROVIDER:-gemini}"
+      CLASSIFICATION_AI_PROVIDER: "${CLASSIFICATION_AI_PROVIDER:-openai}"
       CLASSIFICATION_AI_ENDPOINT: "${CLASSIFICATION_AI_ENDPOINT:-}"
-      CLASSIFICATION_AI_API_KEY_ENV: "${CLASSIFICATION_AI_API_KEY_ENV:-GEMINI_API_KEY}"
-      CLASSIFICATION_AI_MODEL: "${CLASSIFICATION_AI_MODEL:-gemini-2.5-flash}"
-      CLASSIFICATION_AI_MODEL_VERSION: "${CLASSIFICATION_AI_MODEL_VERSION:-gemini-2.5-flash}"
+      CLASSIFICATION_AI_API_KEY_ENV: "${CLASSIFICATION_AI_API_KEY_ENV:-OPENAI_API_KEY}"
+      CLASSIFICATION_AI_MODEL: "${CLASSIFICATION_AI_MODEL:-gpt-4o-mini}"
+      CLASSIFICATION_AI_MODEL_VERSION: "${CLASSIFICATION_AI_MODEL_VERSION:-gpt-4o-mini}"
       CLASSIFICATION_AI_MIN_CONFIDENCE: "${CLASSIFICATION_AI_MIN_CONFIDENCE:-0.76}"
       CLASSIFICATION_AI_TRIGGER_THRESHOLD: "${CLASSIFICATION_AI_TRIGGER_THRESHOLD:-0.70}"
       CLASSIFICATION_AI_MAX_CHARS: "${CLASSIFICATION_AI_MAX_CHARS:-3000}"
       TRANSACTION_CLASSIFICATION_AI_ENABLED: "${TRANSACTION_CLASSIFICATION_AI_ENABLED:-false}"
-      TRANSACTION_CLASSIFICATION_AI_PROVIDER: "${TRANSACTION_CLASSIFICATION_AI_PROVIDER:-gemini}"
+      TRANSACTION_CLASSIFICATION_AI_PROVIDER: "${TRANSACTION_CLASSIFICATION_AI_PROVIDER:-openai}"
       TRANSACTION_CLASSIFICATION_AI_ENDPOINT: "${TRANSACTION_CLASSIFICATION_AI_ENDPOINT:-}"
-      TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV: "${TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV:-GEMINI_API_KEY}"
-      TRANSACTION_CLASSIFICATION_AI_MODEL: "${TRANSACTION_CLASSIFICATION_AI_MODEL:-gemini-2.5-flash}"
-      TRANSACTION_CLASSIFICATION_AI_MODEL_VERSION: "${TRANSACTION_CLASSIFICATION_AI_MODEL_VERSION:-gemini-2.5-flash}"
+      TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV: "${TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV:-OPENAI_API_KEY}"
+      TRANSACTION_CLASSIFICATION_AI_MODEL: "${TRANSACTION_CLASSIFICATION_AI_MODEL:-gpt-4o-mini}"
+      TRANSACTION_CLASSIFICATION_AI_MODEL_VERSION: "${TRANSACTION_CLASSIFICATION_AI_MODEL_VERSION:-gpt-4o-mini}"
       TRANSACTION_CLASSIFICATION_AI_MIN_CONFIDENCE: "${TRANSACTION_CLASSIFICATION_AI_MIN_CONFIDENCE:-0.76}"
       TRANSACTION_CLASSIFICATION_AI_TRIGGER_THRESHOLD: "${TRANSACTION_CLASSIFICATION_AI_TRIGGER_THRESHOLD:-0.70}"
       TRANSACTION_CLASSIFICATION_AI_MAX_CHARS: "${TRANSACTION_CLASSIFICATION_AI_MAX_CHARS:-3000}"
+      MERCHANT_CLASSIFICATION_LOOKUP_URL: "${MERCHANT_CLASSIFICATION_LOOKUP_URL:-http://localhost:8018/api/v1/internal/merchant-classifications/lookup}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       LOG_FORMAT: "${LOG_FORMAT:-json}"
       LOG_INCLUDE_CORRELATION_ID: "${LOG_INCLUDE_CORRELATION_ID:-true}"
@@ -78,6 +84,13 @@ services:
       StatsWeb__PowerBi__WorkspaceId: "${StatsWeb__PowerBi__WorkspaceId:-}"
       StatsWeb__PowerBi__DashboardReportId: "${StatsWeb__PowerBi__DashboardReportId:-}"
       StatsWeb__PowerBi__DatasetId: "${StatsWeb__PowerBi__DatasetId:-}"
+      StatsWeb__PowerBi__HomeDashboardPageName: "${StatsWeb__PowerBi__HomeDashboardPageName:-}"
+      StatsWeb__PowerBi__ApiBaseUrl: "${StatsWeb__PowerBi__ApiBaseUrl:-https://api.powerbi.com/v1.0/myorg}"
+      StatsWeb__PowerBi__EmbedMode: "${StatsWeb__PowerBi__EmbedMode:-AppOwnsData}"
+      StatsWeb__Fabric__CapacityName: "${StatsWeb__Fabric__CapacityName:-}"
+      StatsWeb__Fabric__WorkspaceName: "${StatsWeb__Fabric__WorkspaceName:-}"
+      StatsWeb__Fabric__LakehouseName: "${StatsWeb__Fabric__LakehouseName:-}"
+      StatsWeb__Fabric__SemanticModelName: "${StatsWeb__Fabric__SemanticModelName:-}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:${STATS_WEB_PORT:-8080}/health"]
       interval: 30s

@@ -341,11 +341,11 @@ Expected header context:
 
 Initial report sections:
 
+- Financial overview.
 - Spending categories.
 - Classification quality.
 - Source document coverage.
-- Data quality and confidence.
-- Transaction drilldown.
+- Review impact.
 
 The Reports page must include selected-section context so users understand what each section answers, which data it uses, and what should be reviewed before trusting the numbers.
 
@@ -353,11 +353,11 @@ Expected initial sections:
 
 | Section | Question Answered | Expected Content |
 | --- | --- | --- |
+| Financial overview | What changed in spending, and is the current period moving up or down? | Prior-month expense total, current running expense total, movement against prior month, monthly history, and context about what to check before trusting category-level conclusions |
 | Spending categories | Where is the money going, and which categories drive spend? | Category breakdown, amount, share of total, confidence/readiness, review count, uncategorized total, and link to review uncategorized transactions |
 | Classification quality | How reliable are category and transaction labels? | Categorized vs uncategorized counts, unknown transaction type counts, low-confidence labels, pending/approved/rejected suggestion counts when available, and labels needing review |
 | Source coverage | Is the report based on enough source material? | Months covered, documents per month, transactions per month, missing/weak months, source institution mix, and OCR/validation issue impact |
-| Data quality and confidence | What weakens trust in the reported numbers? | Review-required transactions, low OCR quality documents, validation warnings, missing dates/amounts/categories, duplicates/exclusions, and affected totals |
-| Transaction drilldown | Which records explain a category, issue, or trend? | Filterable transaction table with date, description, category, amount, confidence, source document, and review status |
+| Review impact | What weakens trust in the reported numbers? | Review-required transactions, low OCR quality documents, validation warnings, missing dates/amounts/categories, duplicates/exclusions, and affected totals |
 
 Deferred report sections:
 
@@ -370,8 +370,9 @@ When Power BI is not configured, the Reports page must show a clear not-configur
 
 Current alignment:
 
-- `/Reports` already exists as an authenticated deferred reports shell.
-- First M11 work should replace the generic deferred panel with native report-section navigation, context copy, not-configured/error states, and placeholders that can later bind to Fabric/Power BI-backed analytics data.
+- `/Reports` exists as an authenticated native analytics workbench, not a pasted Power BI report frame.
+- The first Reports implementation now uses native report-section navigation, report panels, currency/refresh context, financial overview metrics, monthly history, and controlled not-configured/error states.
+- Spending categories and classification quality have dedicated report sections, but category totals remain dependent on stable persisted classification data from M7/M8/M9.
 - A full Power BI report canvas may remain available for validation, analyst exploration, or future export workflows, but it should not be the default production Reports experience.
 
 ## First Dashboard Cards
@@ -379,7 +380,7 @@ Current alignment:
 | Card | Purpose | Primary Source |
 | --- | --- | --- |
 | Last month expenses | Total debit/spending for the previous calendar month | Power BI semantic model over M9 `transactions` |
-| This month running expenses | Total debit/spending from the first day of the current month to today | Power BI semantic model over M9 `transactions` |
+| This month running expenses | Total debit/spending from the first day of the reporting month to the reporting as-of date | Power BI semantic model over M9 `transactions` |
 | Top expense contributor | Highest merchant, counterparty, category, or description contributing to current-month spending | Power BI semantic model over M9 `transactions` |
 | Change vs prior month | Current month spending minus the previous month; positive means spending is higher | Power BI semantic model over M9 `transactions` |
 | Recent notable expenses | Recent high-value or unusual expenses | Power BI semantic model over M9 `transactions` and `findings` |
@@ -443,6 +444,8 @@ M11 does not own:
 ### Exchange Rate Direction
 
 Exchange rates should be refreshed outside the browser and stored as auditable reference data before Power BI uses them.
+
+Current gap to preserve: historical test data may be stored in PHP while the product default remains NZD for the New Zealand user context. The dashboard should not lose those records when NZD is selected. Once FX support exists, the selected reporting currency should convert persisted transaction amounts through an auditable exchange-rate table instead of filtering out transactions whose original currency differs from the selected display currency.
 
 Recommended flow:
 
@@ -615,7 +618,8 @@ Reporting model status:
 - First semantic model contract has been defined in `docs/M11-powerbi-semantic-model-contract.md`.
 - Draft reporting read-model SQL has been prepared in `apps/stats-data/reporting/financial_reporting_read_models.sql`.
 - M11 read-model SQL has been applied to cloud-dev Azure SQL for reporting validation.
-- Verified cloud-dev rows: `vw_reporting_transactions` 28, `vw_reporting_monthly_expenses` 4, `vw_reporting_top_expense_contributors` 19, `vw_reporting_upcoming_obligations` 1, `vw_reporting_recent_notable_expenses` 28, and `vw_reporting_document_provenance` 13.
+- The reporting read models now include `vw_reporting_spending_categories` and `vw_reporting_classification_quality` so Reports can explain category readiness and classification trust.
+- Latest verified cloud-dev rows after the current reporting update: `vw_reporting_transactions` 1, `vw_reporting_monthly_expenses` 1, `vw_reporting_top_expense_contributors` 1, `vw_reporting_spending_categories` 1, `vw_reporting_classification_quality` 1, `vw_reporting_upcoming_obligations` 0, `vw_reporting_recent_notable_expenses` 1, and `vw_reporting_document_provenance` 1.
 - Power BI semantic model `Stats Financial KPIs Dev` has been created in `Stats - Dev - Reporting`.
 - Semantic model ID is `48d2cf50-7694-44a3-8e33-6919c24677e4`.
 - Azure SQL data-source credentials have been configured for the semantic model through the Power BI datasource API without printing secret values.
@@ -626,6 +630,7 @@ Reporting model status:
 - Report ID is `6e8c2178-de48-4199-886d-1d72adb73658`.
 - Report default page display name is `Page 1`; internal page name is `8af1331343190715ce1b`.
 - `M11` is a milestone/spec/test label only. It must not be used as a prefix in production-facing Stats Web labels, Power BI report names, report pages, semantic model table names, dashboards, or user-visible artefacts.
+- Stats Web `/Reports` no longer loads the Power BI client script by default and now renders the product-facing report investigation page natively.
 - The read-model SQL is still not a formal M9 migration. M9 should promote it into migrations or a managed reporting-view deployment path after review.
 
 Cost-control rule:
@@ -699,6 +704,9 @@ Existing safe placeholders:
 | `StatsWeb:PowerBi:DatasetId` | Future semantic model/dataset identifier |
 | `StatsWeb:PowerBi:ApiBaseUrl` | Power BI REST API base URL, default `https://api.powerbi.com/v1.0/myorg` |
 | `StatsWeb:PowerBi:EmbedMode` | Planned embed mode, default `AppOwnsData` |
+| `StatsWeb:Reporting:AsOfDate` / `STATS_AS_OF_DATE` | Optional `yyyy-MM-dd` reporting clock override for historical testing, such as `2019-01-31`; blank uses the real current date |
+| `StatsWeb:Reporting:DefaultCurrency` / `STATS_REPORTING_DEFAULT_CURRENCY` | Optional initial currency selection. Committed default remains `NZD`. |
+| `StatsWeb:Reporting:FxRates` / `STATS_REPORTING_FX_RATES` | Optional comma-separated reporting FX override pairs, such as `PHP:NZD=0.0300,NZD:AUD=0.9200,NZD:USD=0.6100`, for local or historical test runs until an auditable FX reference table is available. This must convert source currency amounts into the selected reporting currency instead of filtering records out; cross-currency rates may be derived through configured bridge pairs. |
 | `StatsWeb:Fabric:CapacityName` | Future capacity name or identifier |
 | `StatsWeb:Fabric:WorkspaceName` | Future workspace display name |
 | `StatsWeb:Fabric:LakehouseName` | Future lakehouse or warehouse display name |

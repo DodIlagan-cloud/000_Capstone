@@ -68,8 +68,8 @@
       "spending_category": "food_dining",
       "spending_subcategory": "restaurant",
       "reason_code": "FOOD_DINING_SIGNALS",
-      "required_any": ["restaurant", "cafe", "coffee", "dining", "food"],
-      "signals": ["receipt", "merchant", "total", "purchase"],
+      "required_any": ["restaurant", "cafe", "coffee", "dining", "food", "superbowl"],
+      "signals": ["receipt", "merchant", "total", "purchase", "transaction_type:purchase"],
       "minimum_score": 0.35
     },
     {

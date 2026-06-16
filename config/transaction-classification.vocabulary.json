@@ -17,6 +17,7 @@
       "card_purchase",
       "eftpos_payment",
       "merchant_purchase",
+      "professional_service",
       "cash_purchase",
       "unknown"
     ],

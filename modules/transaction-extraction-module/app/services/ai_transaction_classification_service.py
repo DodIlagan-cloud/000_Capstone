@@ -20,7 +20,9 @@ AI_SKIP_MODEL_MISSING = "AI_SKIPPED_MODEL_MISSING"
 AI_SKIP_API_KEY_MISSING = "AI_SKIPPED_API_KEY_MISSING"
 AI_SKIP_ENDPOINT_MISSING = "AI_SKIPPED_ENDPOINT_MISSING"
 AI_SKIP_PROVIDER_CALL_FAILED = "AI_SKIPPED_PROVIDER_CALL_FAILED"
+AI_SKIP_PROVIDER_QUOTA_EXHAUSTED = "AI_SKIPPED_PROVIDER_QUOTA_EXHAUSTED"
 AI_SKIP_RESPONSE_PARSE_FAILED = "AI_SKIPPED_RESPONSE_PARSE_FAILED"
+_last_failure_reason: str | None = None
 
 
 def should_try_ai_classification(transaction_result: dict[str, object], category_result: dict[str, object]) -> bool:
@@ -41,6 +43,10 @@ def ai_skip_reason() -> str | None:
     return None
 
 
+def ai_classification_failure_reason() -> str | None:
+    return _last_failure_reason
+
+
 def ai_classify_transaction(
     *,
     candidate: TransactionCandidate,
@@ -50,8 +56,11 @@ def ai_classify_transaction(
     category_result: dict[str, object],
     active_recognition_context: dict[str, Any] | None = None,
 ) -> dict[str, object] | None:
+    global _last_failure_reason
+    _last_failure_reason = None
     skip_reason = ai_skip_reason()
     if skip_reason:
+        _last_failure_reason = skip_reason
         return None
     api_key = os.getenv(settings.transaction_classification_ai_api_key_env) or ""
 
@@ -74,13 +83,21 @@ def ai_classify_transaction(
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             raw_response = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        _last_failure_reason = _http_failure_reason(error)
+        return None
     except (OSError, urllib.error.URLError, TimeoutError):
+        _last_failure_reason = AI_SKIP_PROVIDER_CALL_FAILED
         return None
 
     try:
-        return _parse_ai_response(raw_response)
+        parsed_response = _parse_ai_response(raw_response)
     except (TypeError, ValueError, json.JSONDecodeError):
+        _last_failure_reason = AI_SKIP_RESPONSE_PARSE_FAILED
         return None
+    if parsed_response is None:
+        _last_failure_reason = AI_SKIP_RESPONSE_PARSE_FAILED
+    return parsed_response
 
 
 def merge_rule_and_ai_classification(
@@ -131,8 +148,12 @@ def merge_rule_and_ai_classification(
     if rule_category.get("status") == "classified" and rule_category_label != ai_category["label"]:
         conflicts.append("RULE_AI_SPENDING_CATEGORY_CONFLICT")
     if conflicts:
+        transaction_result = rule_transaction if "RULE_AI_TRANSACTION_TYPE_CONFLICT" in conflicts else _merge_scores(ai_transaction, rule_transaction)
+        category_result = rule_category if "RULE_AI_SPENDING_CATEGORY_CONFLICT" in conflicts else _merge_scores(ai_category, rule_category)
         return {
             **base,
+            "transaction": transaction_result,
+            "category": category_result,
             "classification_source": "rules_ai_conflict",
             "ai_model_name": ai_model_name,
             "ai_model_version": ai_model_version,
@@ -337,7 +358,27 @@ def _request_endpoint() -> str:
     if settings.transaction_classification_ai_provider == "gemini":
         model_name = settings.transaction_classification_ai_model.strip()
         return f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    if settings.transaction_classification_ai_provider == "openai":
+        return "https://api.openai.com/v1/chat/completions"
     return ""
+
+
+def _http_failure_reason(error: urllib.error.HTTPError) -> str:
+    body = ""
+    try:
+        body = error.read().decode("utf-8", errors="replace")
+    except OSError:
+        body = ""
+    if error.code == 429:
+        return AI_SKIP_PROVIDER_QUOTA_EXHAUSTED
+    try:
+        payload = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        payload = {}
+    status = str((payload.get("error") or {}).get("status") or "").upper() if isinstance(payload, dict) else ""
+    if status in {"RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED"}:
+        return AI_SKIP_PROVIDER_QUOTA_EXHAUSTED
+    return AI_SKIP_PROVIDER_CALL_FAILED
 
 
 def _parse_ai_response(raw_response: str) -> dict[str, object] | None:

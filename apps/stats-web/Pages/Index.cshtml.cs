@@ -21,12 +21,20 @@ public class IndexModel(
     // Exposes safe Power BI configuration state for the dashboard shell without leaking secrets.
     public bool ReportingConfigured { get; } = shellOptions.ReportingEmbedConfigured;
 
+    public string ReportingDefaultCurrency { get; } = NormalizeCurrency(shellOptions.ReportingDefaultCurrency);
+
     public bool IsAdmin { get; private set; }
     // M2 End
 
     public async Task OnGetAsync()
     {
         IsAdmin = await userContext.IsAdminAsync(HttpContext);
+    }
+
+    private static string NormalizeCurrency(string value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? "NZD" : value.Trim().ToUpperInvariant();
+        return normalized is "NZD" or "PHP" or "AUD" or "USD" ? normalized : "NZD";
     }
 }
 // M1 End

@@ -48,6 +48,15 @@ M8 deliberately does not extract transactions, rerun OCR, query the Stats databa
 | `modules/data-validation-module/app/routes/validations.py` | Created | Adds `POST /api/v1/validations`. |
 | `modules/data-validation-module/app/services/validation_service.py` | Created/Modified | Adds deterministic transaction normalization, installment balance normalization, validation findings, financial field normalization, same-batch duplicate detection, and guided review item generation from repaired OCR, suspicious text, duplicate, invalid, installment, and reconciliation signals. Review hardening on 2026-06-02 separates low-confidence diagnostics for fields, entities, and references, generalizes suspicious OCR description review gates, avoids short legitimate merchant-token false positives, and removes a dead post-cleaning ISO date format path. Gates AI-suggested outside-vocabulary transaction/spending labels until user review, then passes confirmation metadata to M9. |
 
+<!-- M8 Controlled Classification Choices Start - 2026-06-16 -->
+| `docs/M8-data-validation-module-spec.md` | Modified | Plans validation and review behavior for child-first controlled choices: users edit transaction subtype and spending subcategory, while M8 verifies or derives parent type/category from M9 mapping context. |
+| `contracts/transactions/README.md` | Modified | Records the shared parent-child classification contract used by M7, M8, Stats Web, and M9. |
+| `modules/data-validation-module/app/models/validation.py` | Modified | Accepts optional active recognition context so M8 can validate parent-child classification relationships. |
+| `modules/data-validation-module/app/services/validation_service.py` | Modified | Derives parent transaction type/category from active child mappings when M7 supplies mismatched parents and emits `CLASSIFICATION_PARENT_CHILD_MISMATCH` findings. |
+| `modules/data-validation-module/app/services/validation_service.py` | Modified | Treats `prior_merchant_human_confirmed` classifications as trusted Ready rows when values are complete, active, and non-conflicted, while keeping conflicted/inactive learned profiles review-gated. |
+| `tests/unit/data_validation_module/test_validation_service.py` | Modified | Covers parent derivation for mismatched transaction subtype and spending subcategory mappings plus learned merchant classifications staying out of Review when safe. |
+<!-- M8 Controlled Classification Choices End - 2026-06-16 -->
+
 ## Container and Test Runner Wiring
 
 | File | Change Type | Description |

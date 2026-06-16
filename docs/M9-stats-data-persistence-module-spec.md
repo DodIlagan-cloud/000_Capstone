@@ -38,6 +38,8 @@ Earlier modules may still be incomplete while this spec is refined. The purpose 
 - Shape stored transaction and document data so later dashboard/reporting modules can query totals, trends, status counts, categories, sources, and review backlogs without rereading source files or rerunning processing modules.
 - Preserve document-level financial facts for M11 to answer obligations, payments, reconciliation, credit exposure, and evidence-quality questions.
 - Treat Upload transaction review/accept/save as a human-confirmation path for AI-suggested transaction and spending labels, activating accepted new labels/subtypes during save with audit metadata.
+- Learn reusable merchant classifications from human-confirmed saved transactions so repeated merchants can be classified without repeated AI calls or user review.
+- Expose an internal learned merchant classification lookup for M7 that returns only safe, active, non-conflicted exact normalized merchant matches during the MVP.
 
 ## Non-Goals
 
@@ -50,6 +52,77 @@ Earlier modules may still be incomplete while this spec is refined. The purpose 
 - Production cloud database deployment.
 
 ## Data To Store
+
+### Learned Merchant Classification Profiles
+
+M9 owns the durable learning layer for reusable merchant classifications. M7 may consume this layer, but M7 must not persist learned profiles itself.
+
+MVP learning rules:
+
+- Learn only from transactions saved through a user-reviewed or user-accepted workflow where `classification_human_confirmed = true`.
+- Learn only when `transaction_subtype` and `spending_subcategory` are present, active, and not `unknown`.
+- Derive `transaction_type` and `spending_category` from active parent-child mappings where possible; reject or review-gate saves where child and parent classifications conflict.
+- Reuse only exact normalized merchant matches for MVP. Fuzzy matching is explicitly deferred.
+- Do not learn from unreviewed AI output, failed saves, skipped duplicate rows, invalid rows, or post-MVP automated/email ingestion rows that have not been human-confirmed.
+
+Recommended table: `merchant_classification_profiles`
+
+| Field | Purpose |
+| --- | --- |
+| `merchant_profile_id` | Stable profile identifier. |
+| `merchant_key` | Normalized merchant/counterparty key used for exact matching. |
+| `merchant_display_name` | Human-readable merchant name from the latest or best confirmed transaction. |
+| `transaction_type` | Active parent movement type derived from subtype. |
+| `transaction_subtype` | Learned movement child label. |
+| `spending_category` | Active parent reporting category derived from subcategory. |
+| `spending_subcategory` | Learned reporting child label. |
+| `classification_source` | `human_confirmed_transaction`. |
+| `confirmation_count` | Number of matching human-confirmed saves supporting this profile. |
+| `conflict_count` | Number of later human-confirmed saves that disagreed with the current profile. |
+| `profile_status` | `active`, `conflicted`, `inactive`, or `retired`. |
+| `first_confirmed_transaction_id` | First saved transaction that taught the profile. |
+| `last_confirmed_transaction_id` | Most recent supporting saved transaction. |
+| `last_confirmed_by_user_id` | User who last confirmed the active profile. |
+| `last_confirmed_at_utc` | Timestamp of last supporting confirmation. |
+| `created_at_utc`, `updated_at_utc` | Profile lifecycle timestamps. |
+
+Recommended indexes:
+
+- Unique index on `merchant_key` for active exact-match lookup.
+- Index on `profile_status`, `merchant_key`.
+- Index on `last_confirmed_at_utc` for audit/review.
+
+Save-time upsert behavior:
+
+1. M9 computes the same normalized merchant key used by M7 lookup.
+2. If no profile exists and the saved transaction is human-confirmed with complete active classifications, M9 inserts an active profile.
+3. If an active profile exists with the same transaction/spending child values, M9 increments `confirmation_count` and updates the last-confirmed metadata.
+4. If an active profile exists with different transaction or spending child values, M9 marks the profile `conflicted`, increments `conflict_count`, and does not let future M7 calls auto-apply it until a future admin or user-management workflow resolves the conflict.
+5. If active vocabulary changes later deactivate, rename, or merge a profile's labels, M9 must either synchronize the profile through the same controlled label-sync path or mark it inactive/conflicted so M7 cannot auto-apply stale labels.
+
+Internal lookup behavior for M7:
+
+```text
+GET /api/v1/internal/merchant-classifications/lookup
+```
+
+The lookup accepts a transaction description and optional merchant/counterparty evidence, document type/subtype, direction, and source context. It returns:
+
+- normalized `merchant_key`
+- match status: `matched`, `not_found`, `conflicted`, `inactive`, or `unsafe`
+- match type: `exact_normalized_merchant` for MVP
+- learned transaction type/subtype and spending category/subcategory when safe
+- profile confidence derived from confirmation count and conflict state
+- reason codes such as `PRIOR_MERCHANT_CLASSIFICATION_REUSED`, `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT`, or `PRIOR_MERCHANT_CLASSIFICATION_INACTIVE`
+
+The lookup must not expose unrelated users' transaction details, raw OCR text, secrets, or full source documents. The MVP may share learned merchant profiles across users only if the project explicitly chooses global learning; otherwise profiles must be scoped by user or tenant. Until that decision is made, the implementation should prefer user-scoped profiles or include an explicit `profile_scope` field.
+
+Deferred fuzzy matching:
+
+- Fuzzy matching must not be part of the MVP exact-match implementation.
+- Later fuzzy matching should run only after exact lookup fails.
+- It must require a high similarity threshold, avoid short/generic merchant names, detect ambiguous close matches, and route ambiguous or low-confidence matches to review.
+- Fuzzy-applied rows must use a separate classification source such as `prior_merchant_fuzzy_human_confirmed`.
 
 ### Identity-Owned Data
 
@@ -320,10 +393,10 @@ This is the core durable financial data M9 should store from Data Validation nor
 | `signed_amount` | Debit/credit signed value for reporting |
 | `source_institution` | Bank, merchant, provider, or counterparty source |
 | `merchant_or_counterparty` | Optional later normalized merchant/payee |
-| `transaction_type` | M7/M8-preserved movement type, such as purchase, payment, transfer, refund, fee, interest, installment, adjustment, tax, or unknown |
-| `transaction_subtype` | More specific movement subtype, such as card purchase, EFTPOS payment, bank transfer, credit-card payment, finance charge, late-payment fee, statement credit, or reversal |
-| `spending_category` | M7/M8-preserved MVP reporting category, such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized |
-| `spending_subcategory` | Optional finer reporting bucket |
+| `transaction_type` | Derived parent movement type for reporting, such as purchase, payment, transfer, refund, fee, interest, installment, adjustment, tax, or unknown |
+| `transaction_subtype` | Required controlled movement child choice, such as card purchase, EFTPOS payment, bank transfer, credit-card payment, finance charge, late-payment fee, statement credit, or reversal |
+| `spending_category` | Derived parent MVP reporting category, such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized |
+| `spending_subcategory` | Required controlled spending child choice |
 | `category` | Backward-compatible or user-facing category alias; should converge with `spending_category` unless a user override model separates suggested and confirmed values |
 | `classification_source` | `rules`, `ai`, `rules_ai_merged`, `user_override`, or `unknown` |
 | `transaction_type_confidence` | Confidence for transaction type/subtype classification |
@@ -369,7 +442,15 @@ M9 owns durable storage and synchronization for recognition-label governance. Th
 
 Committed recognition JSON files are deprecated for runtime use. They may be retained temporarily only as migration seed/reference material until equivalent M9 seed data exists. M5 and M7 must read active approved settings from M9. If M9 recognition settings are unavailable, M5/M7 must fail the classification portion clearly rather than silently using stale JSON files from the container image.
 
-M9 must expose a compact active-recognition context for classifiers before any AI-assisted request is made. That context should include approved document types/subtypes, transaction types/subtypes, spending categories/subcategories, enabled aliases/rules, deprecation hints, merge hints, and stable vocabulary identifiers. M5 and M7 use this context to constrain AI prompts so existing active labels are preferred and proposed new labels are explicitly distinguishable from approved labels.
+M9 must expose a compact active-recognition context for classifiers before any AI-assisted request is made. That context should include approved document types/subtypes, transaction subtype-to-type mappings, spending subcategory-to-category mappings, enabled aliases/rules, deprecation hints, merge hints, and stable vocabulary identifiers. M5 and M7 use this context to constrain AI prompts so existing active labels are preferred and proposed new labels are explicitly distinguishable from approved labels.
+
+For MVP Upload review, M9 is the source of truth for controlled classification choices:
+
+- Stats Web should display only active `transaction_subtype` and `spending_subcategory` choices, plus any M7/M8 supplied user-confirmable proposed child values for the current row.
+- `transaction_type` and `spending_category` are derived from the selected child values and remain persisted/reporting fields.
+- Save requests must validate that every child value maps to exactly one parent, or carry reviewed outside-vocabulary metadata that allows M9 to activate the child under an accepted parent during save.
+- If a payload supplies a parent that conflicts with the selected child mapping, M9 must derive the parent from the child mapping or reject/review-gate the save when the conflict cannot be resolved safely.
+- New human-confirmed child values activated during Upload save must be stored with their parent relationship so the next active-recognition context exposes them as controlled dropdown options.
 
 The accepted governance flows are:
 
@@ -390,7 +471,7 @@ Recommended durable tables:
 
 | Table | Purpose |
 | --- | --- |
-| `recognition_labels` | Active approved labels for document type/subtype, transaction type/subtype, and spending category/subcategory. Includes status, display label, description, sort order, created/updated audit fields, and deprecation metadata. |
+| `recognition_labels` | Active approved labels for document type/subtype, transaction type/subtype, and spending category/subcategory. Includes parent-child relationships for transaction subtype-to-type and spending subcategory-to-category, status, display label, description, sort order, created/updated audit fields, and deprecation metadata. |
 | `recognition_rules` | Active approved deterministic rule signals tied to labels, including rule scope, match terms/patterns, weights, minimum evidence requirements, enabled status, and audit fields. |
 | `recognition_label_suggestions` | Pending, approved, rejected, or merged suggestions from M5/M7, including source document/transaction links, proposed labels, redacted evidence, confidence, and reason codes. |
 | `recognition_config_changes` | Audit trail for approved database setting changes, including admin user or save-confirming user, action type, before/after labels/rules, timestamps, confirmation source, and change reason. |
@@ -642,6 +723,7 @@ Recommended table names:
 | `processing_runs` | Module run traceability summaries |
 | `transaction_batches` | User-confirmed save attempts |
 | `transactions` | Durable normalized financial transactions |
+| `merchant_classification_profiles` | Human-confirmed merchant learning used to classify repeated merchants before AI |
 | `financial_fields` | Document-level fields and extracted totals |
 | `document_sections` | Data Validation source-section context for robust review and dashboard drilldown |
 | `statement_summaries` | Credit-card/bill statement obligations and exposure |
@@ -727,9 +809,10 @@ The M9 schema should therefore keep:
 12. The adapter creates or updates the `stats_documents` row.
 13. The adapter stores processing run summaries, transaction batches, normalized transactions, financial fields, document sections, entities, references, line items, installments, findings, and review items.
 14. M9 inserts non-duplicate valid records into `transactions`; the unique duplicate-key index remains the final safety net.
-15. M9 marks duplicate or invalid records as skipped/review items.
-16. After the Azure SQL commit succeeds, M9 deletes the temporary handoff file on a best-effort basis and logs cleanup failures without failing the committed save.
-17. M9 returns a save summary to Stats Web.
+15. For each saved human-confirmed transaction with complete active classifications, M9 upserts or updates the learned merchant classification profile.
+16. M9 marks duplicate or invalid records as skipped/review items.
+17. After the Azure SQL commit succeeds, M9 deletes the temporary handoff file on a best-effort basis and logs cleanup failures without failing the committed save.
+18. M9 returns a save summary to Stats Web, including learned-profile updates and conflicts when applicable.
 
 ## Stats Web Save Requirements
 
@@ -795,6 +878,7 @@ Cloud-first deployment order:
 | `/api/v1/processing-jobs` | `POST` | Create a durable upload processing job |
 | `/api/v1/processing-jobs/{job_id}` | `GET/PATCH` | Read or update upload processing job status |
 | `/api/v1/processing-jobs/{job_id}/steps` | `POST/GET` | Append or read durable per-step timing summaries for an upload processing job |
+| `/api/v1/internal/merchant-classifications/lookup` | `GET` | Return an exact learned human-confirmed merchant classification profile for M7 when safe |
 | `/api/v1/documents` | `GET` | List stored documents for current user/admin scope |
 | `/api/v1/documents/{document_id}` | `GET` | Retrieve document workflow summary |
 | `/api/v1/transactions` | `GET` | Query saved transactions |
@@ -829,6 +913,9 @@ Cloud-first deployment order:
 | `DUPLICATE_MATCH_AMOUNT_TOLERANCE` | `0.01` | Amount comparison tolerance |
 | `STORE_SOURCE_TEXT_SNIPPETS` | `false` | Avoid storing sensitive OCR snippets by default |
 | `MAX_TRANSACTION_BATCH_SIZE` | `1000` | Save request guardrail |
+| `ENABLE_MERCHANT_CLASSIFICATION_LEARNING` | `true` | Enables save-time upsert of human-confirmed merchant profiles. |
+| `ENABLE_MERCHANT_CLASSIFICATION_LOOKUP` | `true` | Enables internal lookup of learned merchant profiles by M7. |
+| `MERCHANT_CLASSIFICATION_PROFILE_SCOPE` | `user` | Controls whether learned profiles are user-scoped or global; user-scoped is the safer MVP default. |
 
 ## Security And Data Governance
 
@@ -841,6 +928,8 @@ Cloud-first deployment order:
 - Allow administrator visibility only through explicit admin routes or role checks.
 - Require administrator role for admin recognition settings writes, suggestion approvals, active database setting edits, and database label synchronization. The reviewed transaction save path may activate only the accepted AI-suggested transaction/spending labels carried by that save payload for that user-owned transaction batch.
 - Audit every recognition label/rule approval, rejection, edit, delete/deactivation, rename, merge, historical-record sync, and save-time user-confirmed label activation.
+- Audit learned merchant profile creation, update, conflict marking, deactivation, and future conflict resolution.
+- Learned merchant lookup responses must return classification profiles, not underlying transaction rows from other users. User-scoped profile lookup is the safest MVP default unless global learning is explicitly approved.
 - Store only redacted evidence snippets for suggestions; do not store raw OCR text or full financial text in suggestion records.
 - Never expose identity secrets, password hashes, tokens, or database credentials through M9 responses.
 
@@ -851,7 +940,7 @@ From M13 onward, official M9 verification should run through the Stats container
 | Test Type | Required Coverage |
 | --- | --- |
 | Unit tests | Duplicate-key generation, persistence mapping, validation-result mapping |
-| API tests | Save batch, query documents, query transactions, duplicate save behavior, save-time user-confirmed label activation, admin recognition-setting suggestion approval, label/rule add/edit/delete validation, sync-preview counts |
+| API tests | Save batch, query documents, query transactions, duplicate save behavior, save-time user-confirmed label activation, learned merchant profile lookup/upsert/conflict behavior, admin recognition-setting suggestion approval, label/rule add/edit/delete validation, sync-preview counts |
 | Integration tests | Azure SQL schema creation/migration and cloud database connectivity |
 | Regression tests | M1 identity still works; Data Validation checkpoint can call M9 save path; label rename/merge synchronization preserves reporting dimensions |
 | Evidence tests | Browser save flow and database verification screenshots/output |
@@ -867,6 +956,9 @@ From M13 onward, official M9 verification should run through the Stats container
 - M9 exposes or can derive query results for M11 dashboard summaries, trends, obligations, reconciliation status, review backlog, and processing health.
 - M9 stores active recognition labels/rules, pending recognition label suggestions, and admin approval/rejection audit records.
 - M9 saves user-reviewed AI-suggested transaction/spending labels as human-confirmed classifications and upserts any new labels/subtypes into active vocabulary during the save workflow.
+- M9 learns reusable merchant classifications from human-confirmed saved transactions and exposes safe exact-match learned classifications to M7 before AI classification.
+- Learned merchant profiles are not created from unreviewed AI output, failed saves, duplicate-skipped rows, invalid rows, or automated/email ingestion rows without human confirmation.
+- If the same normalized merchant receives conflicting human-confirmed classifications, M9 marks the learned profile conflicted so future transactions return to Review instead of Ready.
 - If a reviewed save payload contains an accepted AI-suggested transaction type, transaction subtype, spending category, or spending subcategory, the saved transaction persists those accepted values rather than fallback `unknown` or `uncategorized` values.
 - During save, every accepted classification value or subtype not already in active recognition vocabulary is added to active vocabulary through an audited, idempotent M9 operation.
 - Saved rows confirmed through manual Upload transaction review are marked human-confirmed, not low-confidence, not pending admin approval, and not blocked by the `/Admin/Classifications` pending-suggestion workflow.

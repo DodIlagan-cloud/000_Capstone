@@ -5,6 +5,7 @@ M9 End"""
 from __future__ import annotations
 
 import mimetypes
+import json
 import os
 import re
 import sys
@@ -23,7 +24,10 @@ if str(STATS_DATA_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(STATS_DATA_SCRIPTS))
 
 from stats_data.validation_persistence import (  # noqa: E402
+    SPENDING_SUBCATEGORY_PARENT_MAP,
+    TRANSACTION_SUBTYPE_PARENT_MAP,
     _activate_confirmed_classifications,
+    _classification_activation_allowed,
     _execute_insert_if_missing,
     _mark_promoted,
     build_validation_persistence_plan,
@@ -35,6 +39,10 @@ from stats_data.validation_persistence import (  # noqa: E402
     table_counts,
     write_validation_payload_temp_file,
 )
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def test_build_validation_persistence_plan_uses_real_document_pipeline_output():
@@ -170,6 +178,256 @@ def test_build_validation_persistence_plan_skips_admin_suggestion_for_human_conf
     assert transaction["recognition_suggestion_status"] == "none"
 
 
+def test_build_validation_persistence_plan_derives_category_parent_from_reviewed_subcategory():
+    result = {
+        "validation_id": "validate_parent_derivation",
+        "status": "completed",
+        "document_type": "statement",
+        "summary": {
+            "normalized_record_count": 1,
+            "valid_record_count": 1,
+            "warning_record_count": 0,
+            "invalid_record_count": 0,
+            "duplicate_record_count": 0,
+        },
+        "evaluation": {},
+        "document": {
+            "ingestion_id": "ingest_parent_derivation",
+            "original_filename": "reviewed-transaction.pdf",
+            "normalized_filename": "reviewed-transaction.pdf",
+        },
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "source_candidate_id": "txn_1",
+                "transaction_date": "2026-06-16",
+                "description": "Immigration Agency Service",
+                "amount": 125.0,
+                "currency": "NZD",
+                "direction": "debit",
+                "signed_amount": -125.0,
+                "confidence": 0.94,
+                "quality_status": "valid",
+                "classification_human_confirmed": True,
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_source": "user_confirmed_classification",
+                "transaction_type": "unknown",
+                "transaction_subtype": "professional_service",
+                "spending_category": "uncategorized",
+                "spending_subcategory": "immigration_services",
+            }
+        ],
+    }
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transaction = _only(plan, "transactions")
+
+    assert transaction["transaction_type"] == "purchase"
+    assert transaction["transaction_subtype"] == "professional_service"
+    assert transaction["spending_category"] == "professional_services"
+    assert transaction["spending_subcategory"] == "immigration_services"
+    assert transaction["category"] == "Professional Services"
+    assert transaction["classification_human_confirmed"] == 1
+
+
+def test_build_validation_persistence_plan_derives_shopping_parent_from_clothing_subcategory():
+    result = {
+        "validation_id": "validate_clothing_parent_derivation",
+        "status": "completed",
+        "document_type": "statement",
+        "summary": {
+            "normalized_record_count": 1,
+            "valid_record_count": 1,
+            "warning_record_count": 0,
+            "invalid_record_count": 0,
+            "duplicate_record_count": 0,
+        },
+        "evaluation": {},
+        "document": {
+            "ingestion_id": "ingest_clothing_parent_derivation",
+            "original_filename": "reviewed-clothing.pdf",
+            "normalized_filename": "reviewed-clothing.pdf",
+        },
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "source_candidate_id": "txn_1",
+                "transaction_date": "2026-06-16",
+                "description": "Clothing Store",
+                "amount": 45.0,
+                "currency": "NZD",
+                "direction": "debit",
+                "signed_amount": -45.0,
+                "confidence": 0.94,
+                "quality_status": "valid",
+                "classification_human_confirmed": True,
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_source": "user_confirmed_classification",
+                "transaction_type": "purchase",
+                "transaction_subtype": "merchant_purchase",
+                "spending_category": "uncategorized",
+                "spending_subcategory": "clothing",
+            }
+        ],
+    }
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transaction = _only(plan, "transactions")
+
+    assert transaction["spending_category"] == "shopping"
+    assert transaction["spending_subcategory"] == "clothing"
+
+
+def test_build_validation_persistence_plan_derives_parent_from_active_context_maps():
+    result = {
+        "validation_id": "validate_dynamic_parent_derivation",
+        "status": "completed",
+        "document_type": "statement",
+        "summary": {
+            "normalized_record_count": 1,
+            "valid_record_count": 1,
+            "warning_record_count": 0,
+            "invalid_record_count": 0,
+            "duplicate_record_count": 0,
+        },
+        "evaluation": {},
+        "document": {
+            "ingestion_id": "ingest_dynamic_parent_derivation",
+            "original_filename": "reviewed-dynamic-parent.pdf",
+            "normalized_filename": "reviewed-dynamic-parent.pdf",
+        },
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "source_candidate_id": "txn_1",
+                "transaction_date": "2026-06-16",
+                "description": "Dynamic Admin Label",
+                "amount": 45.0,
+                "currency": "NZD",
+                "direction": "debit",
+                "signed_amount": -45.0,
+                "confidence": 0.94,
+                "quality_status": "valid",
+                "classification_human_confirmed": True,
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_source": "user_confirmed_classification",
+                "transaction_type": "unknown",
+                "transaction_subtype": "visa_fee",
+                "transaction_subtype_parent_map": {"visa_fee": "fee"},
+                "spending_category": "uncategorized",
+                "spending_subcategory": "pet_grooming",
+                "spending_subcategory_parent_map": {"pet_grooming": "pets"},
+            }
+        ],
+    }
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transaction = _only(plan, "transactions")
+
+    assert transaction["transaction_type"] == "fee"
+    assert transaction["transaction_subtype"] == "visa_fee"
+    assert transaction["spending_category"] == "pets"
+    assert transaction["spending_subcategory"] == "pet_grooming"
+
+
+def test_build_validation_persistence_plan_keeps_missing_record_ids_distinct():
+    result = {
+        "validation_id": "validate_missing_record_ids",
+        "status": "completed",
+        "document_type": "statement",
+        "summary": {
+            "normalized_record_count": 2,
+            "valid_record_count": 2,
+            "warning_record_count": 0,
+            "invalid_record_count": 0,
+            "duplicate_record_count": 0,
+        },
+        "evaluation": {},
+        "document": {
+            "ingestion_id": "ingest_missing_record_ids",
+            "original_filename": "missing-record-ids.pdf",
+            "normalized_filename": "missing-record-ids.pdf",
+        },
+        "normalized_records": [
+            {
+                "transaction_date": "2026-06-16",
+                "description": "First Missing Id",
+                "amount": 10.0,
+                "currency": "NZD",
+                "direction": "debit",
+                "signed_amount": -10.0,
+                "confidence": 0.94,
+                "quality_status": "valid",
+                "transaction_type": "purchase",
+                "transaction_subtype": "merchant_purchase",
+                "spending_category": "shopping",
+                "spending_subcategory": "general_merchandise",
+            },
+            {
+                "transaction_date": "2026-06-16",
+                "description": "Second Missing Id",
+                "amount": 20.0,
+                "currency": "NZD",
+                "direction": "debit",
+                "signed_amount": -20.0,
+                "confidence": 0.94,
+                "quality_status": "valid",
+                "transaction_type": "purchase",
+                "transaction_subtype": "merchant_purchase",
+                "spending_category": "transport",
+                "spending_subcategory": "rideshare",
+            },
+        ],
+    }
+
+    plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
+    transactions = [operation.values for operation in plan.operations if operation.table == "transactions"]
+
+    assert len(transactions) == 2
+    assert transactions[0]["transaction_id"] != transactions[1]["transaction_id"]
+
+
+def test_persistence_parent_maps_cover_committed_vocabularies():
+    transaction_vocabulary = _load_json(REPO_ROOT / "config" / "transaction-classification.vocabulary.json")
+    spending_vocabulary = _load_json(REPO_ROOT / "config" / "spending-category.vocabulary.json")
+
+    transaction_children = {
+        child
+        for children in transaction_vocabulary["transaction_subtypes"].values()
+        for child in children
+        if child != "unknown"
+    }
+    spending_children = {
+        child
+        for children in spending_vocabulary["spending_subcategories"].values()
+        for child in children
+        if child != "unknown"
+    }
+
+    assert transaction_children <= set(TRANSACTION_SUBTYPE_PARENT_MAP)
+    assert spending_children <= set(SPENDING_SUBCATEGORY_PARENT_MAP)
+
+
+def test_ai_suggestion_activation_requires_matching_suggested_label():
+    record = {
+        "classification_human_confirmed": True,
+        "classification_source": "user_confirmed_ai_suggestion",
+        "classification_confirmation_mode": "upload_transaction_review",
+        "classification_vocabulary_status": "outside_vocabulary_proposal",
+        "recognition_suggestion_id": "",
+        "transaction_type": "purchase",
+        "transaction_subtype": "merchant_purchase",
+        "spending_category": "shopping",
+        "spending_subcategory": "clothing",
+        "suggested_transaction_type": "transfer",
+        "suggested_transaction_subtype": "bank_transfer",
+        "suggested_spending_category": "transfers",
+        "suggested_spending_subcategory": "bank_transfer",
+    }
+
+    assert _classification_activation_allowed(record) is False
+
+
 def test_activate_confirmed_classifications_upserts_labels_and_audit_rows():
     cursor = _FakeRecognitionCursor()
     result = {
@@ -237,38 +495,63 @@ def test_unconfirmed_outside_vocabulary_label_persists_fallback_and_admin_sugges
     assert suggestion["suggested_transaction_type"] == "membership_topup"
 
 
-def test_rules_confirmed_outside_vocabulary_keeps_admin_suggestion_trace():
-    result, _fixture_file = _actual_validation_result()
-    record = result["normalized_records"][0]
-    record.update(
-        {
-            "classification_human_confirmed": True,
-            "classification_confirmation_mode": "upload_transaction_review",
-            "classification_source": "user_confirmed_classification",
-            "classification_vocabulary_status": "outside_vocabulary_proposal",
-            "recognition_suggestion_id": "suggestion_rules_123",
-            "recognition_suggestion_status": "pending",
-            "transaction_type": "membership_topup",
-            "transaction_subtype": "transport_card_topup",
-            "spending_category": "public_transport",
-            "spending_subcategory": "stored_value_topup",
-            "suggested_transaction_type": "membership_topup",
-            "suggested_transaction_subtype": "transport_card_topup",
-            "suggested_spending_category": "public_transport",
-            "suggested_spending_subcategory": "stored_value_topup",
-            "suggestion_source": "rules",
-        }
-    )
+def test_user_confirmed_outside_vocabulary_bypasses_admin_suggestion_trace():
+    result = {
+        "validation_id": "validate_user_confirmed_outside_vocab",
+        "status": "completed",
+        "document_type": "statement",
+        "summary": {
+            "normalized_record_count": 1,
+            "valid_record_count": 1,
+            "warning_record_count": 0,
+            "invalid_record_count": 0,
+            "duplicate_record_count": 0,
+        },
+        "evaluation": {},
+        "document": {
+            "ingestion_id": "ingest_user_confirmed_outside_vocab",
+            "original_filename": "reviewed-transaction.pdf",
+            "normalized_filename": "reviewed-transaction.pdf",
+        },
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "source_candidate_id": "txn_1",
+                "transaction_date": "2026-06-16",
+                "description": "Transit card top up",
+                "amount": 45.0,
+                "currency": "NZD",
+                "direction": "debit",
+                "signed_amount": -45.0,
+                "confidence": 0.94,
+                "quality_status": "valid",
+                "classification_human_confirmed": True,
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_source": "user_confirmed_classification",
+                "classification_vocabulary_status": "outside_vocabulary_proposal",
+                "recognition_suggestion_id": "suggestion_rules_123",
+                "recognition_suggestion_status": "confirmed_by_upload_review",
+                "transaction_type": "membership_topup",
+                "transaction_subtype": "transport_card_topup",
+                "spending_category": "public_transport",
+                "spending_subcategory": "stored_value_topup",
+                "suggested_transaction_type": "membership_topup",
+                "suggested_transaction_subtype": "transport_card_topup",
+                "suggested_spending_category": "public_transport",
+                "suggested_spending_subcategory": "stored_value_topup",
+                "suggestion_source": "rules",
+            }
+        ],
+    }
 
     plan = build_validation_persistence_plan(result, uploaded_by_user_id="local-real-fixture-user")
     transaction = _only(plan, "transactions")
-    suggestion = _only(plan, "recognition_label_suggestions")
 
     assert transaction["transaction_type"] == "membership_topup"
-    assert transaction["recognition_suggestion_id"] == "suggestion_rules_123"
+    assert transaction["recognition_suggestion_id"] is None
+    assert transaction["recognition_suggestion_status"] == "none"
     assert transaction["classification_human_confirmed"] == 1
-    assert suggestion["suggestion_id"] == "suggestion_rules_123"
-    assert suggestion["suggestion_source"] == "rules"
+    assert not [operation for operation in plan.operations if operation.table == "recognition_label_suggestions"]
 
 
 def test_client_confirmation_without_review_shape_does_not_activate_label():
@@ -293,7 +576,7 @@ def test_client_confirmation_without_review_shape_does_not_activate_label():
     assert cursor.calls == []
 
 
-def test_ai_confirmed_label_activation_allows_user_refined_subtype():
+def test_ai_confirmed_label_activation_requires_full_parent_child_match():
     cursor = _FakeRecognitionCursor()
     result = {
         "normalized_records": [
@@ -316,14 +599,89 @@ def test_ai_confirmed_label_activation_allows_user_refined_subtype():
 
     _activate_confirmed_classifications(cursor, result, saved_by_user_id="user_1")
 
+    assert cursor.calls == []
+
+
+def test_user_entered_spending_subcategory_activation_without_admin_suggestion():
+    cursor = _FakeRecognitionCursor()
+    result = {
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "classification_human_confirmed": True,
+                "classification_source": "user_confirmed_classification",
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_vocabulary_status": "outside_vocabulary_proposal",
+                "transaction_type": "purchase",
+                "transaction_subtype": "professional_service",
+                "spending_category": "professional_services",
+                "spending_subcategory": "immigration_services",
+            }
+        ]
+    }
+
+    _activate_confirmed_classifications(cursor, result, saved_by_user_id="user_1")
+
     sql_text = "\n".join(sql for sql, _params in cursor.calls)
     params = [params for _sql, params in cursor.calls]
 
     assert "INSERT INTO dbo.recognition_labels" in sql_text
     assert any(
-        len(call_params) > 4 and call_params[1] == "transaction" and call_params[2] == "membership_topup" and call_params[4] == '["unknown", "top_up"]'
+        len(call_params) > 4 and call_params[1] == "spending" and call_params[2] == "professional_services" and call_params[4] == '["uncategorized", "immigration_services"]'
         for call_params in params
     )
+
+
+def test_generic_human_override_does_not_learn_merchant_profile():
+    from stats_data.validation_persistence import _upsert_learned_merchant_classifications
+
+    cursor = _FakeRecognitionCursor()
+    result = {
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "description": "One Off Merchant",
+                "classification_human_confirmed": True,
+                "classification_source": "user_confirmed_classification",
+                "classification_confirmation_mode": "upload_transaction_review",
+                "transaction_type": "purchase",
+                "transaction_subtype": "merchant_purchase",
+                "spending_category": "shopping",
+                "spending_subcategory": "retail",
+            }
+        ]
+    }
+
+    _upsert_learned_merchant_classifications(cursor, result, validation_id="validate_1", owner_id="user_1")
+
+    assert cursor.calls == []
+
+
+def test_user_added_classification_can_learn_merchant_profile():
+    from stats_data.validation_persistence import _upsert_learned_merchant_classifications
+
+    cursor = _FakeRecognitionCursor()
+    result = {
+        "normalized_records": [
+            {
+                "record_id": "record_1",
+                "description": "New Learned Merchant",
+                "classification_human_confirmed": True,
+                "classification_source": "user_confirmed_classification",
+                "classification_confirmation_mode": "upload_transaction_review",
+                "classification_user_added_spending_subcategory": True,
+                "transaction_type": "purchase",
+                "transaction_subtype": "merchant_purchase",
+                "spending_category": "shopping",
+                "spending_subcategory": "clothing",
+            }
+        ]
+    }
+
+    _upsert_learned_merchant_classifications(cursor, result, validation_id="validate_1", owner_id="user_1")
+
+    sql_text = "\n".join(sql for sql, _params in cursor.calls)
+    assert "merchant_classification_profiles" in sql_text
 
 
 def test_build_validation_persistence_plan_persists_document_recognition_suggestion_row():

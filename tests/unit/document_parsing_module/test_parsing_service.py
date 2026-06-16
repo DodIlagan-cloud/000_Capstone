@@ -279,6 +279,63 @@ def test_classification_loads_m9_active_vocabulary_and_rules(monkeypatch):
     assert "CUSTOM_SERVICE_INVOICE_RULE" in result.reason_codes
 
 
+def test_m9_slug_signals_match_statement_phrase_text(monkeypatch):
+    monkeypatch.setattr(
+        classification_service,
+        "_load_active_settings",
+        lambda: {
+            "document_vocabulary": {
+                "document_types": ["statement", "receipt", "unknown"],
+                "document_subtypes": {
+                    "statement": ["credit_card_statement", "unknown"],
+                    "receipt": ["tax_receipt", "unknown"],
+                    "unknown": ["unknown"],
+                },
+            },
+            "document_rules": {
+                "rules": [
+                    {
+                        "document_type": "statement",
+                        "document_subtype": "credit_card_statement",
+                        "reason_code": "CREDIT_CARD_STATEMENT_SIGNALS",
+                        "required_any": ["statement_of_account"],
+                        "signals": [
+                            "credit_limit",
+                            "minimum_amount_due",
+                            "payment_due_date",
+                            "previous_balance",
+                        ],
+                        "minimum_score": 0.1,
+                    },
+                    {
+                        "document_type": "receipt",
+                        "document_subtype": "tax_receipt",
+                        "reason_code": "GENERIC_RECEIPT_SIGNALS",
+                        "required_any": ["card"],
+                        "signals": ["total", "purchase", "payment", "card"],
+                        "minimum_score": 0.1,
+                    },
+                ]
+            },
+        },
+    )
+
+    result = classify_document(
+        text=(
+            "Credit Cards Statement of Account Credit Limit 989,000.00 "
+            "Minimum Amount Due 1,612.08 Payment Due Date November 28, 2023 "
+            "Previous Balance 77,803.97 total purchase payment card"
+        ),
+        supported_document_types=["statement", "receipt", "unknown"],
+        confidence_threshold=0.35,
+        allow_unknown=True,
+    )
+
+    assert result.document_type == "statement"
+    assert result.document_subtype == "credit_card_statement"
+    assert "CREDIT_CARD_STATEMENT_SIGNALS" in result.reason_codes
+
+
 def test_classification_requires_m9_active_settings(monkeypatch):
     monkeypatch.setattr(classification_service, "_load_active_settings", lambda: None)
 

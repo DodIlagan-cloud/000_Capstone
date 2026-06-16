@@ -79,6 +79,7 @@ class Settings:
     recognition_settings_url: str
     recognition_settings_internal_key: str
     recognition_settings_cache_seconds: int
+    merchant_classification_lookup_url: str
     transaction_classification_threshold: float
     spending_category_threshold: float
     transaction_classification_ai_enabled: bool
@@ -158,6 +159,10 @@ class Settings:
             config_values.get("RECOGNITION_SETTINGS_CACHE_SECONDS"),
             15,
         )
+        self.merchant_classification_lookup_url = (
+            config_values.get("MERCHANT_CLASSIFICATION_LOOKUP_URL")
+            or "http://localhost:8018/api/v1/internal/merchant-classifications/lookup"
+        ).strip()
         self.transaction_classification_threshold = _parse_float(
             config_values.get("TRANSACTION_CLASSIFICATION_THRESHOLD"),
             0.55,
@@ -177,7 +182,7 @@ class Settings:
             config_values.get("TRANSACTION_CLASSIFICATION_AI_ENDPOINT") or ""
         ).strip()
         self.transaction_classification_ai_api_key_env = (
-            config_values.get("TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV") or "GEMINI_API_KEY"
+            config_values.get("TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV") or "OPENAI_API_KEY"
         ).strip()
         self.transaction_classification_ai_model = (
             config_values.get("TRANSACTION_CLASSIFICATION_AI_MODEL") or ""

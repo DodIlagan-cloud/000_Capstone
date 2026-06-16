@@ -106,6 +106,60 @@ def test_missing_date_unknown_direction_and_low_confidence_return_warnings():
     assert result.evaluation.finding_counts["LOW_CONFIDENCE_RECORD"] == 1
 
 
+def test_prior_merchant_human_confirmed_classification_is_ready_without_review():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="statement",
+            transaction_candidates=[
+                _classified_candidate(**{
+                    "candidate_id": "txn_learned_grab",
+                    "description": "Grabtaxi Phils - Ipg",
+                    "transaction_type_confidence": 0.4,
+                    "spending_category_confidence": 0.4,
+                    "classification_source": "prior_merchant_human_confirmed",
+                    "transaction_type_reason_codes": ["PRIOR_MERCHANT_CLASSIFICATION_REUSED"],
+                    "spending_category_reason_codes": ["PRIOR_MERCHANT_CLASSIFICATION_REUSED"],
+                    "spending_category": "transport",
+                    "spending_subcategory": "rideshare",
+                })
+            ],
+        )
+    )
+
+    assert result.status == "completed"
+    assert result.summary.valid_record_count == 1
+    assert result.summary.review_item_count == 0
+    assert "LOW_CONFIDENCE_TRANSACTION_TYPE" not in result.evaluation.finding_counts
+    assert "LOW_CONFIDENCE_SPENDING_CATEGORY" not in result.evaluation.finding_counts
+    assert result.normalized_records[0].classification_source == "prior_merchant_human_confirmed"
+
+
+def test_active_recognition_parent_maps_are_preserved_on_normalized_records():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="statement",
+            active_recognition_context={
+                "transaction": {"subtype_parent_map": {"visa_fee": "fee"}},
+                "spending": {"subcategory_parent_map": {"pet_grooming": "pets"}},
+            },
+            transaction_candidates=[
+                _classified_candidate(
+                    candidate_id="txn_dynamic_parent",
+                    transaction_type="fee",
+                    transaction_subtype="visa_fee",
+                    spending_category="pets",
+                    spending_subcategory="pet_grooming",
+                )
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert record.transaction_subtype_parent_map["visa_fee"] == "fee"
+    assert record.spending_subcategory_parent_map["pet_grooming"] == "pets"
+
+
 def test_pending_recognition_suggestion_is_preserved_and_marked_for_review():
     result = validate_data(
         DataValidationRequest(
@@ -623,6 +677,45 @@ def test_transaction_classification_fields_are_preserved_for_reporting():
     assert record.classification_source == "rules"
     assert record.ai_model_name == "gemini-2.5-flash"
     assert record.ai_confidence == 0.84
+
+
+def test_parent_classifications_are_derived_from_child_mapping_when_mismatched():
+    result = validate_data(
+        DataValidationRequest(
+            document_type="payment_proof",
+            active_recognition_context={
+                "transaction": {"subtype_parent_map": {"bank_transfer": "transfer"}},
+                "spending": {"subcategory_parent_map": {"bank_transfer": "transfers"}},
+            },
+            transaction_candidates=[
+                {
+                    "candidate_id": "txn_parent_mismatch",
+                    "date_text": "2026-01-08",
+                    "description": "Transfer to savings",
+                    "amount": 100.0,
+                    "currency": "PHP",
+                    "direction": "debit",
+                    "confidence": 0.9,
+                    "transaction_type": "purchase",
+                    "transaction_subtype": "bank_transfer",
+                    "transaction_type_confidence": 0.86,
+                    "transaction_type_status": "classified",
+                    "spending_category": "shopping",
+                    "spending_subcategory": "bank_transfer",
+                    "spending_category_confidence": 0.84,
+                    "spending_category_status": "classified",
+                    "classification_source": "rules",
+                }
+            ],
+        )
+    )
+
+    record = result.normalized_records[0]
+
+    assert record.transaction_type == "transfer"
+    assert record.spending_category == "transfers"
+    assert "CLASSIFICATION_PARENT_CHILD_MISMATCH" in record.reason_codes
+    assert result.evaluation.finding_counts["CLASSIFICATION_PARENT_CHILD_MISMATCH"] == 2
 
 
 def test_unknown_document_type_blocks_transaction_save():

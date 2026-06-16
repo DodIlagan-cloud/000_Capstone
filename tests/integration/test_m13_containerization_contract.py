@@ -109,8 +109,10 @@ def test_dockerfile_installs_and_verifies_azure_sql_driver():
 def test_dockerfile_copies_tests_for_container_execution():
     content = DOCKERFILE.read_text()
     assert "COPY tests/" in content, "Dockerfile must copy test code into the Stats runtime image"
-    assert "COPY apps/stats-web/appsettings.json /app/apps/stats-web/appsettings.json" in content, \
-        "Dockerfile must copy Stats Web appsettings for container-executed M2 config checks"
+    assert "COPY --from=dotnet-build /app/stats-web /app/stats-web" in content, \
+        "Dockerfile must copy only the published Stats Web runtime output"
+    assert "/app/apps/stats-web" not in content, \
+        "Dockerfile must not carry a second raw Stats Web copy that can diverge from the served web root"
 
 
 def test_dockerignore_excludes_real_test_input_from_image_context():

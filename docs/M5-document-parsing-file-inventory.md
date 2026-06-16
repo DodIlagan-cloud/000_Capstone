@@ -173,4 +173,18 @@ The M5 `extraction_handoff` payload remains part of the API/debug contract and e
 
 <!-- M5 Recognition Resilience Update End - 2026-06-12 -->
 
+<!-- M5 Slug Signal Matching Update Start - 2026-06-15 -->
+
+## Slug Signal Matching Update
+
+| File | Change Type | Description |
+| --- | --- | --- |
+| `docs/M5-document-parsing-module-spec.md` | Modified | Requires M5 to match canonical M9 slug signals such as `payment_due_date` against equivalent document phrase text such as `payment due date`, and adds statement-vs-receipt regression expectations for statement-like PDFs. |
+| `docs/module-test-flow-playbook.md` | Modified | Adds M5/M6 PDF statement regression proof to the planned flow without executing evidence. |
+| `modules/document-parsing-module/app/services/classification_service.py` | Modified | Normalizes M9 rule signals into equivalent slug and phrase token patterns for required anchors and weighted signals while preserving canonical diagnostics. |
+| `tests/unit/document_parsing_module/test_parsing_service.py` | Modified | Covers slug-style M9 document signals matching phrase text and statement summary evidence preventing confident receipt classification. |
+| `tests/results/M5-M7-PdfExtractionComparison-2026-06-15/` | Diagnostic | Development diagnostic evidence that identified statement PDFs being misclassified as receipts after M9 slug-style settings were loaded. It is not acceptance evidence. |
+
+<!-- M5 Slug Signal Matching Update End - 2026-06-15 -->
+
 <!-- M5/M6 End -->

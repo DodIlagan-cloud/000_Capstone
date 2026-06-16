@@ -3,6 +3,9 @@
 window.statsAccess = {
   tokenKey: "stats.accessToken",
   tokenCookieName: "stats_access_token",
+  refreshTimer: null,
+  refreshInFlight: null,
+  refreshSkewSeconds: 15 * 60,
   apiUrl(path) {
     return `${document.body.dataset.apiBaseUrl}${path}`;
   },
@@ -37,11 +40,89 @@ window.statsAccess = {
   clearToken() {
     sessionStorage.removeItem(this.tokenKey);
     document.cookie = `${this.tokenCookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+    if (this.refreshTimer) {
+      window.clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
   },
   authHeaders() {
     return {
       Authorization: `Bearer ${this.token()}`,
     };
+  },
+  tokenPayload() {
+    const token = this.token();
+    if (!token) {
+      return null;
+    }
+
+    const parts = token.split(".");
+    if (parts.length < 2) {
+      return null;
+    }
+
+    try {
+      const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const paddedPayload = payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "=");
+      return JSON.parse(window.atob(paddedPayload));
+    } catch {
+      return null;
+    }
+  },
+  tokenExpiresWithin(seconds) {
+    const payload = this.tokenPayload();
+    if (!payload?.exp) {
+      return true;
+    }
+
+    return payload.exp * 1000 <= Date.now() + seconds * 1000;
+  },
+  async refreshSession(options = {}) {
+    const token = this.token();
+    if (!token) {
+      throw new Error("Session expired. Sign in again.");
+    }
+    if (!options.force && !this.tokenExpiresWithin(this.refreshSkewSeconds)) {
+      return token;
+    }
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
+    }
+
+    this.refreshInFlight = fetch(this.apiUrl("/api/v1/auth/refresh"), {
+      method: "POST",
+      headers: this.authHeaders(),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Session expired. Sign in again.");
+        }
+        const payload = await response.json();
+        this.setToken(payload.access_token);
+        return payload.access_token;
+      })
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
+
+    return this.refreshInFlight;
+  },
+  startSessionKeepAlive(intervalMs = 10 * 60 * 1000) {
+    if (this.refreshTimer) {
+      return;
+    }
+
+    const refresh = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      this.refreshSession().catch(() => {
+        // Let the next protected action show the normal session-expired path.
+      });
+    };
+    refresh();
+    this.refreshTimer = window.setInterval(refresh, intervalMs);
+    document.addEventListener("visibilitychange", refresh);
   },
   signOut() {
     this.clearToken();
@@ -53,10 +134,17 @@ window.statsAccess = {
       throw new Error("Session expired. Sign in again.");
     }
 
-    this.setTokenCookie(token);
-    const response = await fetch(this.apiUrl("/api/v1/auth/me"), {
+    await this.refreshSession();
+    let response = await fetch(this.apiUrl("/api/v1/auth/me"), {
       headers: this.authHeaders(),
     });
+
+    if (response.status === 401) {
+      await this.refreshSession({ force: true });
+      response = await fetch(this.apiUrl("/api/v1/auth/me"), {
+        headers: this.authHeaders(),
+      });
+    }
 
     if (!response.ok) {
       throw new Error("Session expired. Sign in again.");

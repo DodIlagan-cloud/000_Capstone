@@ -60,14 +60,33 @@ M7 returns candidates only. M8 owns cleaning, validation, duplicate detection, a
 M7 must not rerun OCR or call Tesseract. If M5 quality/findings show unusable text, low OCR confidence, or noisy OCR output, M7 reports input-quality findings so the workflow can decide whether M5 should be rerun with different OCR settings.
 
 <!-- M7 - Transaction Classification Start -->
-M7 owns transaction type and spending category classification. It follows the M5 classification pattern: shared committed vocabulary/rules are the primary path, and optional AI-assisted classification is a configured fallback for weak, ambiguous, or unknown rule results. Transaction type must remain separate from spending category:
+M7 owns transaction type and spending category classification. It follows the M5 classification pattern with an additional Stats learning layer: prior human-confirmed merchant classifications from M9 are the highest-trust reusable signal for merchant-like purchase rows, shared committed vocabulary/rules are the primary deterministic path when no learned profile applies, and optional AI-assisted classification is a configured fallback for weak, ambiguous, or unknown results. Transaction type must remain separate from spending category:
 
 - `transaction_type` / `transaction_subtype` describe the financial movement mechanics, such as purchase, payment, transfer, refund, fee, interest, installment, adjustment, tax, or unknown.
 - `spending_category` / `spending_subcategory` describe the MVP reporting bucket, such as medical, pharmacy, groceries, utilities, transport, banking fees, interest, transfers, shopping, food/dining, income, tax, or uncategorized.
 
+For the MVP review UI, classification must be simplified to two controlled choices:
+
+- The user chooses one `transaction_subtype`; the parent `transaction_type` is derived from the active M9 parent-child relationship for that subtype.
+- The user chooses one `spending_subcategory`; the parent `spending_category` is derived from the active M9 parent-child relationship for that subcategory.
+- The parent fields remain required persisted/reporting fields, but they are not independent manual dropdowns in the Upload transaction review flow.
+- If an AI-suggested subtype or subcategory is outside the active vocabulary, the review UI may show it as a user-confirmable proposed option. On save, M9 must add the accepted child value under the derived or accepted parent so later reviews can use it as a controlled choice.
+- M8 and M9 must reject or review-gate any payload where a child classification maps to no parent or conflicts with the supplied parent.
+
 AI-assisted classification must use minimal redacted candidate context and must not send raw full OCR text, full account/card/customer/patient identifiers, secrets, connection strings, or whole source documents. M7 must preserve rule scores and AI contribution metadata so M8/M9/M11 can distinguish `rules`, `ai`, `rules_ai_merged`, and later `user_override` outcomes.
 
-Before M7 calls AI, it must retrieve the active M9 recognition context and provide the AI only the bounded classification choices and safe hints needed for the decision: approved transaction types/subtypes, approved spending categories/subcategories, aliases/rules, deprecation or merge hints, the rule result, and minimal redacted candidate evidence. The AI must be instructed to choose from active vocabulary first and to propose a new label or subtype only when no active label fits. M7 must preserve whether each AI-suggested value matched active vocabulary or is outside-vocabulary and user/admin reviewable.
+Before M7 calls AI, it must retrieve the active M9 recognition context and provide the AI only the bounded classification choices and safe hints needed for the decision: approved transaction types/subtypes, approved spending categories/subcategories, aliases/rules, deprecation or merge hints, the rule result, and minimal redacted candidate evidence. M7 must also check M9 learned merchant classification profiles before AI. If an exact normalized merchant profile exists, is not conflicted, maps to active parent-child vocabulary, and is compatible with the candidate context, M7 must apply it without calling AI. The AI must be instructed to choose from active vocabulary first and to propose a new label or subtype only when no active label fits. M7 must preserve whether each AI-suggested value matched active vocabulary or is outside-vocabulary and user/admin reviewable.
+
+Learned merchant classification behavior:
+
+- M9 owns learned merchant profiles created only from user-reviewed, human-confirmed saved transactions.
+- M7 may use a learned profile only for exact normalized merchant matches in the MVP.
+- Learned profile matches must set `classification_source = prior_merchant_human_confirmed`.
+- Learned profile matches must set `classification_review_required = false` when the profile is active, non-conflicted, complete, and maps to active transaction/spending parent-child vocabulary.
+- Learned profile matches must not create or require an admin pending suggestion.
+- Learned profile matches must be placed in the Ready transaction set by M8/Stats Web unless another validation issue exists, such as invalid date, invalid amount, OCR repair review, reconciliation failure, inactive vocabulary, or merchant-profile conflict.
+- If M9 reports a conflicted, inactive, missing-parent, or otherwise unsafe learned profile, M7 must preserve the evidence and mark the candidate for review with a controlled reason code such as `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT` or `PRIOR_MERCHANT_CLASSIFICATION_INACTIVE`.
+- Fuzzy merchant matching is deferred until after MVP exact normalized matching is stable. Deferred fuzzy matching must use a separate source such as `prior_merchant_fuzzy_human_confirmed`, require a high confidence threshold, avoid short/generic names, and route ambiguous matches to review rather than Ready.
 
 When AI suggests a transaction type, transaction subtype, spending category, or spending subcategory outside the active recognition vocabulary, M7 must keep the proposed value visible on the candidate for Upload review and mark it review-required. M7 must include enough metadata for M8/Stats Web/M9 to tell whether the value is already approved, user-confirmable through transaction review/save, or still admin-governed:
 
@@ -135,6 +154,8 @@ Primary result:
 - `evaluation` metadata for later testing and reporting.
 - `findings` for missing candidates, incomplete records, invalid amounts, low confidence, unknown direction, same-batch duplicate transactions, and record limits.
 - `findings` for unknown, ambiguous, or low-confidence transaction type and spending category classifications.
+- Learned classifications from M7 with `classification_source = prior_merchant_human_confirmed` must be treated as Ready when subtype/subcategory values are complete, active, parent-child consistent, and no other validation issue exists. M8 must not add AI-review, unknown-category, low-confidence, or pending-admin findings solely because the row was classified from learned merchant history.
+- Learned classifications must remain review-gated when M7 supplies unsafe learned-profile reason codes such as `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT`, `PRIOR_MERCHANT_CLASSIFICATION_INACTIVE`, or `PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH`.
 
 M8 returns validation-ready records only. M9 owns database persistence, database duplicate checks against already stored records, and Stats-specific storage schema decisions.
 <!-- M8 - Robust Candidate Input Start -->

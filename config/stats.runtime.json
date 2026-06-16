@@ -278,13 +278,14 @@
     "CLASSIFICATION_AI_MAX_CHARS": {"purpose": "Maximum redacted extracted-text characters sent to the optional AI classifier.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_ENABLED": {"purpose": "Enables M7 optional AI-assisted fallback for weak, ambiguous, or unknown transaction and spending category classification.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_PROVIDER": {"purpose": "M7 AI classification provider selector. Supported values are gemini, openai, and openai_compatible.", "secret": false},
-    "TRANSACTION_CLASSIFICATION_AI_ENDPOINT": {"purpose": "Optional M7 AI classification endpoint override. Gemini defaults to Google generateContent for the configured model when this is empty.", "secret": false},
+    "TRANSACTION_CLASSIFICATION_AI_ENDPOINT": {"purpose": "Optional M7 AI classification endpoint override. Gemini defaults to Google generateContent and OpenAI defaults to chat completions for the configured model when this is empty.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_API_KEY_ENV": {"purpose": "Name of the environment variable containing the M7 AI provider API key. The referenced value is secret and must come from a secret provider.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_MODEL": {"purpose": "Model name used by optional M7 AI-assisted transaction classification.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_MODEL_VERSION": {"purpose": "Model version or deployment label returned in M7 transaction classification audit metadata.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_MIN_CONFIDENCE": {"purpose": "Minimum AI confidence required before M7 accepts AI-assisted transaction/category classification.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_TRIGGER_THRESHOLD": {"purpose": "Rule-confidence threshold below which M7 may ask the optional AI classifier for help.", "secret": false},
     "TRANSACTION_CLASSIFICATION_AI_MAX_CHARS": {"purpose": "Maximum redacted transaction-context characters sent to the optional M7 AI classifier.", "secret": false},
+    "MERCHANT_CLASSIFICATION_LOOKUP_URL": {"purpose": "Internal M9 endpoint M7 calls to reuse exact human-confirmed merchant classifications before AI-assisted classification.", "secret": false},
     "EXTRACTION_TIMEOUT_SECONDS": {"purpose": "Document extraction timeout.", "secret": false},
     "MAX_PAGE_COUNT": {"purpose": "Maximum pages processed.", "secret": false},
     "MIN_TEXT_LENGTH": {"purpose": "Minimum extracted text length.", "secret": false},
@@ -389,6 +390,24 @@
     }
   },
   "analytics": {
+    "STATS_AS_OF_DATE": {
+      "purpose": "Optional reporting clock override in yyyy-MM-dd format. When set, Stats treats this as the current reporting date for dashboard and analytics periods without changing the machine clock.",
+      "default": null,
+      "example": "2019-01-31",
+      "secret": false
+    },
+    "STATS_REPORTING_DEFAULT_CURRENCY": {
+      "purpose": "Default reporting currency selected in Stats Web before a user changes the currency toggle. Keep NZD as the committed product default for the current New Zealand user context.",
+      "default": "NZD",
+      "example": "NZD",
+      "secret": false
+    },
+    "STATS_REPORTING_FX_RATES": {
+      "purpose": "Optional comma-separated reporting FX override pairs, such as PHP:NZD=0.0300,NZD:AUD=0.9200,NZD:USD=0.6100, for historical or local testing until an auditable FX reference table is available. Cross-currency rates may be derived from configured bridge pairs.",
+      "default": "",
+      "example": "PHP:NZD=0.0300,NZD:AUD=0.9200,NZD:USD=0.6100",
+      "secret": false
+    },
     "FABRIC_WORKSPACE_ID": {
       "purpose": "Microsoft Fabric workspace identifier used for curated analytics data and evidence.",
       "secret": false

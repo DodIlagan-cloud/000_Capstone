@@ -88,6 +88,8 @@ class TransactionCandidateInput(BaseModel):
     suggestion_evidence_ref: Optional[str] = None
     classification_vocabulary_status: str = "active_vocabulary_match"
     recognition_context_version: Optional[str] = None
+    transaction_subtype_parent_map: dict[str, str] = Field(default_factory=dict)
+    spending_subcategory_parent_map: dict[str, str] = Field(default_factory=dict)
     classification_confirmation_mode: Optional[str] = None
     classification_human_confirmed: bool = False
 
@@ -203,6 +205,7 @@ class DataValidationRequest(BaseModel):
     line_item_candidates: list[LineItemCandidateInput] = Field(default_factory=list)
     installment_candidates: list[InstallmentCandidateInput] = Field(default_factory=list)
     reconciliation: Optional[ReconciliationInput] = None
+    active_recognition_context: dict = Field(default_factory=dict)
     findings: list[ValidationFinding] = Field(default_factory=list)
     options: Optional[ValidationOptions] = None
 
@@ -252,6 +255,8 @@ class NormalizedTransactionRecord(BaseModel):
     suggestion_evidence_ref: Optional[str] = None
     classification_vocabulary_status: str = "active_vocabulary_match"
     recognition_context_version: Optional[str] = None
+    transaction_subtype_parent_map: dict[str, str] = Field(default_factory=dict)
+    spending_subcategory_parent_map: dict[str, str] = Field(default_factory=dict)
     classification_confirmation_mode: Optional[str] = None
     classification_human_confirmed: bool = False
 

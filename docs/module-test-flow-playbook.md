@@ -135,10 +135,11 @@ The M3/M4 flow should be refined before each evidence run, then executed only wh
 7. Browser/API proof: confirm accepted validation metadata: status, normalized filename, extension, size, detected MIME type, and SHA-256 hash when enabled.
 8. Browser/API proof: confirm accepted validation continues to M4 ingestion and returns queued state, ingestion id, workflow, source context, and handoff metadata.
 9. Rejection proof: upload or submit the invalid fixture and confirm controlled rejection with finding code and user-facing message.
-10. Duplicate proof: re-submit the same accepted fixture hash or idempotency key and confirm duplicate/idempotency handling is visible.
-11. Status proof: verify the user-visible next state in the Stats app; call ingestion status lookup only as supporting evidence, and check `/Documents` only if the current flow also persists a document record through later modules.
-12. Terminal proof: run the relevant container command or script as supporting evidence and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
-13. Cleanup: remove temporary invalid fixtures, copied container files, evidence users, and persisted document rows where practical; document anything retained.
+10. Duplicate proof: re-submit the same accepted fixture hash or idempotency key and confirm duplicate/idempotency handling is visible as a terminal intake result.
+11. Downstream gate proof: confirm duplicate, rejected, and failed intake states do not start M5 parsing, M7 extraction, M8 validation, or M9 persistence unless an explicit reprocess action is being tested.
+12. Status proof: verify the user-visible next state in the Stats app; call ingestion status lookup only as supporting evidence, and check `/Documents` only if the current flow also persists a document record through later modules.
+13. Terminal proof: run the relevant container command or script as supporting evidence and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
+14. Cleanup: remove temporary invalid fixtures, copied container files, evidence users, and persisted document rows where practical; document anything retained.
 
 ## M5/M6 Detailed Flow
 
@@ -150,10 +151,13 @@ The M5/M6 flow should be refined before each evidence run, then executed only wh
 4. Browser flow: `/Login` -> `/Upload` -> upload real text PDF -> wait for parse/review output.
 5. Browser flow: upload real OCR image/scanned fixture -> wait for OCR parse/review output.
 6. Browser/API proof: confirm classification fields are visible or captured safely: `document_type`, `document_subtype`, `confidence`, `status`, and `reason_codes`.
-7. Needs-review proof: include unsupported, low-quality, unknown, ambiguous, or pending-suggestion behavior when a suitable fixture or controlled request exists.
-8. Handoff proof: continue far enough to show M7/M8 transaction-check or review state when the product flow proceeds.
-9. Terminal proof: run the relevant container command or script and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
-10. Cleanup: remove temporary uploads/records where practical and document anything retained.
+<!-- M5/M6 PDF Statement Regression Update Start - 2026-06-15 -->
+7. PDF statement regression proof: upload or API-check at least one embedded-text statement PDF and one OCR/scanned statement PDF from `tests/input`; verify M9 slug-style signals such as `payment_due_date` match phrase text such as `payment due date`, and verify statement evidence does not regress to receipt classification because of generic words such as `total`, `purchase`, `payment`, or `card`.
+<!-- M5/M6 PDF Statement Regression Update End - 2026-06-15 -->
+8. Needs-review proof: include unsupported, low-quality, unknown, ambiguous, or pending-suggestion behavior when a suitable fixture or controlled request exists.
+9. Handoff proof: continue far enough to show M7/M8 transaction-check or review state when the product flow proceeds.
+10. Terminal proof: run the relevant container command or script and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
+11. Cleanup: remove temporary uploads/records where practical and document anything retained.
 
 <!-- M7 Test Flow Update - 2026-06-12 Start -->
 ## M7 Detailed Flow
@@ -168,13 +172,19 @@ M7 acceptance evidence must prove the transaction extraction checkpoint from the
 4. Browser flow: `/Login` -> `/Upload` -> upload a real transaction-bearing fixture -> wait for M3 validation, M4 ingestion, M5 parse/OCR, and M7 extraction output.
 5. M5 handoff proof: confirm M7 received parsed text, page/source context, classification, quality metadata, and findings from M5. M7 must not rerun Tesseract when M5 already supplied usable text/OCR output.
 6. M7 extraction proof: confirm transaction-like rows include amount, date when available, description, direction or transaction type, spending category, source/section context, confidence, and finding metadata.
-7. Non-transaction extracted-data proof: confirm document-level financial fields, sections, entities, references, line items, reconciliation metadata, and redacted snippets are available when present in the fixture.
-8. Classification proof: confirm required MVP reporting labels are present or review-gated: document type from M5, transaction type from M7, and spending category from M7. Low-confidence or unknown required labels must be visible as review-required findings before persistence.
-9. Negative/needs-review proof: run a no-transaction, ambiguous, low-confidence, or unknown fixture when available. If no real fixture exists, record the fixture gap and use a minimal controlled API payload only as supporting proof.
-10. M8 handoff proof: continue far enough to show M8 validation/review state consuming M7 candidates, including normalized rows or precise review blockers.
-11. Terminal proof: run the relevant container command or script and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
-12. Evidence documentation: create or update the screenshot evidence index and reviewer walkthrough under the dated root `tests/results/` folder. The walkthrough must embed every screenshot inline after the step table and state whether the expected result is visibly present in each screenshot.
-13. Cleanup: remove temporary uploads, processing records, review suggestions, and saved transactions where practical; document anything retained.
+<!-- M7 PDF Statement Extraction Regression Update Start - 2026-06-15 -->
+7. PDF statement extraction regression proof: for a statement-like PDF with visible transaction rows, verify M7 returns statement transaction candidates or explicit statement-needs-review findings, not one receipt-style transaction derived from a summary total. If OCR produces malformed amount tokens such as multiple decimal separators, verify M7 returns controlled findings rather than a 500 response.
+<!-- M7 PDF Statement Extraction Regression Update End - 2026-06-15 -->
+<!-- M7 Scanned Statement Layout Update Start - 2026-06-15 -->
+8. Scanned statement layout proof: upload or API-check at least one scanned/OCR statement PDF whose rendered page shows a transaction table, side-summary panels, and a lower payment slip. Verify M7 extracts transaction rows from the table region, excludes side-summary/payment-slip amounts from transactions, preserves credit markers, and records layout repair/region reason codes where applicable.
+<!-- M7 Scanned Statement Layout Update End - 2026-06-15 -->
+9. Non-transaction extracted-data proof: confirm document-level financial fields, sections, entities, references, line items, reconciliation metadata, and redacted snippets are available when present in the fixture.
+10. Classification proof: confirm required MVP reporting labels are present or review-gated: document type from M5, transaction type from M7, and spending category from M7. Low-confidence or unknown required labels must be visible as review-required findings before persistence.
+11. Negative/needs-review proof: run a no-transaction, ambiguous, low-confidence, or unknown fixture when available. If no real fixture exists, record the fixture gap and use a minimal controlled API payload only as supporting proof.
+12. M8 handoff proof: continue far enough to show M8 validation/review state consuming M7 candidates, including normalized rows or precise review blockers.
+13. Terminal proof: run the relevant container command or script and capture `Result: PASSED` or `Result: FAILED` only during evidence execution.
+14. Evidence documentation: create or update the screenshot evidence index and reviewer walkthrough under the dated root `tests/results/` folder. The walkthrough must embed every screenshot inline after the step table and state whether the expected result is visibly present in each screenshot.
+15. Cleanup: remove temporary uploads, processing records, review suggestions, and saved transactions where practical; document anything retained.
 <!-- M7 Test Flow Update - 2026-06-12 End -->
 
 <!-- M8 Test Flow Update - 2026-06-12 Start -->

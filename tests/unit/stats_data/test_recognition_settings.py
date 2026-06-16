@@ -166,3 +166,9 @@ def test_active_recognition_settings_includes_versioned_ai_context(monkeypatch):
     assert len(payload["recognition_context_version"]) == 16
     assert payload["recognition_context"]["transaction"]["vocabulary"]["transaction_types"] == ["purchase", "unknown"]
     assert payload["recognition_context"]["spending"]["vocabulary"]["spending_categories"] == ["transport", "uncategorized"]
+    assert payload["recognition_context"]["transaction"]["subtype_parent_map"] == {
+        "card_purchase": "purchase",
+    }
+    assert payload["recognition_context"]["spending"]["subcategory_parent_map"] == {
+        "stored_value_topup": "transport",
+    }

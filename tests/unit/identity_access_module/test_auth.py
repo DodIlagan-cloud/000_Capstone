@@ -90,6 +90,26 @@ def test_me_returns_current_user_with_valid_token(client, standard_user):
     assert "hashed_password" not in response.json()
 
 
+def test_refresh_returns_new_token_for_active_session(client, standard_user):
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "user@example.com", "password": "User1234"},
+    )
+    token = login_response.json()["access_token"]
+
+    response = client.post("/api/v1/auth/refresh", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+    assert body["token_type"] == "bearer"
+    assert body["password_change_required"] is False
+
+    me_response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {body['access_token']}"})
+    assert me_response.status_code == 200
+    assert me_response.json()["email"] == "user@example.com"
+
+
 def test_authenticated_user_can_change_password(client, db_session):
     admin = create_initial_admin(db_session, "password.setup@example.com", "SetupAdmin123")
     token = create_access_token(admin.id)

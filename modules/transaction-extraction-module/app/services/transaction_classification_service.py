@@ -7,12 +7,14 @@ import re
 import uuid
 import time
 from typing import Any
+from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from app.config import settings
 from app.models.extraction import TransactionCandidate
 from app.services.ai_transaction_classification_service import (
+    ai_classification_failure_reason,
     ai_classify_transaction,
     ai_skip_reason,
     merge_rule_and_ai_classification,
@@ -75,6 +77,20 @@ def classify_transaction_candidate(
             return candidate.model_copy(update=updates)
         return candidate.copy(update=updates)
 
+    learned_result = _learned_merchant_classification(
+        candidate=candidate,
+        document_type=document_type,
+        document_subtype=document_subtype,
+        active_settings=active_settings,
+    )
+    if learned_result and learned_result.get("match_status") == "matched":
+        return _apply_learned_merchant_classification(
+            candidate=candidate,
+            learned_result=learned_result,
+            active_settings=active_settings,
+        )
+    learned_review_codes = _learned_review_codes(learned_result)
+
     transaction_result = _classify(
         text=_transaction_context(candidate, document_type, document_subtype),
         rules=active_settings.get("transaction_rules", {}),
@@ -87,6 +103,13 @@ def classify_transaction_candidate(
         default_subtype="unknown",
         threshold=settings.transaction_classification_threshold,
     )
+    transaction_result = _statement_debit_purchase_fallback(
+        candidate=candidate,
+        document_type=document_type,
+        document_subtype=document_subtype,
+        transaction_result=transaction_result,
+        active_settings=active_settings,
+    )
     category_result = _classify(
         text=_category_context(candidate, document_type, document_subtype, transaction_result),
         rules=active_settings.get("spending_rules", {}),
@@ -98,6 +121,12 @@ def classify_transaction_candidate(
         default_label="uncategorized",
         default_subtype="unknown",
         threshold=settings.spending_category_threshold,
+    )
+    category_result = _merchant_spending_category_fallback(
+        candidate=candidate,
+        transaction_result=transaction_result,
+        category_result=category_result,
+        active_settings=active_settings,
     )
 
     ai_result = None
@@ -123,6 +152,16 @@ def classify_transaction_candidate(
     )
     transaction_result = merged["transaction"]
     category_result = merged["category"]
+    transaction_result = _derive_parent_from_child(
+        transaction_result,
+        active_settings.get("transaction_vocabulary", {}),
+        subtypes_key="transaction_subtypes",
+    )
+    category_result = _derive_parent_from_child(
+        category_result,
+        active_settings.get("spending_vocabulary", {}),
+        subtypes_key="spending_subcategories",
+    )
     suggestion_updates = _suggestion_updates(
         candidate=candidate,
         document_type=document_type,
@@ -156,9 +195,14 @@ def classify_transaction_candidate(
         "classification_vocabulary_status": "active_vocabulary_match",
         **suggestion_updates,
     }
+    if learned_review_codes:
+        updates["classification_review_required"] = True
+        updates["classification_review_reason_codes"] = sorted(
+            set([*list(updates.get("classification_review_reason_codes") or []), *learned_review_codes])
+        )
     if ai_was_eligible and ai_result is None and settings.transaction_classification_ai_enabled:
         if not ai_skip_code:
-            ai_skip_code = "AI_SKIPPED_PROVIDER_NO_RESULT"
+            ai_skip_code = ai_classification_failure_reason() or "AI_SKIPPED_PROVIDER_NO_RESULT"
         updates["classification_source"] = str(ai_skip_code).lower()
         updates["classification_review_required"] = True
         updates["classification_review_reason_codes"] = sorted(
@@ -167,6 +211,129 @@ def classify_transaction_candidate(
     if hasattr(candidate, "model_copy"):
         return candidate.model_copy(update=updates)
     return candidate.copy(update=updates)
+
+
+def _learned_merchant_classification(
+    *,
+    candidate: TransactionCandidate,
+    document_type: str,
+    document_subtype: str,
+    active_settings: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not settings.merchant_classification_lookup_url:
+        return None
+    if str(candidate.direction or "").lower() == "credit":
+        return None
+    query = urlencode(
+        {
+            "description": candidate.description,
+        }
+    )
+    separator = "&" if "?" in settings.merchant_classification_lookup_url else "?"
+    try:
+        request = Request(f"{settings.merchant_classification_lookup_url}{separator}{query}")
+        if settings.recognition_settings_internal_key:
+            request.add_header("X-Stats-Internal-Key", settings.recognition_settings_internal_key)
+        with urlopen(request, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, TimeoutError, HTTPError, URLError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _apply_learned_merchant_classification(
+    *,
+    candidate: TransactionCandidate,
+    learned_result: dict[str, Any],
+    active_settings: dict[str, Any],
+) -> TransactionCandidate:
+    transaction_type = str(learned_result.get("transaction_type") or "unknown").lower()
+    transaction_subtype = str(learned_result.get("transaction_subtype") or "unknown").lower()
+    spending_category = str(learned_result.get("spending_category") or "uncategorized").lower()
+    spending_subcategory = str(learned_result.get("spending_subcategory") or "unknown").lower()
+    confidence = _learned_confidence(learned_result)
+    reason_codes = sorted(set(str(code) for code in learned_result.get("reason_codes") or []))
+    if "PRIOR_MERCHANT_CLASSIFICATION_REUSED" not in reason_codes:
+        reason_codes.append("PRIOR_MERCHANT_CLASSIFICATION_REUSED")
+
+    if not _is_allowed_label(
+        active_settings.get("transaction_vocabulary", {}),
+        labels_key="transaction_types",
+        subtypes_key="transaction_subtypes",
+        label=transaction_type,
+        subtype=transaction_subtype,
+    ) or not _is_allowed_label(
+        active_settings.get("spending_vocabulary", {}),
+        labels_key="spending_categories",
+        subtypes_key="spending_subcategories",
+        label=spending_category,
+        subtype=spending_subcategory,
+    ):
+        review_codes = sorted(set([*reason_codes, "PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH"]))
+        updates = {
+            "classification_review_required": True,
+            "classification_review_reason_codes": review_codes,
+            "classification_source": "prior_merchant_human_confirmed",
+            "classification_vocabulary_status": "outside_vocabulary_proposal",
+        }
+    else:
+        updates = {
+            "transaction_type": transaction_type,
+            "transaction_subtype": transaction_subtype,
+            "transaction_type_confidence": confidence,
+            "transaction_type_status": "classified",
+            "transaction_type_reason_codes": reason_codes,
+            "transaction_type_scores": {f"prior_merchant.{transaction_type}.{transaction_subtype}": confidence},
+            "spending_category": spending_category,
+            "spending_subcategory": spending_subcategory,
+            "spending_category_confidence": confidence,
+            "spending_category_status": "classified",
+            "spending_category_reason_codes": reason_codes,
+            "spending_category_scores": {f"prior_merchant.{spending_category}.{spending_subcategory}": confidence},
+            "classification_source": "prior_merchant_human_confirmed",
+            "ai_model_name": None,
+            "ai_model_version": None,
+            "ai_confidence": None,
+            "classification_review_required": False,
+            "classification_review_reason_codes": [],
+            "recognition_suggestion_id": None,
+            "recognition_suggestion_status": "none",
+            "suggested_transaction_type": None,
+            "suggested_transaction_subtype": None,
+            "suggested_spending_category": None,
+            "suggested_spending_subcategory": None,
+            "suggestion_confidence": None,
+            "suggestion_reason_codes": [],
+            "suggestion_source": None,
+            "suggestion_evidence_ref": None,
+            "classification_vocabulary_status": "active_vocabulary_match",
+            "recognition_context_version": _recognition_context_version(active_settings),
+        }
+    if hasattr(candidate, "model_copy"):
+        return candidate.model_copy(update=updates)
+    return candidate.copy(update=updates)
+
+
+def _learned_review_codes(learned_result: dict[str, Any] | None) -> list[str]:
+    if not learned_result:
+        return []
+    status = str(learned_result.get("match_status") or "").lower()
+    if status == "conflicted":
+        return ["PRIOR_MERCHANT_CLASSIFICATION_CONFLICT"]
+    if status == "inactive":
+        return ["PRIOR_MERCHANT_CLASSIFICATION_INACTIVE"]
+    if status == "unsafe":
+        return ["PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH"]
+    return []
+
+
+def _learned_confidence(learned_result: dict[str, Any]) -> float:
+    try:
+        return round(float(learned_result.get("profile_confidence") or 0.9), 3)
+    except (TypeError, ValueError):
+        return 0.9
 
 
 def _recognition_context_version(active_settings: dict[str, Any] | None) -> str | None:
@@ -200,6 +367,106 @@ def _transaction_ai_context(active_settings: dict[str, Any]) -> dict[str, Any]:
             "rules": active_settings.get("spending_rules", {}),
         },
     }
+
+
+def _statement_debit_purchase_fallback(
+    *,
+    candidate: TransactionCandidate,
+    document_type: str,
+    document_subtype: str,
+    transaction_result: dict[str, object],
+    active_settings: dict[str, Any],
+) -> dict[str, object]:
+    if transaction_result.get("status") == "classified":
+        return transaction_result
+    if str(candidate.direction or "").lower() != "debit":
+        return transaction_result
+    if document_type != "statement" or document_subtype != "credit_card_statement":
+        return transaction_result
+    if (candidate.source.section_label or "").lower() != "transaction_table":
+        return transaction_result
+    if _looks_like_non_purchase_statement_debit(candidate):
+        return transaction_result
+    if not _is_allowed_label(
+        active_settings.get("transaction_vocabulary", {}),
+        labels_key="transaction_types",
+        subtypes_key="transaction_subtypes",
+        label="purchase",
+        subtype="merchant_purchase",
+    ):
+        return transaction_result
+    scores = dict(transaction_result.get("scores") or {})
+    scores["statement.debit.purchase.merchant_purchase"] = 0.78
+    return {
+        "label": "purchase",
+        "subtype": "merchant_purchase",
+        "confidence": 0.78,
+        "status": "classified",
+        "reason_codes": sorted(
+            set([*list(transaction_result.get("reason_codes") or []), "CREDIT_CARD_STATEMENT_DEBIT_PURCHASE"])
+        ),
+        "scores": scores,
+        "inactive_suggestions": transaction_result.get("inactive_suggestions") or [],
+    }
+
+
+def _looks_like_non_purchase_statement_debit(candidate: TransactionCandidate) -> bool:
+    text = " ".join(
+        [
+            candidate.description,
+            candidate.source.text,
+            " ".join(candidate.reason_codes),
+        ]
+    ).lower()
+    return bool(
+        re.search(
+            r"\b(paid\s+thru|payment|cash\s+advance|finance\s+charge|late\s+payment|service\s+fee|interest|annual\s+fee)\b",
+            text,
+        )
+    )
+
+
+def _merchant_spending_category_fallback(
+    *,
+    candidate: TransactionCandidate,
+    transaction_result: dict[str, object],
+    category_result: dict[str, object],
+    active_settings: dict[str, Any],
+) -> dict[str, object]:
+    if category_result.get("status") == "classified":
+        return category_result
+    if transaction_result.get("label") != "purchase" or transaction_result.get("subtype") != "merchant_purchase":
+        return category_result
+    merchant_category = _known_merchant_category(candidate.description)
+    if not merchant_category:
+        return category_result
+    label, subtype, reason_code = merchant_category
+    if not _is_allowed_label(
+        active_settings.get("spending_vocabulary", {}),
+        labels_key="spending_categories",
+        subtypes_key="spending_subcategories",
+        label=label,
+        subtype=subtype,
+    ):
+        return category_result
+    scores = dict(category_result.get("scores") or {})
+    scores[f"merchant.category.{label}.{subtype}"] = 0.86
+    return {
+        "label": label,
+        "subtype": subtype,
+        "confidence": 0.86,
+        "status": "classified",
+        "reason_codes": sorted(set([*list(category_result.get("reason_codes") or []), reason_code])),
+        "scores": scores,
+        "inactive_suggestions": category_result.get("inactive_suggestions") or [],
+    }
+
+
+def _known_merchant_category(description: str) -> tuple[str, str, str] | None:
+    normalized = " ".join(description.lower().split())
+    if "superbowl" in normalized:
+        return "food_dining", "restaurant", "KNOWN_RESTAURANT_MERCHANT"
+    return None
 
 
 def _suggestion_updates(
@@ -248,6 +515,22 @@ def _suggestion_updates(
         suggestion_source = "ai"
         suggestion_confidence = merged.get("ai_confidence")
         suggestion_reason_codes = [str(code) for code in ai_result.get("reason_codes") or []]
+    suggested_transaction_type = (
+        _parent_for_child(
+            active_settings.get("transaction_vocabulary", {}),
+            subtypes_key="transaction_subtypes",
+            child=suggested_transaction_subtype,
+        )
+        or suggested_transaction_type
+    )
+    suggested_spending_category = (
+        _parent_for_child(
+            active_settings.get("spending_vocabulary", {}),
+            subtypes_key="spending_subcategories",
+            child=suggested_spending_subcategory,
+        )
+        or suggested_spending_category
+    )
     transaction_known = _is_allowed_label(
         active_settings.get("transaction_vocabulary", {}),
         labels_key="transaction_types",
@@ -328,6 +611,36 @@ def _is_allowed_label(
         for key, values in (vocabulary.get(subtypes_key, {}) or {}).items()
     }
     return label in allowed_labels and subtype in allowed_subtypes.get(label, set())
+
+
+def _derive_parent_from_child(
+    result: dict[str, object],
+    vocabulary: dict[str, Any],
+    *,
+    subtypes_key: str,
+) -> dict[str, object]:
+    subtype = str(result.get("subtype") or "unknown").lower()
+    if not subtype or subtype == "unknown":
+        return result
+    parent = _parent_for_child(vocabulary, subtypes_key=subtypes_key, child=subtype)
+    if not parent or parent == str(result.get("label") or "").lower():
+        return result
+    next_result = dict(result)
+    next_result["label"] = parent
+    reason_codes = set(str(code) for code in next_result.get("reason_codes") or [])
+    reason_codes.add("PARENT_DERIVED_FROM_SUBTYPE")
+    next_result["reason_codes"] = sorted(reason_codes)
+    return next_result
+
+
+def _parent_for_child(vocabulary: dict[str, Any], *, subtypes_key: str, child: str) -> str | None:
+    child_key = str(child or "").lower()
+    if child_key in {"", "unknown", "uncategorized"}:
+        return None
+    for parent, children in (vocabulary.get(subtypes_key, {}) or {}).items():
+        if child_key in {str(value).lower() for value in children or []}:
+            return str(parent).lower()
+    return None
 
 
 def _ranked_inactive_suggestions(inactive_rules: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -444,6 +757,8 @@ def _classify(
         score, matched = _score_rule(normalized_text, rule)
         if score <= 0:
             continue
+        if _rule_blocked_by_context(normalized_text, rule, matched):
+            continue
         key = f"{label}.{subtype}"
         scores[key] = round(score, 3)
         rule_reason = str(rule.get("reason_code") or f"{label.upper()}_SIGNALS")
@@ -504,6 +819,23 @@ def _score_rule(text: str, rule: dict[str, Any]) -> tuple[float, list[str]]:
     required_score = 0.35 if required_hits else 0.0
     signal_score = 0.65 * (len(signal_hits) / max(1, len(signals)))
     return min(1.0, required_score + signal_score), [*required_hits, *signal_hits]
+
+
+def _rule_blocked_by_context(text: str, rule: dict[str, Any], matched: list[str]) -> bool:
+    reason_code = str(rule.get("reason_code") or "").upper()
+    if reason_code != "REFUND_REVERSAL_SIGNALS":
+        return False
+    if "direction:debit" not in text:
+        return False
+
+    # "credit" and "statement" are common credit-card context words; they are not
+    # enough to call a debit merchant row a refund/reversal.
+    explicit_refund_signals = {"refund", "reversal", "cashback", "returned"}
+    if any(signal in explicit_refund_signals for signal in matched):
+        return False
+    if re.search(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{2}|,\d{2})cr\b", text, re.IGNORECASE):
+        return False
+    return True
 
 
 def _contains_signal(text: str, signal: str) -> bool:

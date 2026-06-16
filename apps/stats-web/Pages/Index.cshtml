@@ -82,10 +82,10 @@
               <label class="currency-control">
                 <span class="control-label">Currency</span>
                 <select id="reporting-currency" aria-label="Dashboard reporting currency">
-                  <option selected>NZD</option>
-                  <option>PHP</option>
-                  <option>AUD</option>
-                  <option>USD</option>
+                  <option selected="@(Model.ReportingDefaultCurrency == "NZD")">NZD</option>
+                  <option selected="@(Model.ReportingDefaultCurrency == "PHP")">PHP</option>
+                  <option selected="@(Model.ReportingDefaultCurrency == "AUD")">AUD</option>
+                  <option selected="@(Model.ReportingDefaultCurrency == "USD")">USD</option>
                 </select>
               </label>
               <div>
@@ -137,7 +137,7 @@
                       <p class="session-label">Monthly history</p>
                       <h3 id="monthly-history-title">Total expenses</h3>
                     </div>
-                    <span id="monthly-history-currency">NZD</span>
+                    <span id="monthly-history-currency">@Model.ReportingDefaultCurrency</span>
                   </div>
                   <div id="monthly-expense-history" class="monthly-history-chart" role="img" aria-label="Monthly total expense history">
                     <p class="panel-copy">Waiting for monthly expense history.</p>

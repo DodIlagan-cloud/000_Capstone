@@ -89,6 +89,9 @@ builder.Services.AddSingleton(
         PowerBiDatasetId: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:DatasetId", "StatsWeb__PowerBi__DatasetId"),
         PowerBiHomeDashboardPageName: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:HomeDashboardPageName", "StatsWeb__PowerBi__HomeDashboardPageName"),
         PowerBiApiBaseUrl: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:PowerBi:ApiBaseUrl", "StatsWeb__PowerBi__ApiBaseUrl", "https://api.powerbi.com/v1.0/myorg"),
+        ReportingAsOfDate: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:Reporting:AsOfDate", "STATS_AS_OF_DATE"),
+        ReportingDefaultCurrency: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:Reporting:DefaultCurrency", "STATS_REPORTING_DEFAULT_CURRENCY", "NZD"),
+        ReportingFxRates: StatsConfigurationValue.Read(builder.Configuration, "StatsWeb:Reporting:FxRates", "STATS_REPORTING_FX_RATES"),
         FabricCapacityName: builder.Configuration["StatsWeb:Fabric:CapacityName"] ?? string.Empty,
         FabricWorkspaceName: builder.Configuration["StatsWeb:Fabric:WorkspaceName"] ?? string.Empty,
         AzureEnvironment: builder.Configuration["StatsWeb:Azure:Environment"] ?? "local",
@@ -141,6 +144,10 @@ app.MapGet(
 app.MapGet(
     "/api/v1/reporting/kpis",
     StatsReportingKpis.GetKpisAsync
+);
+app.MapGet(
+    "/api/v1/recognition-settings/active",
+    StatsRecognitionSettings.GetActiveAsync
 );
 // M13 - Containerization Start
 // Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
@@ -468,6 +475,9 @@ public sealed record StatsWebShellOptions(
     string PowerBiDatasetId,
     string PowerBiHomeDashboardPageName,
     string PowerBiApiBaseUrl,
+    string ReportingAsOfDate,
+    string ReportingDefaultCurrency,
+    string ReportingFxRates,
     string FabricCapacityName,
     string FabricWorkspaceName,
     string AzureEnvironment,
@@ -530,19 +540,20 @@ public static class StatsReportingKpis
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        if (!shellOptions.DirectPowerBiEmbedConfigured || string.IsNullOrWhiteSpace(shellOptions.PowerBiDatasetId))
-        {
-            return Results.Ok(NotConfigured(selectedCurrency));
-        }
-
         var logger = loggerFactory.CreateLogger("StatsReportingKpis");
         try
         {
+            var asOfDate = ResolveReportingAsOfDate(shellOptions);
+            if (!shellOptions.DirectPowerBiEmbedConfigured || string.IsNullOrWhiteSpace(shellOptions.PowerBiDatasetId))
+            {
+                return Results.Ok(NotConfigured(selectedCurrency, asOfDate));
+            }
+
             var client = httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(20);
             var accessToken = await GetPowerBiAccessTokenAsync(client, shellOptions, context.RequestAborted);
-            var payload = await ExecuteKpiQueryAsync(client, shellOptions, selectedCurrency, accessToken, context.RequestAborted);
-            return Results.Ok(ToKpiPayload(payload, selectedCurrency));
+            var payload = await ExecuteKpiQueryAsync(client, shellOptions, selectedCurrency, asOfDate, accessToken, context.RequestAborted);
+            return Results.Ok(ToKpiPayload(payload, selectedCurrency, asOfDate));
         }
         catch (Exception exception) when (
             exception is HttpRequestException
@@ -592,13 +603,14 @@ public static class StatsReportingKpis
         HttpClient client,
         StatsWebShellOptions shellOptions,
         string selectedCurrency,
+        DateOnly asOfDate,
         string accessToken,
         CancellationToken cancellationToken
     )
     {
         var apiBaseUrl = shellOptions.PowerBiApiBaseUrl.TrimEnd('/');
         var url = $"{apiBaseUrl}/groups/{WebUtility.UrlEncode(shellOptions.PowerBiWorkspaceId)}/datasets/{WebUtility.UrlEncode(shellOptions.PowerBiDatasetId)}/executeQueries";
-        var dax = BuildKpiDax(selectedCurrency);
+        var dax = BuildKpiDax(selectedCurrency, asOfDate, shellOptions.ReportingFxRates);
         var payload = new JsonObject
         {
             ["queries"] = new JsonArray(new JsonObject { ["query"] = dax }),
@@ -620,75 +632,213 @@ public static class StatsReportingKpis
             ?? throw new InvalidOperationException("Power BI executeQueries returned an empty response.");
     }
 
-    private static string BuildKpiDax(string selectedCurrency)
+    private static DateOnly ResolveReportingAsOfDate(StatsWebShellOptions shellOptions)
+    {
+        if (string.IsNullOrWhiteSpace(shellOptions.ReportingAsOfDate))
+        {
+            return DateOnly.FromDateTime(DateTime.UtcNow);
+        }
+
+        if (DateOnly.TryParseExact(
+            shellOptions.ReportingAsOfDate.Trim(),
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var configuredDate
+        ))
+        {
+            return configuredDate;
+        }
+
+        throw new InvalidOperationException("STATS_AS_OF_DATE must use yyyy-MM-dd format.");
+    }
+
+    private static string BuildKpiDax(string selectedCurrency, DateOnly asOfDate, string configuredFxRates)
     {
         var currency = selectedCurrency.Replace("\"", "\"\"", StringComparison.Ordinal);
+        var asOfDateLiteral = FormattableString.Invariant($"DATE({asOfDate.Year}, {asOfDate.Month}, {asOfDate.Day})");
+        var fxRates = BuildFxRatesDax(configuredFxRates);
         return $$"""
 EVALUATE
 VAR SelectedCurrency = "{{currency}}"
-VAR CurrentMonthStart = DATE(YEAR(TODAY()), MONTH(TODAY()), 1)
+VAR AsOfDate = {{asOfDateLiteral}}
+VAR CurrentMonthStart = DATE(YEAR(AsOfDate), MONTH(AsOfDate), 1)
 VAR LastMonthStart = EDATE(CurrentMonthStart, -1)
 VAR PreviousMonthStart = EDATE(CurrentMonthStart, -2)
+VAR FxRates = {{fxRates}}
 VAR CurrentMonthExpenses =
     COALESCE(
-        CALCULATE(
-            SUM('Monthly Expenses'[expense_total]),
-            'Monthly Expenses'[currency] = SelectedCurrency,
-            'Monthly Expenses'[month_start_date] = CurrentMonthStart
+        SUMX(
+            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = CurrentMonthStart),
+            VAR SourceCurrency = 'Monthly Expenses'[currency]
+            VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+            RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
         ),
         0
     )
 VAR LastMonthExpenses =
     COALESCE(
-        CALCULATE(
-            SUM('Monthly Expenses'[expense_total]),
-            'Monthly Expenses'[currency] = SelectedCurrency,
-            'Monthly Expenses'[month_start_date] = LastMonthStart
+        SUMX(
+            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = LastMonthStart),
+            VAR SourceCurrency = 'Monthly Expenses'[currency]
+            VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+            RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
         ),
         0
     )
 VAR PreviousMonthExpenses =
     COALESCE(
-        CALCULATE(
-            SUM('Monthly Expenses'[expense_total]),
-            'Monthly Expenses'[currency] = SelectedCurrency,
-            'Monthly Expenses'[month_start_date] = PreviousMonthStart
+        SUMX(
+            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = PreviousMonthStart),
+            VAR SourceCurrency = 'Monthly Expenses'[currency]
+            VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+            RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
         ),
         0
     )
 VAR CurrentTopContributor =
     TOPN(
         1,
-        FILTER(
-            'Top Expense Contributors',
-            'Top Expense Contributors'[currency] = SelectedCurrency
-                && 'Top Expense Contributors'[month_start_date] = CurrentMonthStart
+        ADDCOLUMNS(
+            FILTER('Top Expense Contributors', 'Top Expense Contributors'[month_start_date] = CurrentMonthStart),
+            "converted_expense_total",
+                VAR SourceCurrency = 'Top Expense Contributors'[currency]
+                VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                RETURN 'Top Expense Contributors'[expense_total] * COALESCE(ExchangeRate, 0)
         ),
-        'Top Expense Contributors'[expense_total],
+        [converted_expense_total],
         DESC
     )
 VAR NotableExpense =
     TOPN(
         1,
-        FILTER(
-            'Recent Notable Expenses',
-            'Recent Notable Expenses'[currency] = SelectedCurrency
+        ADDCOLUMNS(
+            FILTER('Recent Notable Expenses', 'Recent Notable Expenses'[transaction_date] <= AsOfDate),
+            "converted_expense_amount",
+                VAR SourceCurrency = 'Recent Notable Expenses'[currency]
+                VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                RETURN 'Recent Notable Expenses'[expense_amount] * COALESCE(ExchangeRate, 0)
         ),
         'Recent Notable Expenses'[transaction_date],
         DESC,
-        'Recent Notable Expenses'[expense_amount],
+        [converted_expense_amount],
         DESC
+    )
+VAR MonthlyHistoryBase =
+    ADDCOLUMNS(
+        SUMMARIZE(
+            FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] <= CurrentMonthStart),
+            'Monthly Expenses'[month_start_date]
+        ),
+        "converted_expense_total",
+            VAR HistoryMonth = 'Monthly Expenses'[month_start_date]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = HistoryMonth),
+                    VAR SourceCurrency = 'Monthly Expenses'[currency]
+                    VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                    RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
+                ),
+                0
+            )
     )
 VAR MonthlyHistoryRows =
     TOPN(
         6,
-        FILTER(
-            'Monthly Expenses',
-            'Monthly Expenses'[currency] = SelectedCurrency
-                && 'Monthly Expenses'[month_start_date] <= CurrentMonthStart
-        ),
+        MonthlyHistoryBase,
         'Monthly Expenses'[month_start_date],
         DESC
+    )
+VAR LatestCategoryMonth =
+    MAXX(
+        FILTER(
+            'Spending Categories',
+            'Spending Categories'[month_start_date] <= CurrentMonthStart
+        ),
+        'Spending Categories'[month_start_date]
+    )
+VAR CategoryBase =
+    ADDCOLUMNS(
+        SUMMARIZE(
+            FILTER('Spending Categories', 'Spending Categories'[month_start_date] = LatestCategoryMonth),
+            'Spending Categories'[spending_category]
+        ),
+        "converted_expense_total",
+            VAR CategoryName = 'Spending Categories'[spending_category]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER(
+                        'Spending Categories',
+                        'Spending Categories'[month_start_date] = LatestCategoryMonth
+                            && 'Spending Categories'[spending_category] = CategoryName
+                    ),
+                    VAR SourceCurrency = 'Spending Categories'[currency]
+                    VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                    RETURN 'Spending Categories'[expense_total] * COALESCE(ExchangeRate, 0)
+                ),
+                0
+            ),
+        "category_transaction_count",
+            VAR CategoryName = 'Spending Categories'[spending_category]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER(
+                        'Spending Categories',
+                        'Spending Categories'[month_start_date] = LatestCategoryMonth
+                            && 'Spending Categories'[spending_category] = CategoryName
+                    ),
+                    'Spending Categories'[transaction_count]
+                ),
+                0
+            ),
+        "category_review_required_count",
+            VAR CategoryName = 'Spending Categories'[spending_category]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER(
+                        'Spending Categories',
+                        'Spending Categories'[month_start_date] = LatestCategoryMonth
+                            && 'Spending Categories'[spending_category] = CategoryName
+                    ),
+                    'Spending Categories'[review_required_count]
+                ),
+                0
+            ),
+        "converted_uncategorized_expense_total",
+            VAR CategoryName = 'Spending Categories'[spending_category]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER(
+                        'Spending Categories',
+                        'Spending Categories'[month_start_date] = LatestCategoryMonth
+                            && 'Spending Categories'[spending_category] = CategoryName
+                    ),
+                    VAR SourceCurrency = 'Spending Categories'[currency]
+                    VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                    RETURN 'Spending Categories'[uncategorized_expense_total] * COALESCE(ExchangeRate, 0)
+                ),
+                0
+            )
+    )
+VAR CategoryRows =
+    TOPN(
+        8,
+        CategoryBase,
+        [converted_expense_total],
+        DESC
+    )
+VAR LatestClassificationMonth =
+    MAXX(
+        FILTER(
+            'Classification Quality',
+            'Classification Quality'[month_start_date] <= CurrentMonthStart
+        ),
+        'Classification Quality'[month_start_date]
+    )
+VAR ClassificationRows =
+    FILTER(
+        'Classification Quality',
+        'Classification Quality'[month_start_date] = LatestClassificationMonth
     )
 RETURN
 ROW(
@@ -696,21 +846,117 @@ ROW(
     "this_month_expenses", CurrentMonthExpenses,
     "expense_trend_delta", CurrentMonthExpenses - PreviousMonthExpenses,
     "top_contributor_name", MAXX(CurrentTopContributor, 'Top Expense Contributors'[expense_contributor]),
-    "top_contributor_amount", COALESCE(MAXX(CurrentTopContributor, 'Top Expense Contributors'[expense_total]), 0),
+    "top_contributor_amount", COALESCE(MAXX(CurrentTopContributor, [converted_expense_total]), 0),
     "notable_expense_description", MAXX(NotableExpense, 'Recent Notable Expenses'[description]),
-    "notable_expense_amount", COALESCE(MAXX(NotableExpense, 'Recent Notable Expenses'[expense_amount]), 0),
+    "notable_expense_amount", COALESCE(MAXX(NotableExpense, [converted_expense_amount]), 0),
     "monthly_history", CONCATENATEX(
         MonthlyHistoryRows,
-        FORMAT('Monthly Expenses'[month_start_date], "yyyy-MM") & ":" & FORMAT('Monthly Expenses'[expense_total], "0.####"),
+        FORMAT('Monthly Expenses'[month_start_date], "yyyy-MM") & ":" & FORMAT([converted_expense_total], "0.####"),
         "|",
         'Monthly Expenses'[month_start_date],
         ASC
-    )
+    ),
+    "spending_categories", CONCATENATEX(
+        CategoryRows,
+        SUBSTITUTE('Spending Categories'[spending_category], "|", "/") & ":"
+            & FORMAT([converted_expense_total], "0.####") & ":"
+            & FORMAT([category_transaction_count], "0") & ":"
+            & FORMAT([category_review_required_count], "0") & ":"
+            & FORMAT([converted_uncategorized_expense_total], "0.####"),
+        "|",
+        [converted_expense_total],
+        DESC
+    ),
+    "classification_transaction_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[transaction_count]), 0),
+    "classification_classified_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[classified_transaction_count]), 0),
+    "classification_unclassified_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[unclassified_transaction_count]), 0),
+    "classification_review_required_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[review_required_count]), 0),
+    "classification_human_confirmed_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[human_confirmed_count]), 0),
+    "classification_low_confidence_ai_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[low_confidence_ai_count]), 0),
+    "classification_outside_vocabulary_proposal_count", COALESCE(SUMX(ClassificationRows, 'Classification Quality'[outside_vocabulary_proposal_count]), 0)
 )
 """;
     }
 
-    private static object ToKpiPayload(JsonObject payload, string selectedCurrency)
+    private static string BuildFxRatesDax(string configuredFxRates)
+    {
+        var supportedCurrencies = new[] { "NZD", "PHP", "AUD", "USD" };
+        var rates = new Dictionary<(string Source, string Target), decimal>();
+        foreach (var currency in supportedCurrencies)
+        {
+            rates[(currency, currency)] = 1m;
+        }
+
+        foreach (var entry in configuredFxRates.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var entryParts = entry.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (entryParts.Length != 2
+                || !decimal.TryParse(entryParts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var rate)
+                || rate <= 0)
+            {
+                continue;
+            }
+
+            var currencyParts = entryParts[0].Split(':', 2, StringSplitOptions.TrimEntries);
+            if (currencyParts.Length != 2
+                || !TryNormalizeCurrency(currencyParts[0], out var sourceCurrency)
+                || !TryNormalizeCurrency(currencyParts[1], out var targetCurrency))
+            {
+                continue;
+            }
+
+            rates[(sourceCurrency, targetCurrency)] = rate;
+            rates.TryAdd((targetCurrency, sourceCurrency), 1m / rate);
+        }
+
+        AddCrossCurrencyRates(rates, supportedCurrencies);
+
+        var rows = rates
+            .OrderBy(rate => rate.Key.Source, StringComparer.Ordinal)
+            .ThenBy(rate => rate.Key.Target, StringComparer.Ordinal)
+            .Select(rate => FormattableString.Invariant(
+                $"{{ \"{rate.Key.Source}\", \"{rate.Key.Target}\", {rate.Value.ToString("0.################", CultureInfo.InvariantCulture)} }}"
+            ));
+
+        return $"DATATABLE(\"source_currency\", STRING, \"target_currency\", STRING, \"rate\", DOUBLE, {{ {string.Join(", ", rows)} }})";
+    }
+
+    private static void AddCrossCurrencyRates(Dictionary<(string Source, string Target), decimal> rates, string[] supportedCurrencies)
+    {
+        var addedRate = true;
+        while (addedRate)
+        {
+            addedRate = false;
+            foreach (var sourceCurrency in supportedCurrencies)
+            {
+                foreach (var targetCurrency in supportedCurrencies)
+                {
+                    if (rates.ContainsKey((sourceCurrency, targetCurrency)))
+                    {
+                        continue;
+                    }
+
+                    foreach (var bridgeCurrency in supportedCurrencies)
+                    {
+                        if (bridgeCurrency == sourceCurrency || bridgeCurrency == targetCurrency)
+                        {
+                            continue;
+                        }
+
+                        if (rates.TryGetValue((sourceCurrency, bridgeCurrency), out var sourceToBridge)
+                            && rates.TryGetValue((bridgeCurrency, targetCurrency), out var bridgeToTarget))
+                        {
+                            rates[(sourceCurrency, targetCurrency)] = sourceToBridge * bridgeToTarget;
+                            addedRate = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static object ToKpiPayload(JsonObject payload, string selectedCurrency, DateOnly asOfDate)
     {
         var row = payload["results"]?[0]?["tables"]?[0]?["rows"]?[0]?.AsObject()
             ?? throw new InvalidOperationException("Power BI KPI query did not return a result row.");
@@ -730,9 +976,21 @@ ROW(
             message = "Financial KPIs loaded from the analytics layer.",
             selected_currency = selectedCurrency,
             rate_basis = "transaction_date",
+            as_of_date = asOfDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             last_refreshed_at_utc = (string?)null,
             cards,
-            monthly_history = ParseMonthlyHistory(TextAt(row, "monthly_history"))
+            monthly_history = ParseMonthlyHistory(TextAt(row, "monthly_history")),
+            spending_categories = ParseSpendingCategories(TextAt(row, "spending_categories")),
+            classification_quality = new
+            {
+                transaction_count = WholeNumberAt(row, "classification_transaction_count"),
+                classified_transaction_count = WholeNumberAt(row, "classification_classified_count"),
+                unclassified_transaction_count = WholeNumberAt(row, "classification_unclassified_count"),
+                review_required_count = WholeNumberAt(row, "classification_review_required_count"),
+                human_confirmed_count = WholeNumberAt(row, "classification_human_confirmed_count"),
+                low_confidence_ai_count = WholeNumberAt(row, "classification_low_confidence_ai_count"),
+                outside_vocabulary_proposal_count = WholeNumberAt(row, "classification_outside_vocabulary_proposal_count")
+            }
         };
     }
 
@@ -762,7 +1020,31 @@ ROW(
             .ToArray<object>();
     }
 
-    private static object NotConfigured(string selectedCurrency)
+    private static object[] ParseSpendingCategories(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        return value
+            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(entry =>
+            {
+                var parts = entry.Split(':', 5, StringSplitOptions.TrimEntries);
+                return new
+                {
+                    spending_category = parts.Length > 0 ? parts[0] : "uncategorized",
+                    expense_total = DecimalPart(parts, 1),
+                    transaction_count = WholeNumberPart(parts, 2),
+                    review_required_count = WholeNumberPart(parts, 3),
+                    uncategorized_expense_total = DecimalPart(parts, 4)
+                };
+            })
+            .ToArray<object>();
+    }
+
+    private static object NotConfigured(string selectedCurrency, DateOnly asOfDate)
     {
         return new
         {
@@ -770,7 +1052,20 @@ ROW(
             message = "Financial KPI analytics are not connected yet.",
             selected_currency = selectedCurrency,
             rate_basis = "transaction_date",
-            cards = Array.Empty<object>()
+            as_of_date = asOfDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            cards = Array.Empty<object>(),
+            monthly_history = Array.Empty<object>(),
+            spending_categories = Array.Empty<object>(),
+            classification_quality = new
+            {
+                transaction_count = 0,
+                classified_transaction_count = 0,
+                unclassified_transaction_count = 0,
+                review_required_count = 0,
+                human_confirmed_count = 0,
+                low_confidence_ai_count = 0,
+                outside_vocabulary_proposal_count = 0
+            }
         };
     }
 
@@ -791,6 +1086,39 @@ ROW(
         return decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
+    }
+
+    private static long WholeNumberAt(JsonObject payload, string propertyName)
+    {
+        var value = payload.FirstOrDefault(property => property.Key.EndsWith($"[{propertyName}]", StringComparison.OrdinalIgnoreCase)).Value
+            ?? payload[propertyName];
+        if (value is null)
+        {
+            return 0;
+        }
+
+        if (value is JsonValue jsonValue && jsonValue.TryGetValue<long>(out var longValue))
+        {
+            return longValue;
+        }
+
+        return decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? Convert.ToInt64(parsed)
+            : 0;
+    }
+
+    private static decimal DecimalPart(string[] parts, int index)
+    {
+        return parts.Length > index && decimal.TryParse(parts[index], NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0m;
+    }
+
+    private static long WholeNumberPart(string[] parts, int index)
+    {
+        return parts.Length > index && decimal.TryParse(parts[index], NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? Convert.ToInt64(parsed)
+            : 0;
     }
 
     private static string? TextAt(JsonObject? payload, params string[] propertyNames)
@@ -823,6 +1151,12 @@ ROW(
         return normalized.Length == 3 && normalized.All(char.IsAsciiLetter)
             ? normalized
             : "NZD";
+    }
+
+    private static bool TryNormalizeCurrency(string value, out string currency)
+    {
+        currency = string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
+        return currency.Length == 3 && currency.All(char.IsAsciiLetter);
     }
 }
 
@@ -1307,6 +1641,46 @@ public static class StatsWebApiProxy
     }
 }
 
+public static class StatsRecognitionSettings
+{
+    public static async Task<IResult> GetActiveAsync(
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebProxyOptions proxyOptions,
+        StatsInternalApiOptions internalApiOptions,
+        StatsUserContextService userContext
+    )
+    {
+        if (await userContext.GetCurrentUserAsync(context) is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(proxyOptions.StatsDataBaseUrl))
+        {
+            return Results.Problem("Stats Data recognition settings are not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var client = httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/admin/recognition-settings/active"
+        );
+        if (!string.IsNullOrWhiteSpace(internalApiOptions.InternalApiKey))
+        {
+            request.Headers.TryAddWithoutValidation("X-Stats-Internal-Key", internalApiOptions.InternalApiKey);
+        }
+
+        using var response = await client.SendAsync(request, context.RequestAborted);
+        var content = await response.Content.ReadAsStringAsync(context.RequestAborted);
+        return Results.Content(
+            content,
+            response.Content.Headers.ContentType?.ToString() ?? "application/json",
+            statusCode: (int)response.StatusCode
+        );
+    }
+}
+
 // M9 - Stats Data and Persistence Start
 public static class StatsUploadProcessingJobs
 {
@@ -1316,6 +1690,7 @@ public static class StatsUploadProcessingJobs
         HttpContext context,
         IHttpClientFactory httpClientFactory,
         StatsWebProxyOptions proxyOptions,
+        StatsInternalApiOptions internalApiOptions,
         ILoggerFactory loggerFactory
     )
     {
@@ -1436,7 +1811,7 @@ public static class StatsUploadProcessingJobs
         );
 
         _ = Task.Run(
-            () => RunProcessingJobAsync(jobId, tempPath, metadata, proxyOptions, httpClientFactory, loggerFactory),
+            () => RunProcessingJobAsync(jobId, tempPath, metadata, proxyOptions, internalApiOptions, httpClientFactory, loggerFactory),
             CancellationToken.None
         );
 
@@ -1464,6 +1839,7 @@ public static class StatsUploadProcessingJobs
         string tempPath,
         UploadProcessingMetadata metadata,
         StatsWebProxyOptions proxyOptions,
+        StatsInternalApiOptions internalApiOptions,
         IHttpClientFactory httpClientFactory,
         ILoggerFactory loggerFactory
     )
@@ -1537,7 +1913,7 @@ public static class StatsUploadProcessingJobs
                 () => PostJsonAsync(
                     client,
                     $"{proxyOptions.DataValidationBaseUrl.TrimEnd('/')}/api/v1/validations",
-                    BuildValidationRequest(extractionResult)
+                    BuildValidationRequest(extractionResult, FetchActiveRecognitionContextAsync(client, proxyOptions, internalApiOptions))
                 ),
                 ValidationStepMetadata
             );
@@ -1646,7 +2022,7 @@ public static class StatsUploadProcessingJobs
         };
     }
 
-    private static JsonObject BuildValidationRequest(JsonObject extractionResult)
+    private static JsonObject BuildValidationRequest(JsonObject extractionResult, JsonObject activeRecognitionContext)
     {
         var classification = extractionResult["classification"] as JsonObject ?? new JsonObject();
         return new JsonObject
@@ -1674,8 +2050,40 @@ public static class StatsUploadProcessingJobs
             ["line_item_candidates"] = extractionResult["line_item_candidates"]?.DeepClone() ?? new JsonArray(),
             ["installment_candidates"] = extractionResult["installment_candidates"]?.DeepClone() ?? new JsonArray(),
             ["reconciliation"] = extractionResult["reconciliation"]?.DeepClone(),
+            ["active_recognition_context"] = activeRecognitionContext.DeepClone(),
             ["findings"] = extractionResult["findings"]?.DeepClone() ?? new JsonArray()
         };
+    }
+
+    private static JsonObject FetchActiveRecognitionContextAsync(
+        HttpClient client,
+        StatsWebProxyOptions proxyOptions,
+        StatsInternalApiOptions internalApiOptions
+    )
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/admin/recognition-settings/active"
+            );
+            if (!string.IsNullOrWhiteSpace(internalApiOptions.InternalApiKey))
+            {
+                request.Headers.TryAddWithoutValidation("X-Stats-Internal-Key", internalApiOptions.InternalApiKey);
+            }
+            using var response = client.Send(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new JsonObject();
+            }
+            using var stream = response.Content.ReadAsStream();
+            var payload = JsonNode.Parse(stream) as JsonObject;
+            return payload?["recognition_context"]?.DeepClone() as JsonObject ?? new JsonObject();
+        }
+        catch
+        {
+            return new JsonObject();
+        }
     }
 
     private static async Task UpdateJobAsync(

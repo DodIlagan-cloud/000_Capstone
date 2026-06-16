@@ -239,6 +239,12 @@ The classification rules must run after extraction and should not care which ext
 
 Classification signals must be generic. For example, `statement / credit_card_statement` may be inferred from signals such as `credit card`, `card type`, `credit limit`, `minimum amount due`, `payment due date`, `finance charge`, `previous balance`, `unbilled installment`, and `total outstanding balance`. `statement / account_statement` may be inferred from signals such as `account number`, `opening balance`, `closing balance`, `available balance`, `deposits`, `withdrawals`, `running balance`, and `transaction history`. `receipt / payment_terminal_receipt` may be inferred from EFTPOS/card terminal signals such as terminal, merchant copy, approved, purchase, RRN, AID, TVR, TSI, card, and total. `invoice / medical_invoice` may be inferred from invoice signals plus healthcare/lab context such as patient identifiers, date of birth, lab, test names, service fee, payment history, paid, owing, and GST.
 
+<!-- M5 Slug Signal Matching Start - 2026-06-15 -->
+Recognition settings may store labels and signal values in canonical slug form, such as `payment_due_date`, `minimum_amount_due`, `credit_card`, or `statement_of_account`. M5 must match those canonical values against equivalent human-readable document text with spaces or punctuation, such as `payment due date`, `minimum amount due`, `credit card`, or `statement of account`, while preserving the canonical value in diagnostics and reason metadata. This slug/phrase matching must apply to required anchors and weighted signals loaded from M9 active recognition settings.
+
+Statement-like evidence must not lose to generic receipt words merely because a document also contains terms such as `total`, `purchase`, `payment`, or `card`. When strong statement summary signals are present, including `statement date`, `payment due date`, `minimum amount due`, `total amount due`, `previous balance`, `payments and credits`, `purchases and debits`, `credit limit`, or `finance charge`, M5 should classify the document as a statement or return an explicit ambiguous/review result rather than confidently classifying it as a receipt.
+<!-- M5 Slug Signal Matching End - 2026-06-15 -->
+
 For OCR images of retail receipts, labels such as `tax invoice`, `GST`, `EFTPOS`, `purchase`, `approved`, `total`, `subtotal`, `tax`, `receipt`, and terminal/card references are receipt signals even when the word `invoice` is present. M5 must not classify these common sales/tax receipt shapes as `unknown` merely because invoice and receipt signals overlap; the labelled receipt/payment/total evidence should support `receipt / tax_receipt` or `receipt / payment_terminal_receipt`.
 
 ### AI-Assisted Classification Fallback
@@ -476,6 +482,10 @@ Module-local automated tests must cover:
 - Classification for supported document types/subtypes from shared vocabulary and rules.
 - Classification rule behavior for both direct PDF text and Tesseract OCR-produced text.
 - Classification rule/vocabulary loading from M9 active recognition settings.
+<!-- M5 Slug Signal Matching Start - 2026-06-15 -->
+- Classification matching for M9 slug-style recognition signals against equivalent phrase text, including required anchors and weighted signals such as `payment_due_date` matching `payment due date`.
+- Statement-vs-receipt regression where statement summary evidence prevents generic receipt words from winning a confident receipt classification.
+<!-- M5 Slug Signal Matching End - 2026-06-15 -->
 - Controlled unavailable-settings behavior when the M9 recognition settings API is unavailable, with no stale JSON fallback.
 - Unknown/low-confidence classification.
 - Unknown document shape behavior with `POSSIBLE_NEW_DOCUMENT_SHAPE` and no runtime vocabulary mutation.
@@ -496,6 +506,9 @@ Actual app evidence should cover:
 - At least one text-layer PDF fixture from `tests/input` proves direct PDF text extraction or normal PDF parsing.
 - At least one OCR-required image or scanned-PDF fixture from `tests/input` proves Tesseract fallback, OCR metadata, and quality/finding behavior.
 - Document classification is visible in UI output, API output, or redacted terminal evidence through `document_type`, `document_subtype`, confidence/status, and reason codes.
+<!-- M5 Slug Signal Matching Start - 2026-06-15 -->
+- At least one statement-like PDF fixture proves M9 slug-style signals match document phrase text and do not regress to receipt classification because of generic words such as `total`, `purchase`, `payment`, or `card`.
+<!-- M5 Slug Signal Matching End - 2026-06-15 -->
 - Unknown, unsupported, low-quality, ambiguous, or pending-suggestion behavior is included when a suitable fixture or controlled request exists.
 <!-- M8 - Data Validation Module Start -->
 - UI shows parse summary and user-facing M8 transaction check results, with raw M5/M7/M8 details hidden behind a developer detail view.
@@ -547,6 +560,10 @@ M5 is complete when:
 - Classification output is included in the parse result.
 - Classification output includes `document_type`, `document_subtype`, confidence, status, reason codes, and diagnostic scores where available.
 - M5 uses M9 active recognition settings and does not mutate committed JSON files or in-image configuration at runtime.
+<!-- M5 Slug Signal Matching Start - 2026-06-15 -->
+- M5 matches canonical M9 slug signals and human-readable phrase text equivalently for document classification.
+- Statement-like PDF fixtures with summary/payment-due evidence are not confidently classified as receipts solely from generic receipt-like words.
+<!-- M5 Slug Signal Matching End - 2026-06-15 -->
 - Evaluation metadata is present and measurable.
 - Evidence previews are redacted.
 <!-- M8 - Data Validation Module Start -->

@@ -20,6 +20,7 @@ DOCUMENTS_PAGE_FILE = STATS_WEB_ROOT / "Pages" / "Documents.cshtml"
 CLASSIFICATIONS_PAGE_FILE = STATS_WEB_ROOT / "Pages" / "Admin" / "Classifications.cshtml"
 CLASSIFICATIONS_MODEL_FILE = STATS_WEB_ROOT / "Pages" / "Admin" / "Classifications.cshtml.cs"
 RUNTIME_CONFIG_FILE = REPO_ROOT / "config" / "stats.runtime.json"
+REPORTING_SQL_FILE = REPO_ROOT / "apps" / "stats-data" / "reporting" / "financial_reporting_read_models.sql"
 
 
 def _load_appsettings() -> dict:
@@ -80,6 +81,8 @@ def test_stats_web_program_allows_container_environment_overrides():
     assert "StatsWeb:Downstream:DataValidationBaseUrl" in program_source
     assert "StatsWeb:Downstream:StatsDataBaseUrl" in program_source
     assert "STATS_INTERNAL_API_KEY" in program_source
+    assert "STATS_AS_OF_DATE" in program_source
+    assert "StatsWeb:Reporting:AsOfDate" in program_source
     assert "X-Stats-Internal-Key" in classifications_model_source
 
 
@@ -141,6 +144,42 @@ def test_stats_web_cors_defaults_are_explicit_and_comma_separated():
     assert "8080http" not in cors_default
 
 
+def test_stats_web_reporting_as_of_date_is_runtime_configured():
+    """Ensure historical reporting tests can shift the reporting clock without changing code or machine time."""
+    runtime_config = _load_runtime_config()
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+
+    assert runtime_config["analytics"]["STATS_AS_OF_DATE"]["example"] == "2019-01-31"
+    assert "ResolveReportingAsOfDate" in program_source
+    assert "VAR AsOfDate =" in program_source
+    assert "DATE(YEAR(AsOfDate), MONTH(AsOfDate), 1)" in program_source
+    assert "DATE(YEAR(TODAY()), MONTH(TODAY()), 1)" not in program_source
+
+
+def test_reporting_read_models_carry_owner_boundary_and_debit_quality_scope():
+    sql = REPORTING_SQL_FILE.read_text(encoding="utf-8")
+
+    for view_name in [
+        "vw_reporting_transactions",
+        "vw_reporting_monthly_expenses",
+        "vw_reporting_top_expense_contributors",
+        "vw_reporting_spending_categories",
+        "vw_reporting_classification_quality",
+        "vw_reporting_upcoming_obligations",
+        "vw_reporting_recent_notable_expenses",
+        "vw_reporting_document_provenance",
+    ]:
+        view_sql = sql.split(f"CREATE OR ALTER VIEW dbo.{view_name}", 1)[1].split("GO", 1)[0]
+        assert "uploaded_by_user_id" in view_sql
+
+    classification_quality_sql = sql.split("CREATE OR ALTER VIEW dbo.vw_reporting_classification_quality", 1)[1].split("GO", 1)[0]
+    assert "LOWER(t.direction) = 'debit'" in classification_quality_sql
+    spending_categories_sql = sql.split("CREATE OR ALTER VIEW dbo.vw_reporting_spending_categories", 1)[1].split("GO", 1)[0]
+    select_sql, group_by_sql = spending_categories_sql.split("GROUP BY", 1)
+    assert "spending_subcategory" not in select_sql.lower()
+    assert "spending_subcategory" not in group_by_sql.lower()
+
+
 def test_stats_web_handles_empty_cors_origins_explicitly():
     """Ensure empty CORS config is intentionally skipped instead of silently registering an empty policy."""
     program_source = PROGRAM_FILE.read_text(encoding="utf-8")
@@ -161,6 +200,7 @@ def test_stats_web_reports_central_config_parse_failures():
 
 def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     """Ensure blank browser base URLs intentionally resolve to relative Stats Web proxy URLs."""
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
     upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
 
     assert "function statsApiUrl" in upload_source
@@ -196,20 +236,63 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert "resetUploadPage" in upload_source
     assert "Document processing could not be started." in upload_source
     assert "Transactions saved. Choose another file to continue." in upload_source
-    assert "transactionTypeOptions" in upload_source
-    assert "transactionSubtypeOptions" in upload_source
-    assert "spendingCategoryOptions" in upload_source
-    assert "spendingSubcategoryOptions" in upload_source
-    assert "withSuggestedOption(transactionTypeOptions, record.suggested_transaction_type)" in upload_source
-    assert "withSuggestedOption(transactionSubtypeOptions, record.suggested_transaction_subtype)" in upload_source
-    assert "withSuggestedOption(spendingCategoryOptions, record.suggested_spending_category)" in upload_source
-    assert "withSuggestedOption(spendingSubcategoryOptions, record.suggested_spending_subcategory)" in upload_source
-    assert "[\"transaction_type\", \"Transaction type\", \"select\", transactionTypes]" in upload_source
-    assert "[\"spending_category\", \"Spending category\", \"select\", spendingCategories]" in upload_source
+    assert "classificationChoices.transactionSubtypeOptions" in upload_source
+    assert "classificationChoices.spendingSubcategoryOptions" in upload_source
+    assert "withSuggestedOption(classificationChoices.transactionSubtypeOptions, record.suggested_transaction_subtype)" in upload_source
+    assert "withSuggestedOption(classificationChoices.spendingSubcategoryOptions, record.suggested_spending_subcategory)" in upload_source
+    assert "[\"transaction_subtype\", \"Transaction subtype\", \"select\", transactionSubtypes]" in upload_source
+    assert "[\"spending_subcategory\", \"Spending subcategory\", \"selectAddNew\", spendingSubcategories]" in upload_source
+    assert "addNewSpendingSubcategoryValue" in upload_source
+    assert "addNewSpendingCategoryValue" in upload_source
+    assert "userSpendingClassificationStorageKey" in upload_source
+    assert "stats.userSpendingSubcategoryParentMap" in upload_source
+    assert "loadUserSpendingSubcategoryChoices()" in upload_source
+    assert "mergeUserSpendingChoices(activeSpendingMap)" in upload_source
+    assert "saveUserSpendingSubcategoryChoices()" in upload_source
+    assert "Add new subcategory..." in upload_source
+    assert "Add new category..." in upload_source
+    assert "showSpendingSubcategoryDialog()" in upload_source
+    assert "classification-modal-backdrop" in upload_source
+    assert "parent_spending_category" in upload_source
+    assert "new_parent_spending_category" in upload_source
+    assert "window.prompt(" not in upload_source
+    assert "window.alert(" not in upload_source
+    assert "[\"transaction_type\", \"Transaction type\", \"select\"" not in upload_source
+    assert "[\"spending_category\", \"Spending category\", \"text\"]" not in upload_source
+    assert "rememberSpendingSubcategoryChoice(nextSpendingSubcategory, nextSpendingCategory)" in upload_source
+    assert "classification_user_added_spending_subcategory" in upload_source
+    assert "hasUserAddedClassification(saveRecord)" in upload_source
+    assert 'userAddedClassification ? "user_confirmed_classification" : confirmedClassificationSource(saveRecord)' in upload_source
+    assert "deriveTransactionType(record.transaction_subtype)" in upload_source
+    assert "deriveSpendingCategory(record.spending_subcategory)" in upload_source
+    assert 'professional_service: "purchase"' in upload_source
+    assert 'immigration_services: "professional_services"' in upload_source
+    assert 'rideshare: "transport"' in upload_source
+    assert 'clothing: "shopping"' in upload_source
+    assert 'fetch("/api/v1/recognition-settings/active"' in upload_source
+    assert "function statsAuthHeaders()" in upload_source
+    assert "function currentStatsUser()" in upload_source
+    assert "window.statsAccess.currentUser" not in upload_source
+    assert "window.statsAccess.authHeaders" not in upload_source
+    assert '"/api/v1/recognition-settings/active"' in program_source
+    recognition_start = program_source.index("public static class StatsRecognitionSettings")
+    recognition_source = program_source[recognition_start : program_source.index("// M9 - Stats Data and Persistence Start", recognition_start)]
+    assert "StatsUserContextService userContext" in recognition_source
+    assert "GetCurrentUserAsync(context)" in recognition_source
+    assert "Results.Unauthorized()" in recognition_source
     assert 'category: saveRecord.spending_category && saveRecord.spending_category !== "uncategorized"' in upload_source
     assert "review-item-header" in upload_source
     assert "review-details review-details-transaction" in upload_source
     assert "[\"Direction\", titleCaseLabel(record.direction || \"unknown\")]" in upload_source
+
+
+def test_stats_web_reporting_guards_historical_as_of_date_and_clamps_quality_width():
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
+    reporting_source = REPORTING_JS_FILE.read_text(encoding="utf-8")
+
+    assert "'Spending Categories'[month_start_date] <= CurrentMonthStart" in program_source
+    assert "'Classification Quality'[month_start_date] <= CurrentMonthStart" in program_source
+    assert "Math.min(100, Math.max(0, Math.round((classified / total) * 100)))" in reporting_source
 
 
 def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
@@ -228,12 +311,15 @@ def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
     assert "payload.validation_result" in upload_source
 
 
-def test_upload_duplicate_ingestion_stops_before_async_m5_m7_processing():
+def test_upload_uses_per_attempt_idempotency_before_async_m5_m7_processing():
     upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
     start = upload_source.index("async function sendAcceptedFileToProcessing()")
     end = upload_source.index("async function startAcceptedFileProcessingJob(record)")
     function_source = upload_source[start:end]
 
+    assert "function createUploadAttemptIdempotencyKey()" in upload_source
+    assert 'uploadAttemptIdempotencyKey = createUploadAttemptIdempotencyKey();' in upload_source
+    assert 'formData.append("idempotency_key", uploadAttemptIdempotencyKey || createUploadAttemptIdempotencyKey());' in function_source
     assert 'if (record.status === "queued" && ingestionHandoffReady(record))' in function_source
     assert 'record.status === "queued" || record.status === "duplicate"' not in function_source
     assert 'record.status === "duplicate" ? "Document already uploaded" : "Document upload needs review"' in upload_source
@@ -457,8 +543,28 @@ def test_access_helper_mirrors_session_token_for_server_form_posts():
     assert "cookieToken()" in access_source
     assert "sessionStorage.setItem(this.tokenKey, cookieToken)" in access_source
     assert "this.setTokenCookie(token);" in access_source
+    assert "refreshSession(options = {})" in access_source
+    assert 'this.apiUrl("/api/v1/auth/refresh")' in access_source
+    assert "tokenExpiresWithin(this.refreshSkewSeconds)" in access_source
+    assert "startSessionKeepAlive(intervalMs = 10 * 60 * 1000)" in access_source
     for source in page_sources:
         assert 'src="/js/access.js" defer asp-append-version="true"' in source
+
+
+def test_upload_review_keeps_session_alive_during_long_manual_review():
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+
+    assert "window.statsAccess?.startSessionKeepAlive?.();" in upload_source
+    assert "saveReadyTransactions(result, reviewState)" in upload_source
+    assert "checkDuplicateTransactions(result, reviewState)" in upload_source
+
+
+def test_upload_save_refreshes_persisted_recognition_choices_for_next_document():
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+
+    assert "const payload = await response.json();" in upload_source
+    assert "await loadActiveRecognitionChoices();" in upload_source
+    assert "return payload;" in upload_source
 
 
 def test_reporting_js_does_not_show_raw_powerbi_error_details():
@@ -488,3 +594,26 @@ def test_home_financial_kpis_are_admin_only():
     assert page_source.index("@if (Model.IsAdmin)") < page_source.index("data-kpi-card")
     assert "data-kpi-card" in page_source
     assert 'id="reporting-currency"' in page_source
+
+
+def test_reports_page_uses_native_analytics_workbench():
+    page_source = (STATS_WEB_ROOT / "Pages" / "Reports.cshtml").read_text(encoding="utf-8")
+    reporting_source = REPORTING_JS_FILE.read_text(encoding="utf-8")
+
+    assert "/js/powerbi.min.js" not in page_source
+    assert "reporting-embed-host" not in page_source
+    assert "native-report-layout" in page_source
+    assert 'data-report-page="financial-overview"' in page_source
+    assert 'data-report-page="spending-categories"' in page_source
+    assert 'data-report-page="classification-quality"' in page_source
+    assert 'data-report-panel="financial-overview"' in page_source
+    assert 'data-report-panel="spending-categories"' in page_source
+    assert 'data-report-metric="last_month_expenses"' in page_source
+    assert 'id="spending-category-breakdown"' in page_source
+    assert 'id="classification-coverage-bar"' in page_source
+    assert "renderSpendingCategories" in reporting_source
+    assert "renderClassificationQuality" in reporting_source
+    assert "Credit-card obligations" not in page_source
+    assert "Power BI ready" not in page_source
+    assert "renderReportMetrics" in reporting_source
+    assert "reportPanels.forEach" in reporting_source

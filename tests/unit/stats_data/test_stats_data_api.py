@@ -506,6 +506,61 @@ def test_active_recognition_settings_requires_internal_key(monkeypatch):
     assert response.status_code == 403
 
 
+def test_merchant_classification_lookup_requires_internal_key(monkeypatch):
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    response = TestClient(app).get(
+        "/api/v1/internal/merchant-classifications/lookup?description=Grabtaxi%20Phils"
+    )
+
+    assert response.status_code == 403
+
+
+def test_merchant_classification_lookup_returns_profile(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
+
+    class FakeConnection:
+        def close(self):
+            captured["closed"] = True
+
+    class Lookup:
+        merchant_key = "grabtaxi phils"
+        match_status = "matched"
+        match_type = "exact_normalized_merchant"
+        merchant_display_name = "Grabtaxi Phils"
+        transaction_type = "purchase"
+        transaction_subtype = "merchant_purchase"
+        spending_category = "transport"
+        spending_subcategory = "rideshare"
+        profile_confidence = 0.92
+        confirmation_count = 2
+        conflict_count = 0
+        profile_status = "active"
+        reason_codes = ["PRIOR_MERCHANT_CLASSIFICATION_REUSED"]
+
+    monkeypatch.setattr("stats_data.api.open_azure_sql_connection", lambda: FakeConnection())
+
+    def fake_lookup(connection, **kwargs):
+        captured["lookup"] = kwargs
+        return Lookup()
+
+    monkeypatch.setattr("stats_data.api.lookup_merchant_classification", fake_lookup)
+
+    response = TestClient(app).get(
+        "/api/v1/internal/merchant-classifications/lookup?description=Grabtaxi%20Phils",
+        headers=INTERNAL_API_HEADERS,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["match_status"] == "matched"
+    assert payload["spending_subcategory"] == "rideshare"
+    assert payload["reason_codes"] == ["PRIOR_MERCHANT_CLASSIFICATION_REUSED"]
+    assert captured["lookup"]["description"] == "Grabtaxi Phils"
+    assert captured["closed"] is True
+
+
 def test_admin_recognition_mutation_requires_internal_key(monkeypatch):
     monkeypatch.setenv("STATS_INTERNAL_API_KEY", INTERNAL_API_KEY)
 

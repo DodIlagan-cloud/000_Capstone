@@ -42,6 +42,7 @@ This module does **not** extract transactions, rerun OCR, classify documents, pe
 - Prepare dashboard-ready quality statuses for both transaction records and document-level financial facts.
 - Prepare MVP reporting fields by preserving transaction type, transaction subtype, spending category, spending subcategory, classification confidence, category confidence, classification source, and review-required state from M7.
 - Preserve pending/user-confirmable suggestion identifiers, proposed label values, suggestion confidence, redacted evidence references, review reason codes, and human-confirmation state when M7 supplies them.
+- Treat M7 `prior_merchant_human_confirmed` classifications as trusted learned classifications when they are complete, active, and non-conflicted, so they are not placed in the review queue solely because classification came from reuse.
 - Preserve upstream M7 extracted table groups and reconciliation status for user review. M8 may add validation status/review columns, but it must not hide non-transaction extracted data.
 - Produce guided review output that prioritizes exceptions before full extracted data. M8 must create review items for repaired OCR rows, suspicious OCR text, reconciliation mismatches, duplicates, and incomplete or ambiguous records so Stats Web can show a small review queue instead of asking the user to inspect every row.
 - Keep database-backed duplicate checks out of M8; M9/M10 compare normalized records against stored documents and transactions through the M9 pre-save duplicate-check endpoint before persistence.
@@ -128,7 +129,11 @@ Required behavior:
 6. Mark records for review when labels are missing, unknown, uncategorized, outside approved vocabulary, pending approval, rejected, ambiguous, or below the configured confidence threshold.
 7. For AI-suggested transaction/spending labels outside active vocabulary, allow the Upload review flow to display the suggested value as the candidate classification, require user review/acceptance before save, and preserve enough metadata for M9 to mark the saved classification human-confirmed.
 8. Allow post-MVP automated/email workflows to continue when a suggestion is not confirmed through transaction review. In that case, M9 may store the suggestion for later admin review according to the admin governance path.
-9. Never write JSON configuration and never approve/reject admin suggestions. M8 only validates, flags, records user-review state, and passes data forward.
+9. Treat `transaction_subtype` and `spending_subcategory` as the two editable classification choices for MVP Upload review. `transaction_type` and `spending_category` must be derived parents when M8 has active parent-child mapping context.
+10. If M7 supplies a child value and parent value that conflict with the active mapping, M8 must recompute the parent from the child when the child is active and add a review finding. If the child is unknown, unsupported, or outside active vocabulary without review metadata, M8 must keep the row review-gated.
+11. Treat `classification_source = prior_merchant_human_confirmed` as a trusted classification source. If the learned classification has active parent-child mappings, non-unknown child values, and no M7 learned-profile conflict reason codes, M8 must not create low-confidence, unknown-category, AI-review, or pending-admin findings for that row.
+12. A learned row still requires review when another validation issue exists, including invalid date, invalid amount, unknown direction, OCR repair review, suspicious OCR text, duplicate warning, reconciliation warning, inactive vocabulary, parent-child mismatch, or M7 reason codes such as `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT`.
+13. Never write JSON configuration and never approve/reject admin suggestions. M8 only validates, flags, records user-review state, and passes data forward.
 
 M8 output to M9 must make the distinction clear:
 
@@ -190,7 +195,11 @@ M8 remains a synchronous reusable validation API. It does not write M9 timing re
 | `PENDING_RECOGNITION_LABEL_SUGGESTION` | Warning | M7 supplied a proposed transaction or spending label that has not been confirmed through Upload review/save or admin approval. |
 | `UNAPPROVED_RECOGNITION_LABEL` | Warning | A transaction or spending label is outside the approved vocabulary known to M8 and must be reviewed before save. |
 | `AI_CLASSIFICATION_USER_CONFIRMATION_REQUIRED` | Warning | AI supplied a new transaction or spending classification that can be accepted by the user during transaction review before save. |
+| `CLASSIFICATION_PARENT_CHILD_MISMATCH` | Warning | A transaction subtype or spending subcategory conflicts with the supplied parent type/category and must be derived from the active M9 mapping or reviewed. |
 | `REJECTED_RECOGNITION_LABEL_SUGGESTION` | Warning | A supplied label suggestion was already rejected or marked unusable upstream. |
+| `PRIOR_MERCHANT_CLASSIFICATION_CONFLICT` | Warning | M7 found conflicting learned classifications for the normalized merchant, so the row must stay in review. |
+| `PRIOR_MERCHANT_CLASSIFICATION_INACTIVE` | Warning | M7 found a learned merchant profile that points to inactive or unavailable labels, so the row must stay in review. |
+| `PRIOR_MERCHANT_CLASSIFICATION_PARENT_CHILD_MISMATCH` | Warning | A learned merchant profile's subtype or subcategory no longer maps cleanly to active parent vocabulary. |
 
 ## Guided Review Output
 
@@ -206,11 +215,14 @@ M8 returns a review-first view for Stats Web:
 
 Stats Web should default to the `review_items` queue when it is non-empty, then allow users to open ready transactions and all extracted data as secondary views.
 
+Rows classified with `classification_source = prior_merchant_human_confirmed` must appear in the Ready transaction set, not the Review queue, when M8 finds no other blocking or warning condition. Stats Web may display a compact source label such as `Learned from prior review`, but the user should not be forced to re-review those rows.
+
 <!-- M8 Review UX - 2026-06-02 Start -->
 Stats Web review actions before M9 persistence are local to the current upload session:
 
 - `Edit` allows the user to correct transaction date, posted date, description, amount, currency, and direction for any transaction row shown in the Upload checkpoint, including rows M8 initially marked `Ready`.
-- `Edit` allows the user to correct transaction type, transaction subtype, spending category, and spending subcategory. Approved dropdown values should be preferred, but the review UI must also show AI-suggested outside-vocabulary values when M7 supplied them for user confirmation.
+- `Edit` allows the user to correct only `transaction_subtype` and `spending_subcategory` as controlled dropdowns. The parent `transaction_type` and `spending_category` values are automatically derived from the selected child values and may be displayed read-only where useful for reviewer confidence.
+- Approved dropdown values should be preferred, but the review UI must also show AI-suggested outside-vocabulary subtype/subcategory values when M7 supplied them for user confirmation.
 - `Accept` confirms that a reviewed transaction row should join the ready-to-save set for the current upload session. When the row contains an AI-suggested outside-vocabulary transaction/spending classification, Accept marks that classification as user-confirmed for the save payload.
 - A high-confidence or `Ready` row must still remain editable because OCR can miss or alter digits even when the row passes M8 validation rules.
 - The transaction-row `Edit` action must remain visible wherever transaction rows are shown. Hiding an already-reserved action column behind hover does not add user value in this checkpoint.
@@ -268,6 +280,7 @@ M8 has no durable file-storage responsibility. If future validation evidence or 
 - Ambiguous section context, financial-field ambiguity, and total reconciliation warnings return explicit findings.
 - Transaction candidates sourced from non-transaction sections are marked for review instead of being treated as clean save-ready rows.
 - Unknown, ambiguous, or low-confidence transaction type and spending category suggestions are marked for review instead of being silently treated as clean MVP reporting categories.
+- Learned human-confirmed merchant classifications supplied by M7 are treated as ready when their subtype/subcategory values are complete, active, and parent-child consistent, and no other validation finding requires review.
 - Pending, rejected, or outside-vocabulary recognition-label suggestions are marked for review. User-confirmed AI transaction/spending labels are passed to M9 for save-time activation in the manual Upload MVP flow; unconfirmed suggestions from post-MVP automated/email workflows remain available for admin governance.
 - AI-suggested transaction type, transaction subtype, spending category, or spending subcategory values outside the current active vocabulary block save readiness until the user reviews and accepts or edits that transaction.
 - After the user accepts a reviewed AI-suggested classification, M8/Stats Web save payloads mark the row as classification-human-confirmed and must not keep it in a pending-admin-approval state.
@@ -318,6 +331,8 @@ Host-side commands are development diagnostics only and must not be recorded as 
 M8 tests should include:
 
 - Approved transaction/spending labels pass through without suggestion review.
+- `prior_merchant_human_confirmed` classifications pass through to Ready without low-confidence, unknown-category, AI-review, or pending-admin findings when values are complete and active.
+- Conflicted or inactive prior merchant classifications create review items.
 - Unknown or uncategorized labels create review items.
 - Pending suggestion metadata is preserved separately from approved/current labels.
 - Outside-vocabulary labels produce `UNAPPROVED_RECOGNITION_LABEL`.
