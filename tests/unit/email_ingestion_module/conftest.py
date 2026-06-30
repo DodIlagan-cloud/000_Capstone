@@ -17,12 +17,15 @@ import pytest
 MODULE_ROOT = Path(__file__).resolve().parents[3] / "modules" / "email-ingestion-module"
 TEST_ACCESS_TOKEN_SECRET = "m12-test-access-token-secret-key-32-chars"
 
-os.environ["ACCESS_TOKEN_SECRET_KEY"] = TEST_ACCESS_TOKEN_SECRET
-os.environ["ACCESS_TOKEN_ALGORITHM"] = "HS256"
-os.environ["STATS_INTERNAL_API_KEY"] = "m12-test-internal-api-key"
+
+def _configure_test_environment() -> None:
+    os.environ["ACCESS_TOKEN_SECRET_KEY"] = TEST_ACCESS_TOKEN_SECRET
+    os.environ["ACCESS_TOKEN_ALGORITHM"] = "HS256"
+    os.environ["STATS_INTERNAL_API_KEY"] = "m12-test-internal-api-key"
 
 
 def _activate_module_root() -> None:
+    _configure_test_environment()
     for module_name in list(sys.modules):
         if module_name == "app" or module_name.startswith("app."):
             del sys.modules[module_name]
@@ -32,6 +35,7 @@ def _activate_module_root() -> None:
     sys.path.insert(0, module_root_path)
 
 
+_configure_test_environment()
 _activate_module_root()
 
 from app.main import app
@@ -122,10 +126,10 @@ def email_payload() -> dict[str, object]:
     }
 
 
-def _test_access_token(subject: str = "test-user") -> str:
+def _test_access_token(subject: str = "test-user", role: str = "admin") -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     header = {"alg": "HS256", "typ": "JWT"}
-    payload = {"sub": subject, "exp": int(expires_at.timestamp())}
+    payload = {"sub": subject, "exp": int(expires_at.timestamp()), "role": role}
     signing_input = (
         f"{_b64encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))}."
         f"{_b64encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))}"

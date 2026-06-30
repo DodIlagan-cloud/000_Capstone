@@ -55,13 +55,19 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_delta: timedelta | None = None,
+    extra_claims: dict[str, Any] | None = None,
+) -> str:
     """Create a signed bearer token for a user subject."""
     expires_at = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
     header = {"alg": settings.access_token_algorithm, "typ": "JWT"}
     payload = {"sub": subject, "exp": int(expires_at.timestamp())}
+    if extra_claims:
+        payload.update(extra_claims)
     signing_input = (
         f"{_b64encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))}."
         f"{_b64encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))}"

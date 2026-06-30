@@ -38,7 +38,7 @@ def authenticate_user(db: Session, login_request: LoginRequest) -> User:
 
 def build_login_token(user: User) -> str:
     """Build a bearer token for an authenticated user."""
-    return create_access_token(subject=user.id)
+    return create_access_token(subject=user.id, extra_claims={"role": user.role})
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:

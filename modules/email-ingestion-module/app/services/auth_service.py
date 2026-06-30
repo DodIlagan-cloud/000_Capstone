@@ -13,6 +13,11 @@ from fastapi import Header, HTTPException, status
 
 from app.config import settings
 
+# Email ingestion manages mailbox credentials and triggers outbound connections,
+# so user sessions must carry the admin role. The internal service key is a
+# trusted server-to-server caller and is exempt from the role check.
+ADMIN_ROLE = "admin"
+
 
 def require_email_ingestion_auth(
     authorization: str | None = Header(default=None),
@@ -22,7 +27,13 @@ def require_email_ingestion_auth(
         return
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[len("Bearer ") :].strip()
-        if _decode_access_token(token):
+        payload = _decode_access_token(token)
+        if payload:
+            if payload.get("role") != ADMIN_ROLE:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email ingestion requires an administrator account.",
+                )
             return
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication is required.")
 
@@ -35,6 +46,12 @@ def _valid_internal_key(value: str | None) -> bool:
 
 
 def _decode_access_token(token: str) -> dict[str, Any] | None:
+    # NOTE: This mirrors identity-access-module/app/utils/security.decode_access_token.
+    # The two run in separate processes and cannot share a package, so any change to
+    # token format, algorithm, or claims must be made in BOTH places or tokens will
+    # silently fail to validate here. Only the algorithm/signature/sub/exp are checked;
+    # any token signed with the shared ACCESS_TOKEN_SECRET_KEY is accepted, so do not
+    # reuse that key to sign tokens for other purposes.
     try:
         header_segment, payload_segment, signature_segment = token.split(".", 2)
         header = json.loads(_b64decode(header_segment))

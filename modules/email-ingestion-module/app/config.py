@@ -13,6 +13,19 @@ SERVICE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_FILE = SERVICE_ROOT / "config" / "defaults.env"
 LOCAL_CONFIG_FILE = SERVICE_ROOT / ".env"
 
+# The module now verifies bearer tokens with ACCESS_TOKEN_SECRET_KEY (see
+# app/services/auth_service.py), so a shipped placeholder key would let forged
+# tokens pass in production. These mirror the identity module's guard.
+MIN_PRODUCTION_SECRET_LENGTH = 32
+PLACEHOLDER_SECRET_MARKERS = (
+    "change-me",
+    "changeme",
+    "replace-with",
+    "development-only",
+    "placeholder",
+    "example",
+)
+
 
 def _load_config_values() -> dict[str, str]:
     loaded_values = {
@@ -92,6 +105,7 @@ class Settings:
         self.log_level = _config_value(config_values, "LOG_LEVEL")
         self.access_token_secret_key = _config_value(config_values, "ACCESS_TOKEN_SECRET_KEY")
         self.access_token_algorithm = _config_value(config_values, "ACCESS_TOKEN_ALGORITHM")
+        self._validate_access_token_secret()
         self.email_provider = _config_value(config_values, "EMAIL_PROVIDER")
         self.email_ingestion_mode = _config_value(config_values, "EMAIL_INGESTION_MODE")
         self.file_ingestion_base_url = _config_value(config_values, "FILE_INGESTION_BASE_URL").rstrip("/")
@@ -127,6 +141,20 @@ class Settings:
         if not value:
             return []
         return [item.strip() for item in value.split(",") if item.strip()]
+
+    def _validate_access_token_secret(self) -> None:
+        if self.debug:
+            return
+
+        secret = self.access_token_secret_key.strip()
+        lowered = secret.lower()
+        looks_like_placeholder = any(marker in lowered for marker in PLACEHOLDER_SECRET_MARKERS)
+        if looks_like_placeholder or len(secret) < MIN_PRODUCTION_SECRET_LENGTH:
+            raise RuntimeError(
+                "ACCESS_TOKEN_SECRET_KEY must be overridden with a non-placeholder value "
+                f"of at least {MIN_PRODUCTION_SECRET_LENGTH} characters when DEBUG=false. "
+                "The Email Ingestion API verifies bearer tokens with this key."
+            )
 
     def _email_secret_encryption_key(self, config_values: dict[str, str]) -> str | None:
         dedicated_key = (config_values.get("EMAIL_SECRET_ENCRYPTION_KEY") or "").strip()
