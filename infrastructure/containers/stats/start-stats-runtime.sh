@@ -19,11 +19,13 @@ DOCUMENT_PARSING_PORT=${DOCUMENT_PARSING_PORT:-8015}
 TRANSACTION_EXTRACTION_PORT=${TRANSACTION_EXTRACTION_PORT:-8016}
 DATA_VALIDATION_PORT=${DATA_VALIDATION_PORT:-8017}
 STATS_DATA_PORT=${STATS_DATA_PORT:-8018}
+EMAIL_INGESTION_PORT=${EMAIL_INGESTION_PORT:-8019}
 IDENTITY_MODULE_DIR=${IDENTITY_MODULE_DIR:-${STATS_APP_ROOT}/modules/identity-access-module}
 FILE_VALIDATION_MODULE_DIR=${FILE_VALIDATION_MODULE_DIR:-${STATS_APP_ROOT}/modules/file-validation-module}
 DOCUMENT_PARSING_MODULE_DIR=${DOCUMENT_PARSING_MODULE_DIR:-${STATS_APP_ROOT}/modules/document-parsing-module}
 TRANSACTION_EXTRACTION_MODULE_DIR=${TRANSACTION_EXTRACTION_MODULE_DIR:-${STATS_APP_ROOT}/modules/transaction-extraction-module}
 DATA_VALIDATION_MODULE_DIR=${DATA_VALIDATION_MODULE_DIR:-${STATS_APP_ROOT}/modules/data-validation-module}
+EMAIL_INGESTION_MODULE_DIR=${EMAIL_INGESTION_MODULE_DIR:-${STATS_APP_ROOT}/modules/email-ingestion-module}
 STATS_DATA_DIR=${STATS_DATA_DIR:-${STATS_APP_ROOT}/apps/stats-data}
 STATS_DATA_SRC_DIR=${STATS_DATA_SRC_DIR:-${STATS_DATA_DIR}/src}
 STATS_WEB_DIR=${STATS_WEB_DIR:-${STATS_APP_ROOT}/stats-web}
@@ -145,6 +147,11 @@ cd "${STATS_DATA_SRC_DIR}"
 API_HOST=0.0.0.0 API_PORT=${STATS_DATA_PORT} \
     python3 -m uvicorn stats_data.main:app --host 0.0.0.0 --port "${STATS_DATA_PORT}" &
 
+echo "[M12] Starting Email Ingestion API on port ${EMAIL_INGESTION_PORT} ..."
+cd "${EMAIL_INGESTION_MODULE_DIR}"
+API_HOST=0.0.0.0 API_PORT=${EMAIL_INGESTION_PORT} FILE_INGESTION_BASE_URL="http://localhost:${FILE_VALIDATION_PORT}" \
+    python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${EMAIL_INGESTION_PORT}" &
+
 # -- Step 5: Wait for module API health ---------------------------------------
 wait_for_health "Identity Access API"   "http://localhost:${IDENTITY_PORT}/health"
 wait_for_health "File Validation API"   "http://localhost:${FILE_VALIDATION_PORT}/health"
@@ -152,6 +159,7 @@ wait_for_health "Document Parsing API"  "http://localhost:${DOCUMENT_PARSING_POR
 wait_for_health "Transaction Extraction API" "http://localhost:${TRANSACTION_EXTRACTION_PORT}/health"
 wait_for_health "Data Validation API" "http://localhost:${DATA_VALIDATION_PORT}/health"
 wait_for_health "Stats Data API" "http://localhost:${STATS_DATA_PORT}/health"
+wait_for_health "Email Ingestion API" "http://localhost:${EMAIL_INGESTION_PORT}/health"
 
 # -- Step 6: Start Stats Web --------------------------------------------------
 echo "[M13] All module APIs healthy. Starting Stats Web on port ${STATS_WEB_PORT} ..."
@@ -164,6 +172,7 @@ exec dotnet stats.Web.dll \
     --StatsWeb:Downstream:DocumentParsingBaseUrl "" \
     --StatsWeb:Downstream:TransactionExtractionBaseUrl "" \
     --StatsWeb:Downstream:DataValidationBaseUrl "" \
+    --StatsWeb:Downstream:EmailIngestionBaseUrl "" \
     --StatsWeb:Downstream:StatsDataBaseUrl "" \
     --StatsWeb:Proxy:IdentityBaseUrl "http://localhost:${IDENTITY_PORT}" \
     --StatsWeb:Proxy:FileValidationBaseUrl "http://localhost:${FILE_VALIDATION_PORT}" \
@@ -171,6 +180,7 @@ exec dotnet stats.Web.dll \
     --StatsWeb:Proxy:DocumentParsingBaseUrl "http://localhost:${DOCUMENT_PARSING_PORT}" \
     --StatsWeb:Proxy:TransactionExtractionBaseUrl "http://localhost:${TRANSACTION_EXTRACTION_PORT}" \
     --StatsWeb:Proxy:DataValidationBaseUrl "http://localhost:${DATA_VALIDATION_PORT}" \
-    --StatsWeb:Proxy:StatsDataBaseUrl "http://localhost:${STATS_DATA_PORT}"
+    --StatsWeb:Proxy:StatsDataBaseUrl "http://localhost:${STATS_DATA_PORT}" \
+    --StatsWeb:Proxy:EmailIngestionBaseUrl "http://localhost:${EMAIL_INGESTION_PORT}"
 
 # M13 End

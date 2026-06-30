@@ -1,0 +1,25 @@
+# M13 - Containerization Start
+# Local web-development override.
+# Exposes module APIs to the host so `dotnet run` Stats Web can call the real
+# container-backed services without rebuilding the image for every Razor/CSS edit.
+
+services:
+  stats:
+    environment:
+      STATS_APP_ROOT: /app
+      STATS_RUNTIME_CONFIG: /app/config/stats.runtime.json
+      STATS_PATHS_CONFIG: /app/config/stats.paths.json
+      STATS_LOGGING_CONFIG: /app/config/stats.logging.json
+    # Bind to loopback only: the module APIs trust the in-container network
+    # boundary and do not authenticate requests, so they must not be exposed to
+    # the local network during host-side web development.
+    ports:
+      - "127.0.0.1:${IDENTITY_HOST_PORT:-8013}:${IDENTITY_PORT:-8013}"
+      - "127.0.0.1:${FILE_VALIDATION_HOST_PORT:-8014}:${FILE_VALIDATION_PORT:-8014}"
+      - "127.0.0.1:${DOCUMENT_PARSING_HOST_PORT:-8015}:${DOCUMENT_PARSING_PORT:-8015}"
+      - "127.0.0.1:${TRANSACTION_EXTRACTION_HOST_PORT:-8016}:${TRANSACTION_EXTRACTION_PORT:-8016}"
+      - "127.0.0.1:${DATA_VALIDATION_HOST_PORT:-8017}:${DATA_VALIDATION_PORT:-8017}"
+      - "127.0.0.1:${STATS_DATA_HOST_PORT:-8018}:${STATS_DATA_PORT:-8018}"
+      - "127.0.0.1:${EMAIL_INGESTION_HOST_PORT:-8019}:${EMAIL_INGESTION_PORT:-8019}"
+
+# M13 End

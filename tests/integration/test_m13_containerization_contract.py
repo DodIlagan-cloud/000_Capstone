@@ -13,6 +13,11 @@ DOCKERFILE      = REPO_ROOT / "infrastructure" / "containers" / "stats" / "Docke
 STARTUP_SCRIPT  = REPO_ROOT / "infrastructure" / "containers" / "stats" / "start-stats-runtime.sh"
 COMPOSE_FILE    = REPO_ROOT / "infrastructure" / "compose" / "stats-runtime.compose.yml"
 ENV_EXAMPLE     = REPO_ROOT / "infrastructure" / "containers" / "stats" / ".env.container.example"
+EMAIL_REQUIREMENTS = REPO_ROOT / "modules" / "email-ingestion-module" / "requirements.txt"
+EMAIL_MAIN = REPO_ROOT / "modules" / "email-ingestion-module" / "app" / "main.py"
+EMAIL_SOURCES_ROUTE = REPO_ROOT / "modules" / "email-ingestion-module" / "app" / "routes" / "sources.py"
+EMAIL_INGESTIONS_ROUTE = REPO_ROOT / "modules" / "email-ingestion-module" / "app" / "routes" / "ingestions.py"
+EMAIL_AUTH_SERVICE = REPO_ROOT / "modules" / "email-ingestion-module" / "app" / "services" / "auth_service.py"
 STATS_WEB_PROGRAM = REPO_ROOT / "apps" / "stats-web" / "Program.cs"
 TEST_INPUT_DIR  = REPO_ROOT / "tests/input"
 EVIDENCE_RUNNER = REPO_ROOT / "tests/scripts" / "M13-Containerization" / "run_docker_acceptance_evidence.ps1"
@@ -106,6 +111,15 @@ def test_dockerfile_installs_and_verifies_azure_sql_driver():
     assert "import pyodbc" in content, "Dockerfile must verify pyodbc at build time"
 
 
+def test_pyodbc_is_pinned_in_module_requirements_not_installed_bare():
+    dockerfile = DOCKERFILE.read_text()
+    requirements = EMAIL_REQUIREMENTS.read_text()
+
+    assert "pyodbc==" in requirements
+    assert "-r /requirements/email-ingestion.txt" in dockerfile
+    assert "        pyodbc" not in dockerfile
+
+
 def test_dockerfile_copies_tests_for_container_execution():
     content = DOCKERFILE.read_text()
     assert "COPY tests/" in content, "Dockerfile must copy test code into the Stats runtime image"
@@ -140,6 +154,11 @@ def test_dockerfile_packages_transaction_extraction_module():
 def test_dockerfile_packages_data_validation_module():
     content = DOCKERFILE.read_text()
     assert "data-validation-module" in content, "Dockerfile must package M8 in the Stats runtime image"
+
+
+def test_dockerfile_packages_email_ingestion_module():
+    content = DOCKERFILE.read_text()
+    assert "email-ingestion-module" in content, "Dockerfile must package M12 in the Stats runtime image"
 
 
 def test_dockerfile_packages_m9_azure_sql_migrations_without_intake_data():
@@ -214,6 +233,12 @@ def test_startup_script_starts_stats_data_api():
     assert "uvicorn stats_data.main:app" in content
 
 
+def test_startup_script_starts_email_ingestion_api():
+    content = STARTUP_SCRIPT.read_text()
+    assert "8019" in content
+    assert "EMAIL_INGESTION_MODULE_DIR" in content
+
+
 def test_startup_script_performs_health_checks():
     content = STARTUP_SCRIPT.read_text()
     assert "wait_for_health" in content
@@ -270,8 +295,26 @@ def test_compose_configures_data_validation_port():
     assert 'STATS_INTERNAL_API_KEY: "${STATS_INTERNAL_API_KEY:?Set STATS_INTERNAL_API_KEY in infrastructure/compose/.env.container}"' in content
 
 
+def test_compose_configures_email_ingestion_port():
+    content = COMPOSE_FILE.read_text()
+    assert 'EMAIL_INGESTION_PORT: "${EMAIL_INGESTION_PORT:-8019}"' in content
+    assert 'EMAIL_PROVIDER: "${EMAIL_PROVIDER:-synthetic}"' in content
+    assert 'FILE_INGESTION_BASE_URL: "${FILE_INGESTION_BASE_URL:-http://localhost:8014}"' in content
+    assert 'EMAIL_SECRET_PROVIDER: "${EMAIL_SECRET_PROVIDER:-azure_sql}"' in content
+    assert 'DEFAULT_MAILBOX_FOLDER: "${DEFAULT_MAILBOX_FOLDER:-Inbox}"' in content
+    assert 'DEFAULT_LOOKBACK_HOURS: "${DEFAULT_LOOKBACK_HOURS:-24}"' in content
+    assert 'DEFAULT_MAX_MESSAGES: "${DEFAULT_MAX_MESSAGES:-25}"' in content
+
+
 def test_compose_references_dockerfile():
     assert "Dockerfile" in COMPOSE_FILE.read_text()
+
+
+def test_compose_healthcheck_keeps_startup_grace_and_restart_policy():
+    content = COMPOSE_FILE.read_text()
+    assert "start_period: 90s" in content
+    assert "restart: unless-stopped" in content
+    assert "Allows first-start Azure SQL readiness, migrations, module warm-up, and Tesseract initialization." in content
 
 
 # -- Stats Web /health --------------------------------------------------------
@@ -296,6 +339,7 @@ def test_stats_web_proxies_browser_api_calls():
     assert "StatsWeb:Proxy:TransactionExtractionBaseUrl" in content
     assert "StatsWeb:Proxy:DataValidationBaseUrl" in content
     assert "StatsWeb:Proxy:StatsDataBaseUrl" in content
+    assert "StatsWeb:Proxy:EmailIngestionBaseUrl" in content
 
 
 def test_startup_script_keeps_browser_api_base_urls_same_origin():
@@ -306,6 +350,7 @@ def test_startup_script_keeps_browser_api_base_urls_same_origin():
     assert '--StatsWeb:Downstream:DocumentParsingBaseUrl ""' in content
     assert '--StatsWeb:Downstream:TransactionExtractionBaseUrl ""' in content
     assert '--StatsWeb:Downstream:DataValidationBaseUrl ""' in content
+    assert '--StatsWeb:Downstream:EmailIngestionBaseUrl ""' in content
     assert '--StatsWeb:Downstream:StatsDataBaseUrl ""' in content
     assert "--StatsWeb:Proxy:IdentityBaseUrl" in content
     assert "--StatsWeb:Proxy:FileValidationBaseUrl" in content
@@ -313,6 +358,7 @@ def test_startup_script_keeps_browser_api_base_urls_same_origin():
     assert "--StatsWeb:Proxy:TransactionExtractionBaseUrl" in content
     assert "--StatsWeb:Proxy:DataValidationBaseUrl" in content
     assert "--StatsWeb:Proxy:StatsDataBaseUrl" in content
+    assert "--StatsWeb:Proxy:EmailIngestionBaseUrl" in content
 
 
 def test_stats_web_proxies_extraction_and_validation_api_calls():
@@ -321,6 +367,27 @@ def test_stats_web_proxies_extraction_and_validation_api_calls():
     assert "path.StartsWith(\"validations\"" in content
     assert "TransactionExtractionBaseUrl" in content
     assert "DataValidationBaseUrl" in content
+
+
+def test_stats_web_proxies_email_ingestion_api_calls():
+    content = STATS_WEB_PROGRAM.read_text()
+    assert "path.StartsWith(\"email-ingestions\"" in content
+    assert "path.StartsWith(\"email-ingestion-sources\"" in content
+    assert "EmailIngestionBaseUrl" in content
+
+
+def test_email_ingestion_routes_require_auth_and_disable_credentialed_cors():
+    main = EMAIL_MAIN.read_text()
+    auth = EMAIL_AUTH_SERVICE.read_text()
+    sources = EMAIL_SOURCES_ROUTE.read_text()
+    ingestions = EMAIL_INGESTIONS_ROUTE.read_text()
+
+    assert "allow_credentials=False" in main
+    assert "require_email_ingestion_auth" in auth
+    assert "authorization: str | None = Header" in auth
+    assert "X-Stats-Internal-Key" in auth
+    assert "dependencies=[Depends(require_email_ingestion_auth)]" in sources
+    assert "dependencies=[Depends(require_email_ingestion_auth)]" in ingestions
 
 
 def test_stats_web_proxies_stats_data_save_api_calls():
@@ -345,6 +412,14 @@ def test_env_example_documents_ocr_variables():
     assert "ALLOW_OCR_FALLBACK" in content
     assert "OCR_ENGINE" in content
     assert "TESSERACT" in content
+
+
+def test_env_example_documents_email_ingestion_variables():
+    content = ENV_EXAMPLE.read_text()
+    assert "EMAIL_PROVIDER=synthetic" in content
+    assert "EMAIL_INGESTION_MODE=dry_run" in content
+    assert "EMAIL_INGESTION_PORT=8019" in content
+    assert "FILE_INGESTION_BASE_URL=http://localhost:8014" in content
 
 
 def test_env_example_documents_secret_key():
@@ -390,6 +465,7 @@ def test_container_module_unit_runner_uses_docker_exec():
     assert "/app/tests/input" in content
     assert "docker cp" in content
     assert "data_validation_module" in content
+    assert "email_ingestion_module" in content
 
 
 def test_container_module_unit_runner_cleans_up_by_default():
@@ -452,3 +528,14 @@ def test_docker_regression_runner_documents_testing_boundary():
         "Regression script must document the container-first testing boundary"
 
 # M13 End
+
+
+def test_compose_requires_access_token_secret():
+    # Without this wiring the identity module falls back to its committed
+    # DEBUG=false + placeholder secret defaults and crashes on startup, which
+    # takes down login. The secret must be supplied from the ignored .env.container.
+    content = COMPOSE_FILE.read_text()
+    assert (
+        'ACCESS_TOKEN_SECRET_KEY: '
+        '"${ACCESS_TOKEN_SECRET_KEY:?Set ACCESS_TOKEN_SECRET_KEY (>=32 chars) in infrastructure/compose/.env.container}"'
+    ) in content, "Compose must require ACCESS_TOKEN_SECRET_KEY so the identity API can start when DEBUG=false"

@@ -44,6 +44,7 @@ COPY modules/file-validation-module/requirements.txt /requirements/file-validati
 COPY modules/document-parsing-module/requirements.txt /requirements/document-parsing.txt
 COPY modules/transaction-extraction-module/requirements.txt /requirements/transaction-extraction.txt
 COPY modules/data-validation-module/requirements.txt /requirements/data-validation.txt
+COPY modules/email-ingestion-module/requirements.txt /requirements/email-ingestion.txt
 
 RUN python3 -m venv /opt/stats/runtime \
     && /opt/stats/runtime/bin/pip install --no-cache-dir \
@@ -51,13 +52,15 @@ RUN python3 -m venv /opt/stats/runtime \
         -r /requirements/file-validation.txt \
         -r /requirements/document-parsing.txt \
         -r /requirements/transaction-extraction.txt \
-        -r /requirements/data-validation.txt
+        -r /requirements/data-validation.txt \
+        -r /requirements/email-ingestion.txt
 
 COPY modules/identity-access-module/ /app/modules/identity-access-module/
 COPY modules/file-validation-module/ /app/modules/file-validation-module/
 COPY modules/document-parsing-module/ /app/modules/document-parsing-module/
 COPY modules/transaction-extraction-module/ /app/modules/transaction-extraction-module/
 COPY modules/data-validation-module/ /app/modules/data-validation-module/
+COPY modules/email-ingestion-module/ /app/modules/email-ingestion-module/
 COPY apps/stats-data/migrations/ /app/apps/stats-data/migrations/
 COPY apps/stats-data/reporting/ /app/apps/stats-data/reporting/
 COPY apps/stats-data/scripts/ /app/apps/stats-data/scripts/

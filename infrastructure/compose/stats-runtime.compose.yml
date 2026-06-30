@@ -41,7 +41,26 @@ services:
       STATS_STORAGE_PROVIDER: "${STATS_STORAGE_PROVIDER:-AzureBlobStorage}"
       STATS_VALIDATION_HANDOFF_DIR: "${STATS_VALIDATION_HANDOFF_DIR:-/app/apps/stats-data/data/validation-handoff}"
       STATS_DATA_PORT: "${STATS_DATA_PORT:-8018}"
+      EMAIL_INGESTION_PORT: "${EMAIL_INGESTION_PORT:-8019}"
+      EMAIL_PROVIDER: "${EMAIL_PROVIDER:-synthetic}"
+      EMAIL_INGESTION_MODE: "${EMAIL_INGESTION_MODE:-dry_run}"
+      FILE_INGESTION_BASE_URL: "${FILE_INGESTION_BASE_URL:-http://localhost:8014}"
+      EMAIL_SOURCE_CONFIG_STORE: "${EMAIL_SOURCE_CONFIG_STORE:-azure_sql}"
+      EMAIL_SECRET_PROVIDER: "${EMAIL_SECRET_PROVIDER:-azure_sql}"
+      EMAIL_KEY_VAULT_URL: "${EMAIL_KEY_VAULT_URL:-}"
+      EMAIL_SECRET_ENCRYPTION_KEY: "${EMAIL_SECRET_ENCRYPTION_KEY:?Set EMAIL_SECRET_ENCRYPTION_KEY in infrastructure/compose/.env.container when EMAIL_SECRET_PROVIDER=azure_sql}"
+      ALLOWED_ATTACHMENT_EXTENSIONS: "${ALLOWED_ATTACHMENT_EXTENSIONS:-.pdf}"
+      ALLOWED_ATTACHMENT_MIME_TYPES: "${ALLOWED_ATTACHMENT_MIME_TYPES:-application/pdf}"
+      MAX_ATTACHMENT_SIZE_BYTES: "${MAX_ATTACHMENT_SIZE_BYTES:-26214400}"
+      DEFAULT_MAILBOX_FOLDER: "${DEFAULT_MAILBOX_FOLDER:-Inbox}"
+      DEFAULT_LOOKBACK_HOURS: "${DEFAULT_LOOKBACK_HOURS:-24}"
+      DEFAULT_MAX_MESSAGES: "${DEFAULT_MAX_MESSAGES:-25}"
+      POLLING_ENABLED: "${POLLING_ENABLED:-false}"
+      REDACT_EMAIL_SUBJECTS: "${REDACT_EMAIL_SUBJECTS:-true}"
+      PDF_PASSWORD_SECRET_PREFIX: "${PDF_PASSWORD_SECRET_PREFIX:-stats-pdf-password}"
       STATS_INTERNAL_API_KEY: "${STATS_INTERNAL_API_KEY:?Set STATS_INTERNAL_API_KEY in infrastructure/compose/.env.container}"
+      ACCESS_TOKEN_SECRET_KEY: "${ACCESS_TOKEN_SECRET_KEY:?Set ACCESS_TOKEN_SECRET_KEY (>=32 chars) in infrastructure/compose/.env.container}"
+      DEBUG: "${DEBUG:-false}"
       AZURE_STORAGE_ACCOUNT_NAME: "${AZURE_STORAGE_ACCOUNT_NAME:-}"
       AZURE_STORAGE_CONTAINER_NAME: "${AZURE_STORAGE_CONTAINER_NAME:-}"
       AZURE_STORAGE_BLOB_PREFIX: "${AZURE_STORAGE_BLOB_PREFIX:-intake}"
@@ -96,8 +115,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      # Allows first-start Azure SQL readiness, identity DB init, Tesseract-loaded
-      # module APIs, and Stats Web startup before Compose marks the container unhealthy.
+      # Allows first-start Azure SQL readiness, migrations, module warm-up, and Tesseract initialization.
       start_period: 90s
     restart: unless-stopped
 

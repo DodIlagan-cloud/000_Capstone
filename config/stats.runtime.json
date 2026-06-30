@@ -232,6 +232,11 @@
       "purpose": "Stats Data persistence API container-local port.",
       "default": "8018",
       "secret": false
+    },
+    "EMAIL_INGESTION_PORT": {
+      "purpose": "Email Ingestion API container-local port.",
+      "default": "8019",
+      "secret": false
     }
   },
   "moduleDefaults": {
@@ -303,6 +308,23 @@
     "REQUIRE_TRANSACTION_DIRECTION": {"purpose": "Whether validation requires transaction direction.", "secret": false},
     "ENABLE_DUPLICATE_DETECTION": {"purpose": "Enable request-local duplicate detection.", "secret": false},
     "MAX_RECORDS_PER_REQUEST": {"purpose": "Maximum records accepted by validation.", "secret": false}
+    ,
+    "EMAIL_PROVIDER": {"purpose": "Email provider adapter selector for M12. Initial safe default is synthetic.", "secret": false},
+    "EMAIL_INGESTION_MODE": {"purpose": "Email ingestion runtime mode such as dry_run or handoff.", "secret": false},
+    "FILE_INGESTION_BASE_URL": {"purpose": "M3/M4 file ingestion API target used by M12 accepted attachment handoff.", "secret": false},
+    "EMAIL_SOURCE_CONFIG_STORE": {"purpose": "M12 source profile store selector such as memory for tests or azure_sql for cloud runtime.", "secret": false},
+    "EMAIL_SECRET_PROVIDER": {"purpose": "M12 secret provider selector such as environment, memory, azure_sql, container_apps_secret, or azure_key_vault.", "secret": false},
+    "EMAIL_KEY_VAULT_URL": {"purpose": "Azure Key Vault URL used when M12 EMAIL_SECRET_PROVIDER is azure_key_vault.", "secret": false},
+    "EMAIL_SECRET_ENCRYPTION_KEY": {"purpose": "Encryption key material used when M12 stores mailbox/PDF secret values in the central runtime store. Prefer a dedicated managed secret; falls back to ACCESS_TOKEN_SECRET_KEY only for local compatibility.", "secret": true},
+    "ALLOWED_ATTACHMENT_EXTENSIONS": {"purpose": "Comma-separated M12 attachment filename extension allowlist.", "secret": false},
+    "ALLOWED_ATTACHMENT_MIME_TYPES": {"purpose": "Comma-separated M12 attachment MIME type allowlist.", "secret": false},
+    "MAX_ATTACHMENT_SIZE_BYTES": {"purpose": "Maximum attachment size M12 will consider before handoff.", "secret": false},
+    "DEFAULT_MAILBOX_FOLDER": {"purpose": "Default M12 mailbox folder hint.", "secret": false},
+    "DEFAULT_LOOKBACK_HOURS": {"purpose": "Default M12 retrieval lookback window hint.", "secret": false},
+    "DEFAULT_MAX_MESSAGES": {"purpose": "Default M12 IMAP message count per run. Use 0 in run requests for no message limit.", "secret": false},
+    "POLLING_ENABLED": {"purpose": "Enables future M12 scheduled polling runtime behavior.", "secret": false},
+    "REDACT_EMAIL_SUBJECTS": {"purpose": "Redacts email subject metadata in M12 output and evidence by default.", "secret": false},
+    "PDF_PASSWORD_SECRET_PREFIX": {"purpose": "Prefix for reusable source-level PDF password secrets referenced by M12/M5 password handling.", "secret": false}
   },
   "statsWebDownstream": {
     "StatsApi__BaseUrl": "Browser-facing Identity API base URL or same-origin proxy base.",
@@ -311,13 +333,15 @@
     "StatsWeb__Downstream__DocumentParsingBaseUrl": "Browser-facing Document Parsing base URL or same-origin proxy base.",
     "StatsWeb__Downstream__TransactionExtractionBaseUrl": "Browser-facing Transaction Extraction base URL or same-origin proxy base.",
     "StatsWeb__Downstream__DataValidationBaseUrl": "Browser-facing Data Validation base URL or same-origin proxy base.",
+    "StatsWeb__Downstream__EmailIngestionBaseUrl": "Browser-facing Email Ingestion base URL or same-origin proxy base.",
     "StatsWeb__Proxy__IdentityBaseUrl": "Server-side proxy target for Identity Access.",
     "StatsWeb__Proxy__FileValidationBaseUrl": "Server-side proxy target for File Validation.",
     "StatsWeb__Proxy__FileIngestionBaseUrl": "Server-side proxy target for File Ingestion.",
     "StatsWeb__Proxy__DocumentParsingBaseUrl": "Server-side proxy target for Document Parsing.",
     "StatsWeb__Proxy__TransactionExtractionBaseUrl": "Server-side proxy target for Transaction Extraction.",
     "StatsWeb__Proxy__DataValidationBaseUrl": "Server-side proxy target for Data Validation.",
-    "StatsWeb__Proxy__StatsDataBaseUrl": "Server-side proxy target for Stats Data persistence."
+    "StatsWeb__Proxy__StatsDataBaseUrl": "Server-side proxy target for Stats Data persistence.",
+    "StatsWeb__Proxy__EmailIngestionBaseUrl": "Server-side proxy target for Email Ingestion."
   },
   "testing": {
     "STATS_TESTDATA_DIR": {

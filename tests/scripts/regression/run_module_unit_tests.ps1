@@ -84,6 +84,9 @@ $testSuites = @(
     # M8 - Data Validation Module Start
     @{ Name = "M8 Data Validation"; Path = "tests\unit\data_validation_module"; Temp = "data-validation" },
     # M8 End
+    # M12 - Email Ingestion Module Start
+    @{ Name = "M12 Email Ingestion"; Path = "tests\unit\email_ingestion_module"; Temp = "email-ingestion" },
+    # M12 End
     # M13 - Containerization Start
     @{ Name = "M2 Stats Web Container Config"; Path = "tests\integration\test_stats_web_orchestration_config.py"; Temp = "m2-stats-web-config" },
     @{ Name = "M13 Container Contract"; Path = "tests\integration\test_m13_containerization_contract.py"; Temp = "m13-container-contract" }
