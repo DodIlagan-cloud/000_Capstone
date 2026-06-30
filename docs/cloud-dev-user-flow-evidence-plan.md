@@ -222,6 +222,8 @@ Evidence:
 
 Goal: prove the user sees cloud processing results after upload, can act on the extracted transaction, and can persist ready results.
 
+Current MVP decision: M10/MVP was accepted on June 17, 2026. The post-MVP continuation of `mvp-cloud-regression-20260617-082920` proved fresh upload/save with `202311_BPICCBE20231108.pdf` after completing the real review-edit flow for missing spending subcategories. Future fresh-save retests should edit or classify required review rows before pressing save; blindly clicking disabled Accept/Save controls is a test-runner error, not an app pass.
+
 Steps:
 
 1. Wait for a stable processing outcome:
@@ -308,6 +310,8 @@ Evidence:
 
 Goal: prove duplicate behavior is clear to the user.
 
+Current MVP decision: M10/MVP was accepted on June 17, 2026. The post-MVP continuation of `mvp-cloud-regression-20260617-082920` proved that the duplicate guard becomes visible after review edits and save attempt, but duplicate-proof remains partial/failed because Azure SQL created a second zero-transaction `stats_documents` row with the same filename/hash before the guard stopped duplicate transactions. Future duplicate tests must assert both user-visible duplicate messaging and no extra document, transaction, duplicate-check, or validation rows after the guard runs.
+
 Current baseline for the 2026-06-15 run:
 
 - Use the Scenario A saved `recpt.jpeg` transaction as the same-file duplicate baseline.
@@ -351,6 +355,8 @@ Evidence:
 ## Segment 8: Reports
 
 Goal: prove reporting is user-visible and truthful for the current cloud-dev state.
+
+Current evidence note: MVP cloud regression run `tests/results/MVP-CloudRegression/mvp-cloud-regression-20260617-082920` passed the reporting/Fabric segment on June 17, 2026. It captured Fabric active state, Azure SQL reporting source records, and screenshots for Financial overview, Spending categories, Classification quality, Source coverage, and Review impact. Rerun this segment when reporting code, reporting read models, Fabric/Power BI configuration, or seeded reporting data changes.
 
 Steps:
 

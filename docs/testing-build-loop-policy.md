@@ -125,4 +125,6 @@ Testing evidence must also follow the privacy, security, and data-governance pol
 
 This policy formalizes the testing practice that emerged during the project: module work is accepted through specification, implementation, test execution, and evidence capture as a single loop. It also reflects the shift to M13 container-first testing, where the same runtime used for OCR and service composition becomes the source of truth for future acceptance evidence.
 
+Current WIP context as of 2026-06-24: M10/MVP is accepted, M12 email ingestion is locally implemented but cloud-smoke validation is pending, M15 evaluation evidence now has a project success measurement plan, and the remaining cloud regression defect is the M9 duplicate document-row persistence issue. Future WIP reports should separate accepted MVP evidence from post-MVP regression defects so completed flows do not need to be repeated unless their code changes.
+
 <!-- M0 Foundation / M13 Containerization End -->

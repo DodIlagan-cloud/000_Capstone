@@ -94,7 +94,7 @@ Docker is not part of cloud-dev user-flow evidence. Earlier runners used local `
 
 ## Current Tracking Note
 
-As of 2026-06-12, the previous all-input cloud runner is superseded by the segmented user-flow strategy.
+As of 2026-06-17, the previous all-input cloud runner is superseded by segmented cloud evidence plus the MVP cloud regression run.
 
 Current local evidence state:
 
@@ -106,6 +106,10 @@ Current local evidence state:
 | 3 - Processing, review, accept, and save | Passed | `tests/results/CloudDevUserFlows/segment-3-processing-review-20260613-073637` |
 | 4 - Edit and accept review items | Merged | `tests/results/CloudDevUserFlows/segment-3-processing-review-20260613-073637` |
 | 5 - Save transactions | Merged | `tests/results/CloudDevUserFlows/segment-3-processing-review-20260613-073637` |
+| MVP cloud regression | Accepted with deferred regression defects | `tests/results/MVP-CloudRegression/mvp-cloud-regression-20260617-082920` |
+| Post-MVP fresh upload/save retest | Passed | `tests/results/MVP-CloudRegression/mvp-cloud-regression-20260617-082920` |
+| Post-MVP duplicate-proof retest | Partial / failed | `tests/results/MVP-CloudRegression/mvp-cloud-regression-20260617-082920` |
+| MVP Segment 6 - Reporting/Fabric | Passed | `tests/results/MVP-CloudRegression/mvp-cloud-regression-20260617-082920` |
 
 Segment 3 passed on 2026-06-13 using the cloud-only/shared-browser runner and the fixture `recpt.jpeg`. It now includes processing, transaction review, accept, save, Documents proof, product timings, and AI/suggestion status in one walkthrough. The previous blocked Segment 3 run with `20260528_083213.jpg` is retained as historical evidence. Segment 4 and Segment 5 are merged for this receipt flow.
 
@@ -116,5 +120,13 @@ Browser reuse update: Segment runners should attach to the shared Edge debugging
 Docker scope update: Segment runners should not use Docker Desktop for cloud UI testing or cloud database diagnostics. Docker is reserved for local/container regression evidence, not cloud-dev user-flow evidence.
 
 AI classification cloud-dev update: cloud-dev should keep M5 and M7 AI-assisted classification enabled through Container App env vars and secret-backed provider keys. If a segment expects AI categorisation, the walkthrough must record the active Container App revision, AI enablement state, recognition-settings availability, and any explicit AI skip reason surfaced by the app. A previous segment with `Unknown` or `Uncategorized` output remains `Passed with classification gap` until a fresh normal UI rerun proves the categorisation path.
+
+MVP cloud regression update: run `mvp-cloud-regression-20260617-082920` used image `acrstatsdev001.azurecr.io/stats-runtime:dev-fa82cab`. The environment, inventory, navigation, classification visibility, and reporting/Fabric segments passed. Fresh upload/save and duplicate proof failed, but M10/MVP was accepted on June 17, 2026; those two behaviours are deferred as post-MVP regression defects. Segment 6 captured Fabric active state, Azure SQL reporting source records, and screenshots for Financial overview, Spending categories, Classification quality, Source coverage, and Review impact.
+
+Post-MVP deferred test update: the fresh upload/save scenario was continued with `202311_BPICCBE20231108.pdf`. The user-visible review flow was completed by editing missing spending subcategories, accepting rows, and saving. Azure SQL proof shows one saved document and 13 transactions, so fresh upload/save is now passed for the realistic review-edit path. Duplicate-proof remains partial/failed: reuploading the same file shows the pre-save duplicate guard after review edits and blocks duplicate transactions, but Azure SQL briefly created a second zero-transaction `stats_documents` row with the same filename/hash. The extra duplicate document row was cleaned up and documented; the remaining defect belongs to the post-MVP duplicate persistence boundary.
+
+Cloud-dev WIP context update as of 2026-06-18: after MVP acceptance, cloud-dev was parked for cost control. Fabric capacity `capstatsdev001` was paused, Container App `ca-stats-dev-001` scaling was reduced to idle-friendly settings, Azure SQL serverless auto-pause remains configured, stale ACR image tags were removed, local stale Docker image tags/build cache were cleaned, and temporary `C:\000_Capstone_acr_context_*` folders were deleted. Future cloud evidence runs must explicitly resume the required cloud resources before execution.
+
+Wk12 update as of 2026-06-24: M12 Email Ingestion has local implementation and runtime packaging, but no cloud-dev user-flow or cloud smoke segment has been recorded for the new email-ingestion path. Any future M12 cloud evidence must resume cloud-dev intentionally, apply the Azure SQL email-ingestion migration/configuration, verify secret references without exposing secret values, and capture Email Setup plus source-profile/test-run evidence through the live Container App.
 
 <!-- Cloud-Dev User Flow Tracking End -->

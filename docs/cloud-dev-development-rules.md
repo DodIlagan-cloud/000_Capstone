@@ -21,9 +21,9 @@ Each Codex chat working on a module should treat itself as an agent contributing
 | Current live URL | `https://ca-stats-dev-001.nicesmoke-3c1ba719.australiaeast.azurecontainerapps.io` |
 | Current active image pattern | `acrstatsdev001.azurecr.io/stats-runtime:dev-*` |
 | Runtime database | Azure SQL Database `sqldb-stats-dev` |
-| Current document storage | `LocalFileSystem` for first cloud-dev only; Azure Blob Storage is future work |
+| Current document storage | Azure Blob Storage is the cloud target; durable cloud evidence is still validation pending |
 
-Cloud-dev currently has Azure Container Apps, Azure SQL, Key Vault, ACR, Log Analytics, a manual admin bootstrap job, and a user-assigned pull identity. Azure Blob Storage, Fabric, and Power BI have not been created yet.
+Cloud-dev currently has Azure Container Apps, Azure SQL, Key Vault, ACR, Log Analytics, a manual admin bootstrap job, a user-assigned pull identity, Fabric/Power BI reporting integration, and Azure Blob Storage direction/resources for durable intake. The MVP accepted reporting/Fabric evidence in Wk11, while Blob-backed document/email attachment durability and M12 cloud smoke remain validation pending.
 
 ## Agent Rules
 
@@ -113,7 +113,7 @@ Agents must apply these rules before proposing or performing a cloud-dev deploym
 - Prefer focused cloud smoke tests over repeated full cloud regression runs.
 - Use descriptive temporary tags for candidate deployments, then prune old non-active tags when the user approves cleanup.
 - Record whether a deployment is expected to create new standing monthly cost. Existing-image redeploys should normally say `No new standing Azure resource cost`.
-- Do not create Blob Storage, Fabric, Power BI, additional Container Apps, Dedicated workload profiles, or premium SKUs unless the user explicitly asks and accepts the cost/risk.
+- Do not create additional Blob Storage, Fabric, Power BI, additional Container Apps, Dedicated workload profiles, or premium SKUs unless the user explicitly asks and accepts the cost/risk.
 
 ### 9. External Review Coordination
 
@@ -195,8 +195,12 @@ Current cloud-dev baseline:
 - resource group: rg-stats-dev
 - region: australiaeast
 - ACR: acrstatsdev001
-- image: acrstatsdev001.azurecr.io/stats-runtime:dev
-- no Container App, Azure SQL, Key Vault, Storage, Fabric, or Power BI resources have been created yet
+- active image pattern: acrstatsdev001.azurecr.io/stats-runtime:dev-*
+- Container App: ca-stats-dev-001
+- Azure SQL database: sqldb-stats-dev
+- Key Vault: kv-stats-dev-001
+- reporting: Fabric/Power BI integration has MVP evidence
+- storage: Azure Blob Storage is the cloud durability target, but document/email attachment durability still needs evidence
 
 Do not create or mutate Azure resources unless I explicitly ask in this chat.
 

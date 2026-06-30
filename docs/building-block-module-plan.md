@@ -10,6 +10,7 @@ Stats will be developed as an integrating product built from reusable modules.
 - Reusable modules communicate through explicit APIs, contracts, files, queues, or events rather than importing each other's internal code.
 - Each module gets its own spec, folder, README, tests, evidence, configuration sample, and container wiring. From M13 onward, official module tests and evidence run through the Stats container.
 - The current module spec is the source of truth for what will be built. Architecture decisions must be recorded in the owning spec before implementation, test, UI, or evidence changes are made.
+- The current system design diagram with Azure resources is maintained in `docs/stats-system-design-azure.md` and should be used as the introduction-level view of the final Stats runtime.
 
 <!-- M0 Foundation Start -->
 <!-- Defines the project-wide configuration boundary for every later building block. -->
@@ -103,6 +104,8 @@ Every standalone module must provide:
 
 ## Stats Composition View
 
+For the cloud-dev/final-runtime view with Azure resources marked, use `docs/stats-system-design-azure.md`.
+
 ```mermaid
 flowchart LR
     User["User"] --> Web["Stats Web (.NET)"]
@@ -143,6 +146,16 @@ The official Capstone timeline remains six weeks. The reusable-module architectu
 | 10-16 June 2026 | Validation, cleaning, and storage | Data Validation Module, Stats Data and Persistence |
 | 17-23 June 2026 | Dashboard and integration | Stats Workflow Integration, Stats Dashboard and Reporting |
 | 24-30 June 2026 | Testing and finalisation | Containerization priority pass, Cloud Readiness notes, Evaluation Evidence, final fixes |
+
+## Current WIP Context
+
+As of 2026-06-24:
+
+- M10/MVP is accepted. The user-facing cloud MVP path is no longer gated by reporting/Fabric or fresh upload/save.
+- M9 duplicate-proof remains the active post-MVP regression defect. Duplicate transactions are blocked, but a duplicate zero-transaction `stats_documents` row can still be created before cleanup.
+- M12 Email Ingestion has moved from deferred concept to locally implemented / validation pending. The current direction is cloud-hosted provider-neutral IMAP ingestion with multiple source profiles, Stats Web Email Setup, Azure SQL profile storage, encrypted secret handling, M12 runtime packaging, Blob-backed attachment intake direction, password-required PDF handling, and handoff into M3/M4.
+- M15 Evaluation Evidence is active final-assessment WIP. It is not a buildable Stats app module; it measures the finished artefact against proposal targets, Assessment 3 outcomes, research questions, and evidence criteria.
+- M14 cloud-dev has been parked for cost control after MVP acceptance. Fabric capacity was paused, Container App scaling was reduced to idle-friendly settings, Azure SQL serverless auto-pause remains configured, stale ACR/local Docker artefacts were cleaned, and temporary ACR build contexts were removed.
 
 ## Boundary Decisions
 

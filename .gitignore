@@ -58,3 +58,6 @@ docx_render_check/
 # OS files
 Thumbs.db
 .DS_Store
+docs/video-scripts/azure-deployment-video-script.md
+/docs/assets
+/claude-review-inbox

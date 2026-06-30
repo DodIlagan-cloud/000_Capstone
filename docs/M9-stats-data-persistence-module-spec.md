@@ -11,6 +11,12 @@ M9 stores product data produced by the reusable processing modules: document int
 
 Earlier modules may still be incomplete while this spec is refined. The purpose of this draft is to define what the database must eventually remember so upstream modules can keep their contracts stable and M10/M11 can build on reliable stored records.
 
+## Current WIP Status
+
+As of 2026-06-18, M9 is accepted for the MVP path but owns one active post-MVP regression defect. The post-MVP cloud retest proved fresh upload/save for `202311_BPICCBE20231108.pdf` after the user completed review edits, accepted rows, and saved; Azure SQL showed one saved document and 13 transactions. The duplicate-proof retest remained partial/failed because reuploading the same file blocked duplicate transaction saves but briefly created a second zero-transaction `stats_documents` row with the same filename/hash before cleanup.
+
+The fix belongs in the M9 duplicate/document persistence boundary. Duplicate pre-save checks must not create a persisted document shell unless the operation is continuing into an accepted save or a clearly marked non-duplicate processing record. Duplicate guard paths should return reviewable duplicate status without leaving zero-transaction duplicate `stats_documents` rows.
+
 ## Architecture Alignment
 
 | Field | M9 Direction |

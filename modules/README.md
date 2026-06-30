@@ -24,6 +24,7 @@ Current implemented module folders:
 - `document-parsing-module/` for merged M5 parsing/OCR and retired M6 classification behavior.
 - `transaction-extraction-module/` for M7 transaction and financial field candidate extraction.
 - `data-validation-module/` for M8 transaction cleaning, validation, and duplicate detection.
+- `email-ingestion-module/` for M12 automated email attachment intake into file ingestion. As of 2026-06-24 this is locally implemented / validation pending for cloud-hosted provider-neutral IMAP source profiles, Email Setup UI wiring, Azure SQL profile storage, encrypted secret handling, Blob-backed intake direction, password-protected PDF handling, and M3/M4 handoff validation.
 
 <!-- M0 Foundation Start -->
 <!-- Applies the project runtime configuration rule to reusable modules. -->

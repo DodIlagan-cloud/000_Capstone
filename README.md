@@ -10,13 +10,14 @@ Use these foundation documents before starting a module:
 
 - `docs/M0-foundation-module-spec.md`
 - `docs/building-block-module-plan.md`
+- `docs/stats-system-design-azure.md`
 - `docs/building-block-module-io-map.md`
 - `docs/specs/module-spec-template.md`
 - `docs/testing-build-loop-policy.md`
 - `docs/privacy-security-data-governance-policy.md`
 - `docs/architecture-hardening/current-baseline.md`
 
-The building-block plan is the architecture boundary. Each later module should refine its own spec, contracts, tests, evidence, configuration sample, and runtime path before implementation grows.
+The building-block plan is the architecture boundary. The system design diagram in `docs/stats-system-design-azure.md` shows how the Stats Web shell, reusable module APIs, Azure Container Apps runtime, Azure SQL, Blob Storage, Key Vault/secrets, Log Analytics, Fabric, and Power BI fit together. Each later module should refine its own spec, contracts, tests, evidence, configuration sample, and runtime path before implementation grows.
 
 Testing is part of the build loop. Each module change must identify and run the appropriate tests during implementation. Tests that exercise module functionality must use the configured project fixture directory, `tests/input`, rather than unrelated synthetic files. Official acceptance evidence runs through the M13 Stats container from M13 onward, and through the Azure cloud-dev deployment from M14 onward where practical.
 
