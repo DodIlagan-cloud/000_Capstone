@@ -102,7 +102,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   background: var(--surface-strong);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -111,6 +112,12 @@ select {
   min-height: 2.9rem;
   padding: 0 0.85rem;
   width: 100%;
+}
+
+textarea {
+  min-height: 8rem;
+  padding: 0.85rem;
+  resize: vertical;
 }
 
 a,
@@ -150,6 +157,7 @@ a:focus-visible {
 
 input:focus-visible,
 select:focus-visible,
+textarea:focus-visible,
 button:focus-visible,
 a:focus-visible {
   outline: 3px solid rgba(125, 219, 191, 0.44);
@@ -1043,6 +1051,366 @@ tbody tr:last-child td {
   gap: 0.65rem;
 }
 /* M2 End */
+
+/* M12 - Email Ingestion Module Start */
+/* Lays out mailbox source settings and run controls without depending on local machine state. */
+.email-setup-panel,
+.email-source-form,
+.email-run-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.email-setup-grid {
+  align-items: start;
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.email-source-form,
+.email-source-list-pane,
+.email-run-panel {
+  background: rgba(7, 17, 22, 0.28);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+
+.email-source-form {
+  gap: 0.7rem;
+}
+
+.email-source-form input,
+.email-source-form select {
+  min-height: 2.45rem;
+  padding-inline: 0.7rem;
+}
+
+.email-source-form button,
+.email-source-list-pane button,
+.email-run-panel button {
+  min-height: 2.35rem;
+  padding-inline: 0.75rem;
+}
+
+.form-heading-row {
+  align-items: start;
+  display: flex;
+  gap: 0.85rem;
+  justify-content: space-between;
+}
+
+.form-heading-row h3,
+.email-source-list-pane h3,
+.email-run-panel h3 {
+  margin: 0.25rem 0 0;
+}
+
+.email-field-grid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.email-field-grid label,
+.email-field-control,
+.email-profile-fields label,
+.email-secret-fields label,
+.email-filter-fields label,
+.email-pdf-policy-fields label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.email-profile-fields {
+  grid-template-columns: minmax(12rem, 0.9fr) minmax(11rem, 0.68fr) minmax(15rem, 1fr);
+}
+
+.email-secret-fields {
+  grid-template-columns: minmax(14rem, 1fr) minmax(15rem, 1fr) minmax(8rem, 0.48fr);
+}
+
+.email-imap-fields {
+  grid-template-columns: minmax(16rem, 0.8fr) minmax(7rem, 0.22fr);
+}
+
+.email-filter-fields {
+  grid-template-columns: minmax(14rem, 1fr) minmax(14rem, 1fr) minmax(13rem, 0.65fr);
+}
+
+.email-policy-summary {
+  align-content: center;
+  background: rgba(18, 37, 44, 0.62);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.15rem;
+  min-height: 2.45rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.email-policy-summary strong {
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.email-policy-summary span:last-child {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+.email-pdf-policy-fields {
+  grid-template-columns: minmax(12rem, 0.45fr) minmax(18rem, 1fr);
+}
+
+.compact-toggle {
+  margin: -0.15rem 0 0;
+}
+
+.form-row-two {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.5fr);
+}
+
+.form-row-two label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.pdf-rules-heading {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  justify-content: space-between;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.pdf-rules-empty {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.pdf-rules-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.pdf-rules-list:empty {
+  display: none;
+}
+
+.pdf-rule-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.7rem;
+}
+
+.pdf-rule-card label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.pdf-rule-head {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.pdf-rule-title {
+  font-size: 0.95rem;
+}
+
+.email-form-state {
+  min-height: 1.35rem;
+}
+
+.pdf-rules-collapsible {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.pdf-rules-summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  list-style: none;
+  padding: 0.6rem 0.75rem;
+}
+
+.pdf-rules-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pdf-rules-summary::before {
+  color: var(--accent-strong);
+  content: ">";
+  font-weight: 800;
+  margin-right: -0.25rem;
+}
+
+.pdf-rules-collapsible[open] .pdf-rules-summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.pdf-rules-collapsible[open] .pdf-rules-summary::before {
+  content: "v";
+}
+
+.pdf-rules-summary #email-pdf-rules-label {
+  flex: 1 1 auto;
+  font-weight: 700;
+}
+
+.pdf-rules-body {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
+}
+
+.pdf-rules-body .pdf-rules-heading .field-hint {
+  flex: 1 1 auto;
+}
+
+.pdf-rules-body .pdf-rules-heading button {
+  flex: 0 0 auto;
+}
+
+.email-run-status-card {
+  background: rgba(18, 37, 44, 0.62);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+}
+
+.email-run-status-card .deferred-state {
+  margin: 0;
+}
+
+.email-run-options {
+  align-items: end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(8rem, 12rem) minmax(10rem, 1fr);
+}
+
+.email-run-options label:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.email-run-options input[type="number"] {
+  min-height: 2.35rem;
+  padding-inline: 0.7rem;
+}
+
+.email-run-panel button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.email-collapsible-pane {
+  align-content: start;
+  display: block;
+  min-width: 0;
+  padding: 0;
+}
+
+.email-pane-summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.85rem;
+  justify-content: space-between;
+  list-style: none;
+  padding: 0.75rem 0.85rem;
+}
+
+.email-pane-summary::-webkit-details-marker {
+  display: none;
+}
+
+.email-pane-summary::before {
+  color: var(--accent-strong);
+  content: ">";
+  font-size: 0.95rem;
+  font-weight: 800;
+  margin-right: -0.25rem;
+}
+
+.email-collapsible-pane[open] .email-pane-summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.email-collapsible-pane[open] .email-pane-summary::before {
+  content: "v";
+}
+
+.email-pane-summary > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.email-pane-body {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.email-pane-actions {
+  margin-bottom: 0;
+}
+
+.compact-table-wrap table {
+  min-width: 48rem;
+}
+
+.compact-table-wrap th,
+.compact-table-wrap td {
+  padding: 0.55rem 0.65rem;
+}
+
+.email-pagination {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  padding-top: 0.65rem;
+}
+
+.email-page-button {
+  min-height: 2rem;
+  min-width: 2.25rem;
+  padding-inline: 0.55rem;
+}
+
+.email-page-button[aria-current="page"] {
+  background: rgba(89, 194, 173, 0.22);
+  border-color: rgba(125, 219, 191, 0.58);
+  color: var(--accent-strong);
+  cursor: default;
+  opacity: 1;
+}
+/* M12 End */
 
 /* Shapes dashboard and report surfaces around persisted data without inventing live metrics. */
 .dashboard-heading {
@@ -2029,6 +2397,11 @@ tbody tr:last-child td {
   }
 
   .readiness-steps,
+  .email-setup-grid,
+  .email-profile-fields,
+  .email-secret-fields,
+  .email-filter-fields,
+  .email-pdf-policy-fields,
   .dashboard-user-banner,
   .dashboard-primary-kpis,
   .dashboard-lower-grid,
@@ -2053,6 +2426,8 @@ tbody tr:last-child td {
 
   .processing-steps,
   .result-metrics,
+  .email-imap-fields,
+  .form-row-two,
   .dashboard-user-banner .session-facts,
   .review-edit-form,
   .review-details,

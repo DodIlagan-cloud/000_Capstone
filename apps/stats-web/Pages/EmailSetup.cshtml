@@ -1,7 +1,7 @@
 @page
 @model EmailSetupModel
 @* M2 - Stats Web Shell Start *@
-@* Provides the authenticated email ingestion setup page before the Email Ingestion Module is connected. *@
+@* Provides the authenticated email ingestion setup page for M12 source profiles. *@
 <!doctype html>
 <html lang="en">
   <head>
@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/css/access.css" />
     <script src="/js/access.js" defer asp-append-version="true"></script>
     <script src="/js/app.js" defer asp-append-version="true"></script>
+    <script src="/js/email-setup.js" defer asp-append-version="true"></script>
   </head>
   <body class="shell-page" data-api-base-url="@Model.ApiBaseUrl" data-shell-area="email-setup">
     <main class="app-shell">
@@ -38,11 +39,239 @@
           <a data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
         </nav>
 
-        <section class="shell-panel" aria-labelledby="email-setup-title">
+        <section class="shell-panel email-setup-panel" aria-labelledby="email-setup-title">
           <p class="session-label">Email ingestion</p>
-          <h2 id="email-setup-title">Mailbox connection placeholder</h2>
-          <p class="panel-copy">Authorized mailbox connection, attachment retrieval, and polling controls are deferred until the Email Ingestion Module defines the intake contract.</p>
-          <div class="empty-state">Waiting for M12 Email Ingestion Module.</div>
+          <h2 id="email-setup-title">Mailbox source profiles</h2>
+          <p id="email-setup-state" class="deferred-state" role="status" aria-live="polite">Loading email sources.</p>
+
+          <section class="email-setup-grid" aria-label="Email ingestion configuration">
+            <details class="email-source-list-pane email-collapsible-pane" open>
+              <summary class="email-pane-summary">
+                <div>
+                  <p class="session-label">Sources</p>
+                  <h3 id="email-sources-title">Configured mailboxes</h3>
+                </div>
+                <span id="email-sources-count" class="state-pill">0 sources</span>
+              </summary>
+              <div class="email-pane-body">
+                <div class="list-heading email-pane-actions">
+                  <span class="table-note">Select an existing mailbox profile.</span>
+                  <button id="email-refresh-button" class="secondary-action" type="button">Refresh</button>
+                </div>
+                <div id="email-sources-empty" class="empty-state" hidden>No mailbox sources configured.</div>
+                <div id="email-sources-table-wrap" class="table-wrap compact-table-wrap" hidden>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Profile</th>
+                        <th>Email</th>
+                        <th>Folder</th>
+                        <th>Status</th>
+                        <th>Last run</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="email-sources-table-body"></tbody>
+                  </table>
+                </div>
+                <nav id="email-sources-pagination" class="email-pagination" aria-label="Configured mailbox pages" hidden></nav>
+              </div>
+            </details>
+
+            <form id="email-source-form" class="email-source-form" autocomplete="off">
+              <input id="email-source-id" name="source_id" type="hidden" />
+              <div class="form-heading-row">
+                <div>
+                  <p class="session-label">Profile</p>
+                  <h3 id="email-source-form-title">Add mailbox source</h3>
+                </div>
+                <button id="email-new-source-button" class="secondary-action" type="button">New</button>
+              </div>
+
+              <div class="email-field-grid email-profile-fields">
+                <label for="email-display-name">
+                  Profile name
+                  <input id="email-display-name" name="display_name" maxlength="200" required />
+                </label>
+                <label for="email-provider">
+                  Mailbox provider
+                  <select id="email-provider" name="provider">
+                    <option value="custom_imap">Custom IMAP</option>
+                    <option value="gmail_imap">Gmail</option>
+                    <option value="outlook_imap">Outlook / Microsoft 365</option>
+                    <option value="yahoo_imap">Yahoo Mail</option>
+                  </select>
+                </label>
+                <label for="email-address">
+                  Email address
+                  <input id="email-address" name="email_address" type="email" maxlength="320" required />
+                </label>
+              </div>
+
+              <div class="email-field-grid email-secret-fields">
+                <div class="email-field-control">
+                  <label for="email-app-password">Mailbox app password</label>
+                  <div class="password-field">
+                    <input id="email-app-password" name="app_password" type="password" autocomplete="new-password" />
+                    <button class="password-toggle" type="button" data-password-toggle="email-app-password" aria-label="Show app password" title="Show app password"></button>
+                  </div>
+                  <p id="email-app-password-hint" class="field-hint">Enter once to save or replace the mailbox app password.</p>
+                </div>
+                <label for="email-secret-ref">
+                  Secret reference
+                  <input id="email-secret-ref" name="secret_ref" maxlength="240" placeholder="stats-email-provider-app-password-profile" />
+                </label>
+                <label for="email-folder">
+                  Folder
+                  <input id="email-folder" name="folder" maxlength="240" value="Inbox" required />
+                  <span class="field-hint">Folder names can be case-sensitive. Use the exact folder name shown by the mailbox provider.</span>
+                </label>
+              </div>
+
+              <div id="email-custom-imap-fields" class="email-field-grid email-imap-fields" hidden>
+                <label for="email-imap-host">
+                  IMAP host
+                  <input id="email-imap-host" name="imap_host" maxlength="240" placeholder="imap.example.com" />
+                </label>
+              </div>
+
+              <div class="email-field-grid email-filter-fields">
+                <label for="email-senders">
+                  Sender allowlist
+                  <input id="email-senders" name="sender_allowlist" placeholder="statements@example.com, bills@example.com" />
+                </label>
+                <label for="email-subjects">
+                  Subject keywords
+                  <input id="email-subjects" name="subject_contains" placeholder="statement, invoice, receipt" />
+                </label>
+                <div class="email-policy-summary">
+                  <span class="control-label">Attachment policy</span>
+                  <strong>PDF only</strong>
+                  <span>Maximum size: 25 MB</span>
+                  <input id="email-extensions" name="allowed_extensions" type="hidden" value=".pdf" />
+                  <input id="email-max-size" name="max_attachment_mb" type="hidden" value="25" />
+                </div>
+              </div>
+
+              <div class="email-field-grid email-pdf-policy-fields">
+                <label for="email-pdf-action">
+                  Locked PDF handling
+                  <select id="email-pdf-action" name="pdf_default_action">
+                    <option value="ask_user">Ask user</option>
+                    <option value="use_source_secret">Use source password secret</option>
+                    <option value="pending_review">Leave pending review</option>
+                  </select>
+                </label>
+                <label for="email-pdf-secret">
+                  PDF password secret reference
+                  <input id="email-pdf-secret" name="pdf_password_secret_ref" maxlength="240" />
+                </label>
+              </div>
+
+              <details id="email-pdf-rules-section" class="pdf-rules-collapsible">
+                <summary class="pdf-rules-summary">
+                  <span id="email-pdf-rules-label">Saved PDF passwords</span>
+                  <span id="email-pdf-rules-count" class="state-pill">0 saved</span>
+                </summary>
+                <div class="pdf-rules-body">
+                  <div class="pdf-rules-heading">
+                    <p class="field-hint">Stored PDF passwords are tried against locked PDF attachments from this mailbox. The raw password stays behind the secret reference.</p>
+                    <button id="email-add-pdf-rule-button" class="secondary-action" type="button">Add password</button>
+                  </div>
+                  <p id="email-pdf-rules-empty" class="pdf-rules-empty" role="status">No saved PDF passwords yet.</p>
+                  <div id="email-pdf-rules-list" class="pdf-rules-list" aria-labelledby="email-pdf-rules-label"></div>
+                </div>
+              </details>
+
+              <template id="email-pdf-rule-template">
+                <fieldset class="pdf-rule-card" data-pdf-rule>
+                  <div class="pdf-rule-head">
+                    <strong class="pdf-rule-title" data-pdf-rule-title>New rule</strong>
+                    <button class="secondary-action pdf-rule-remove" type="button" data-pdf-rule-remove aria-label="Remove saved PDF password">Remove</button>
+                  </div>
+                  <input data-rule-field="rule_id" type="hidden" />
+                  <div class="form-row-two">
+                    <label>
+                      Name
+                      <input data-rule-field="display_name" maxlength="200" placeholder="Utilities" />
+                    </label>
+                    <label class="active-toggle">
+                      <input type="checkbox" data-rule-field="enabled" checked />
+                      Enabled
+                    </label>
+                  </div>
+                  <label>
+                    Password secret reference
+                    <input data-rule-field="password_secret_ref" maxlength="240" placeholder="stats-pdf-password-utilities" />
+                  </label>
+                  <div class="email-field-control">
+                    <label>PDF password</label>
+                    <div class="password-field">
+                      <input data-rule-field="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing secret" />
+                      <button class="password-toggle" type="button" aria-label="Show PDF password" title="Show PDF password"></button>
+                    </div>
+                  </div>
+                </fieldset>
+              </template>
+
+              <label class="active-toggle" for="email-enabled">
+                <input id="email-enabled" name="enabled" type="checkbox" checked />
+                Enabled
+              </label>
+
+              <div class="next-actions">
+                <button id="email-save-source-button" type="submit">Save profile</button>
+                <button id="email-test-source-button" class="secondary-action" type="button">Test connection</button>
+              </div>
+              <p id="email-form-state" class="deferred-state email-form-state" role="status" aria-live="polite"></p>
+            </form>
+          </section>
+
+          <section class="email-run-panel" aria-labelledby="email-run-title">
+            <div class="list-heading">
+              <div>
+                <p class="session-label">Run</p>
+                <h3 id="email-run-title">Manual ingestion</h3>
+              </div>
+              <div class="next-actions">
+                <button id="email-dry-run-button" class="secondary-action" type="button">Dry run</button>
+                <button id="email-import-run-button" type="button">Run import</button>
+              </div>
+            </div>
+            <div class="email-run-status-card">
+              <div class="email-run-options">
+                <label for="email-run-max-messages">
+                  Max messages
+                  <input id="email-run-max-messages" type="number" min="1" step="1" value="25" />
+                </label>
+                <label class="active-toggle" for="email-run-no-limit">
+                  <input id="email-run-no-limit" type="checkbox" />
+                  No message limit
+                </label>
+              </div>
+              <p id="email-run-state" class="deferred-state" role="status" aria-live="polite">Select a source profile.</p>
+            </div>
+            <section class="result-metrics" aria-label="Latest email ingestion run summary">
+              <div><strong id="email-run-messages">0</strong><span>Messages</span></div>
+              <div><strong id="email-run-attachments">0</strong><span>Attachments</span></div>
+              <div><strong id="email-run-imported">0</strong><span>Imported</span></div>
+              <div><strong id="email-run-passwords">0</strong><span>Password required</span></div>
+            </section>
+            <div id="email-run-table-wrap" class="table-wrap" hidden>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Attachment</th>
+                    <th>Status</th>
+                    <th>Sender</th>
+                    <th>Finding</th>
+                  </tr>
+                </thead>
+                <tbody id="email-run-table-body"></tbody>
+              </table>
+            </div>
+            <nav id="email-run-pagination" class="email-pagination" aria-label="Email ingestion result pages" hidden></nav>
+          </section>
         </section>
       </section>
     </main>
