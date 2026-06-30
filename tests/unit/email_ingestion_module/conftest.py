@@ -22,6 +22,10 @@ def _configure_test_environment() -> None:
     os.environ["ACCESS_TOKEN_SECRET_KEY"] = TEST_ACCESS_TOKEN_SECRET
     os.environ["ACCESS_TOKEN_ALGORITHM"] = "HS256"
     os.environ["STATS_INTERNAL_API_KEY"] = "m12-test-internal-api-key"
+    os.environ["EMAIL_PROVIDER"] = "synthetic"
+    os.environ["EMAIL_SOURCE_CONFIG_STORE"] = "memory"
+    os.environ["EMAIL_SECRET_PROVIDER"] = "environment"
+    os.environ["EMAIL_INGESTION_MODE"] = "dry_run"
 
 
 def _activate_module_root() -> None:
