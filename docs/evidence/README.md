@@ -4,6 +4,8 @@
 
 Use this folder for project-level evidence guidance or indexes when evidence spans modules.
 
+M15 Evaluation and Assessment Evidence is outside the Stats app and is not a buildable module. It owns the final Design Science Research whole-project evaluation lane: proposal target matrix, literature-aligned target notes, redacted dataset and ground-truth format, aggregate metrics, target/result comparison report, research-question answer table, evidence index, and gap register for assessing Stats against the proposal criteria.
+
 Testing and evidence are part of the build loop, not an end-of-project activity. See `docs/testing-build-loop-policy.md` for the project-wide rule and `docs/M13-container-first-testing-policy.md` for the official container-first acceptance boundary from M13 onward.
 
 Evidence must also follow `docs/privacy-security-data-governance-policy.md`: do not expose full raw financial document text, secrets, private local paths, or unnecessary personal data in assessment artefacts.
