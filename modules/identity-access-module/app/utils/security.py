@@ -78,6 +78,10 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
     """Decode and verify a signed bearer token."""
     try:
         header_segment, payload_segment, signature_segment = token.split(".", 2)
+        header = json.loads(_b64decode(header_segment))
+        if header.get("alg") != settings.access_token_algorithm:
+            return None
+
         signing_input = f"{header_segment}.{payload_segment}"
         expected_signature = hmac.new(
             settings.access_token_secret_key.encode("utf-8"),

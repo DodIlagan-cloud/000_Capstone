@@ -1,90 +1,39 @@
 // M1 - User Access Management Start
-// Shares browser-session token and backend API helpers across the Module 1 Razor pages.
+// Shares server-cookie session and backend API helpers across the Module 1 Razor pages.
 window.statsAccess = {
-  tokenKey: "stats.accessToken",
-  tokenCookieName: "stats_access_token",
   refreshTimer: null,
   refreshInFlight: null,
-  refreshSkewSeconds: 15 * 60,
+  sessionMarker: "server-cookie-session",
   apiUrl(path) {
     return `${document.body.dataset.apiBaseUrl}${path}`;
   },
-  setToken(token) {
-    sessionStorage.setItem(this.tokenKey, token);
-    this.setTokenCookie(token);
-  },
-  setTokenCookie(token) {
-    document.cookie = `${this.tokenCookieName}=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
-  },
-  cookieToken() {
-    const prefix = `${this.tokenCookieName}=`;
-    const cookie = document.cookie
-      .split(";")
-      .map((value) => value.trim())
-      .find((value) => value.startsWith(prefix));
-    return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+  setToken() {
+    // The real bearer token is now held only in a server-set HttpOnly cookie.
+    return this.sessionMarker;
   },
   token() {
-    const sessionToken = sessionStorage.getItem(this.tokenKey);
-    if (sessionToken) {
-      return sessionToken;
-    }
-
-    const cookieToken = this.cookieToken();
-    if (cookieToken) {
-      sessionStorage.setItem(this.tokenKey, cookieToken);
-    }
-
-    return cookieToken;
+    return this.sessionMarker;
   },
-  clearToken() {
-    sessionStorage.removeItem(this.tokenKey);
-    document.cookie = `${this.tokenCookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+  async clearToken() {
     if (this.refreshTimer) {
       window.clearInterval(this.refreshTimer);
       this.refreshTimer = null;
     }
+    try {
+      await fetch(this.apiUrl("/api/v1/auth/logout"), {
+        method: "POST",
+        headers: this.authHeaders(),
+      });
+    } catch {
+      // Ignore logout transport errors; redirecting to Login clears the user flow.
+    }
   },
   authHeaders() {
     return {
-      Authorization: `Bearer ${this.token()}`,
+      "X-Stats-CSRF": "1",
     };
   },
-  tokenPayload() {
-    const token = this.token();
-    if (!token) {
-      return null;
-    }
-
-    const parts = token.split(".");
-    if (parts.length < 2) {
-      return null;
-    }
-
-    try {
-      const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      const paddedPayload = payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "=");
-      return JSON.parse(window.atob(paddedPayload));
-    } catch {
-      return null;
-    }
-  },
-  tokenExpiresWithin(seconds) {
-    const payload = this.tokenPayload();
-    if (!payload?.exp) {
-      return true;
-    }
-
-    return payload.exp * 1000 <= Date.now() + seconds * 1000;
-  },
   async refreshSession(options = {}) {
-    const token = this.token();
-    if (!token) {
-      throw new Error("Session expired. Sign in again.");
-    }
-    if (!options.force && !this.tokenExpiresWithin(this.refreshSkewSeconds)) {
-      return token;
-    }
     if (this.refreshInFlight) {
       return this.refreshInFlight;
     }
@@ -97,9 +46,7 @@ window.statsAccess = {
         if (!response.ok) {
           throw new Error("Session expired. Sign in again.");
         }
-        const payload = await response.json();
-        this.setToken(payload.access_token);
-        return payload.access_token;
+        return this.sessionMarker;
       })
       .finally(() => {
         this.refreshInFlight = null;
@@ -124,17 +71,11 @@ window.statsAccess = {
     this.refreshTimer = window.setInterval(refresh, intervalMs);
     document.addEventListener("visibilitychange", refresh);
   },
-  signOut() {
-    this.clearToken();
+  async signOut() {
+    await this.clearToken();
     window.location.assign("/Login");
   },
   async currentUser() {
-    const token = this.token();
-    if (!token) {
-      throw new Error("Session expired. Sign in again.");
-    }
-
-    await this.refreshSession();
     let response = await fetch(this.apiUrl("/api/v1/auth/me"), {
       headers: this.authHeaders(),
     });

@@ -532,8 +532,9 @@ def test_admin_navigation_is_client_revealed_after_identity_check():
         assert "IsAdminAsync(HttpContext)" in source
 
 
-def test_access_helper_mirrors_session_token_for_server_form_posts():
+def test_access_helper_uses_server_cookie_session_for_browser_api_calls():
     access_source = ACCESS_JS_FILE.read_text(encoding="utf-8")
+    program_source = PROGRAM_FILE.read_text(encoding="utf-8")
     page_sources = [
         (STATS_WEB_ROOT / "Pages" / "Login.cshtml").read_text(encoding="utf-8"),
         (STATS_WEB_ROOT / "Pages" / "Index.cshtml").read_text(encoding="utf-8"),
@@ -545,15 +546,26 @@ def test_access_helper_mirrors_session_token_for_server_form_posts():
         CLASSIFICATIONS_PAGE_FILE.read_text(encoding="utf-8"),
     ]
 
-    assert "tokenCookieName: \"stats_access_token\"" in access_source
-    assert "setTokenCookie(token)" in access_source
-    assert "cookieToken()" in access_source
-    assert "sessionStorage.setItem(this.tokenKey, cookieToken)" in access_source
-    assert "this.setTokenCookie(token);" in access_source
+    assert "sessionMarker: \"server-cookie-session\"" in access_source
+    assert "\"X-Stats-CSRF\": \"1\"" in access_source
+    assert 'this.apiUrl("/api/v1/auth/logout")' in access_source
+    assert "document.cookie" not in access_source
+    assert "sessionStorage.setItem" not in access_source
+    assert "Authorization:" not in access_source
     assert "refreshSession(options = {})" in access_source
     assert 'this.apiUrl("/api/v1/auth/refresh")' in access_source
-    assert "tokenExpiresWithin(this.refreshSkewSeconds)" in access_source
     assert "startSessionKeepAlive(intervalMs = 10 * 60 * 1000)" in access_source
+    assert "StatsSessionCookies.SetAccessTokenCookie(context, accessToken)" in program_source
+    assert "HttpOnly = true" in program_source
+    assert "Secure = true" in program_source
+    assert "SameSite = SameSiteMode.Lax" in program_source
+    assert "StatsSessionCookies.HasValidCsrfHeader(context)" in program_source
+    assert "StatusCodes.Status403Forbidden" in program_source
+    assert 'payload!.Remove("access_token")' in program_source
+    assert 'context.Request.Cookies.TryGetValue(StatsUserContextService.AccessTokenCookieName' in program_source
+    assert 'requestMessage.Headers.TryAddWithoutValidation("Authorization", $"Bearer {cookieToken}")' in program_source
+    assert "StatsSessionCookies.CsrfHeaderName" in program_source
+    assert 'string.Equals(header.Key, "Cookie", StringComparison.OrdinalIgnoreCase)' in program_source
     for source in page_sources:
         assert 'src="/js/access.js" defer asp-append-version="true"' in source
 

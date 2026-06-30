@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from app.models.user import UserCreate
 from app.services.user_service import create_initial_admin, create_user
-from app.utils.security import create_access_token, hash_password, verify_password
+from app.utils.security import create_access_token, decode_access_token, hash_password, verify_password
 
 
 def test_password_hashing_does_not_return_original_password():
@@ -151,6 +151,14 @@ def test_protected_endpoint_rejects_expired_token(client, standard_user):
 
     assert response.status_code == 401
     assert response.json()["detail"]["type"] == "INVALID_TOKEN"
+
+
+def test_decode_access_token_rejects_unexpected_algorithm_header(standard_user):
+    header_segment, payload_segment, signature_segment = create_access_token(standard_user.id).split(".", 2)
+    tampered_token = ".".join(("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0", payload_segment, signature_segment))
+
+    assert header_segment != "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
+    assert decode_access_token(tampered_token) is None
 
 
 def test_duplicate_email_returns_controlled_error(db_session):

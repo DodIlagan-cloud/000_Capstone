@@ -56,7 +56,8 @@ builder.Services.AddSingleton(
         DocumentParsingBaseUrl: builder.Configuration["StatsWeb:Proxy:DocumentParsingBaseUrl"] ?? centralRuntime.ModuleUrl("DOCUMENT_PARSING_PORT"),
         TransactionExtractionBaseUrl: builder.Configuration["StatsWeb:Proxy:TransactionExtractionBaseUrl"] ?? centralRuntime.ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
         DataValidationBaseUrl: builder.Configuration["StatsWeb:Proxy:DataValidationBaseUrl"] ?? centralRuntime.ModuleUrl("DATA_VALIDATION_PORT"),
-        StatsDataBaseUrl: builder.Configuration["StatsWeb:Proxy:StatsDataBaseUrl"] ?? centralRuntime.ModuleUrl("STATS_DATA_PORT")
+        StatsDataBaseUrl: builder.Configuration["StatsWeb:Proxy:StatsDataBaseUrl"] ?? centralRuntime.ModuleUrl("STATS_DATA_PORT"),
+        EmailIngestionBaseUrl: builder.Configuration["StatsWeb:Proxy:EmailIngestionBaseUrl"] ?? centralRuntime.ModuleUrl("EMAIL_INGESTION_PORT")
     )
 );
 builder.Services.AddSingleton(
@@ -148,6 +149,19 @@ app.MapGet(
 app.MapGet(
     "/api/v1/recognition-settings/active",
     StatsRecognitionSettings.GetActiveAsync
+);
+app.MapPost(
+    "/api/v1/auth/logout",
+    (HttpContext context) =>
+    {
+        if (!StatsSessionCookies.HasValidCsrfHeader(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        StatsSessionCookies.DeleteAccessTokenCookie(context);
+        return Results.Ok(new { status = "signed_out" });
+    }
 );
 // M13 - Containerization Start
 // Browser API calls stay relative to Stats Web; this forwards them to the in-container module APIs.
@@ -265,11 +279,51 @@ public sealed record StatsWebProxyOptions(
     string DocumentParsingBaseUrl,
     string TransactionExtractionBaseUrl,
     string DataValidationBaseUrl,
-    string StatsDataBaseUrl
+    string StatsDataBaseUrl,
+    string EmailIngestionBaseUrl
 );
 
 public sealed record StatsInternalApiOptions(string InternalApiKey);
 // M13 End
+
+public static class StatsSessionCookies
+{
+    public const string CsrfHeaderName = "X-Stats-CSRF";
+
+    public static bool HasValidCsrfHeader(HttpContext context)
+    {
+        return context.Request.Headers.TryGetValue(CsrfHeaderName, out var csrfHeader)
+            && string.Equals(csrfHeader.ToString(), "1", StringComparison.Ordinal);
+    }
+
+    public static void SetAccessTokenCookie(HttpContext context, string accessToken)
+    {
+        context.Response.Cookies.Append(
+            StatsUserContextService.AccessTokenCookieName,
+            accessToken,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                Path = "/"
+            }
+        );
+    }
+
+    public static void DeleteAccessTokenCookie(HttpContext context)
+    {
+        context.Response.Cookies.Delete(
+            StatsUserContextService.AccessTokenCookieName,
+            new CookieOptions
+            {
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                Path = "/"
+            }
+        );
+    }
+}
 // M2 - Stats Web Shell Start
 // Defines optional local process orchestration for standalone module APIs.
 public sealed class StatsLocalOrchestrationOptions
@@ -1519,12 +1573,23 @@ public static class StatsWebApiProxy
             return;
         }
 
+        if (IsUnsafeMethod(context.Request.Method)
+            && !IsLoginRequest(path, context.Request.Method)
+            && !HasCsrfHeader(context))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { detail = "State-changing API calls require the Stats CSRF header." });
+            return;
+        }
+
         var targetUri = new Uri($"{targetBaseUrl.TrimEnd('/')}/api/v1/{path}{context.Request.QueryString}");
         using var requestMessage = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
         foreach (var header in context.Request.Headers)
         {
-            if (IsHopByHopHeader(header.Key) || string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase))
+            if (IsHopByHopHeader(header.Key)
+                || string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(header.Key, "Cookie", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -1543,6 +1608,13 @@ public static class StatsWebApiProxy
             {
                 requestMessage.Content.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
             }
+        }
+
+        if (!requestMessage.Headers.Contains("Authorization")
+            && context.Request.Cookies.TryGetValue(StatsUserContextService.AccessTokenCookieName, out var cookieToken)
+            && !string.IsNullOrWhiteSpace(cookieToken))
+        {
+            requestMessage.Headers.TryAddWithoutValidation("Authorization", $"Bearer {cookieToken}");
         }
 
         try
@@ -1573,7 +1645,13 @@ public static class StatsWebApiProxy
             }
 
             context.Response.Headers.Remove("transfer-encoding");
-            await responseMessage.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
+            var responseBody = await responseMessage.Content.ReadAsByteArrayAsync(context.RequestAborted);
+            if (responseMessage.IsSuccessStatusCode && IsTokenIssuingAuthRequest(path, context.Request.Method))
+            {
+                responseBody = SetCookieAndSanitizeTokenResponse(context, responseBody);
+            }
+
+            await context.Response.Body.WriteAsync(responseBody, context.RequestAborted);
         }
         catch (Exception exception) when (
             exception is HttpRequestException
@@ -1621,6 +1699,12 @@ public static class StatsWebApiProxy
             return proxyOptions.DataValidationBaseUrl;
         }
 
+        if (path.StartsWith("email-ingestions", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("email-ingestion-sources", StringComparison.OrdinalIgnoreCase))
+        {
+            return proxyOptions.EmailIngestionBaseUrl;
+        }
+
         if (path.StartsWith("transactions/batches", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("transactions/duplicate-checks", StringComparison.OrdinalIgnoreCase)
             || path.Equals("documents", StringComparison.OrdinalIgnoreCase)
@@ -1632,12 +1716,65 @@ public static class StatsWebApiProxy
         return string.Empty;
     }
 
+    private static bool IsUnsafeMethod(string method)
+    {
+        return !HttpMethods.IsGet(method)
+            && !HttpMethods.IsHead(method)
+            && !HttpMethods.IsOptions(method)
+            && !HttpMethods.IsTrace(method);
+    }
+
+    private static bool IsLoginRequest(string path, string method)
+    {
+        return HttpMethods.IsPost(method) && path.Equals("auth/login", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsTokenIssuingAuthRequest(string path, string method)
+    {
+        return HttpMethods.IsPost(method)
+            && (path.Equals("auth/login", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("auth/refresh", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasCsrfHeader(HttpContext context)
+    {
+        return context.Request.Headers.TryGetValue(StatsSessionCookies.CsrfHeaderName, out var value)
+            && string.Equals(value.ToString(), "1", StringComparison.Ordinal);
+    }
+
+    private static byte[] SetCookieAndSanitizeTokenResponse(HttpContext context, byte[] responseBody)
+    {
+        try
+        {
+            var payload = JsonNode.Parse(responseBody)?.AsObject();
+            var accessToken = payload?["access_token"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                return responseBody;
+            }
+
+            StatsSessionCookies.SetAccessTokenCookie(context, accessToken);
+            payload!.Remove("access_token");
+            payload["session"] = "cookie";
+            return JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch (Exception exception) when (
+            exception is JsonException
+                or InvalidOperationException
+                or FormatException
+        )
+        {
+            return responseBody;
+        }
+    }
+
     private static bool IsHopByHopHeader(string headerName)
     {
         return string.Equals(headerName, "Connection", StringComparison.OrdinalIgnoreCase)
             || string.Equals(headerName, "Keep-Alive", StringComparison.OrdinalIgnoreCase)
             || string.Equals(headerName, "Proxy-Authenticate", StringComparison.OrdinalIgnoreCase)
             || string.Equals(headerName, "Proxy-Authorization", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(headerName, "Content-Length", StringComparison.OrdinalIgnoreCase)
             || string.Equals(headerName, "TE", StringComparison.OrdinalIgnoreCase)
             || string.Equals(headerName, "Trailer", StringComparison.OrdinalIgnoreCase)
             || string.Equals(headerName, "Transfer-Encoding", StringComparison.OrdinalIgnoreCase)
@@ -2458,6 +2595,7 @@ public sealed class StatsCentralRuntime
             "TRANSACTION_EXTRACTION_PORT",
             "DATA_VALIDATION_PORT",
             "STATS_DATA_PORT",
+            "EMAIL_INGESTION_PORT",
         })
         {
             _ = ModuleUrl(portKey);
@@ -2602,6 +2740,7 @@ public sealed class StatsCentralRuntime
             ["StatsWeb:Downstream:DocumentParsingBaseUrl"] = string.Empty,
             ["StatsWeb:Downstream:TransactionExtractionBaseUrl"] = string.Empty,
             ["StatsWeb:Downstream:DataValidationBaseUrl"] = string.Empty,
+            ["StatsWeb:Downstream:EmailIngestionBaseUrl"] = string.Empty,
             ["StatsWeb:Proxy:IdentityBaseUrl"] = ModuleUrl("IDENTITY_PORT"),
             ["StatsWeb:Proxy:FileValidationBaseUrl"] = ModuleUrl("FILE_VALIDATION_PORT"),
             ["StatsWeb:Proxy:FileIngestionBaseUrl"] = ModuleUrl("FILE_VALIDATION_PORT"),
@@ -2609,6 +2748,7 @@ public sealed class StatsCentralRuntime
             ["StatsWeb:Proxy:TransactionExtractionBaseUrl"] = ModuleUrl("TRANSACTION_EXTRACTION_PORT"),
             ["StatsWeb:Proxy:DataValidationBaseUrl"] = ModuleUrl("DATA_VALIDATION_PORT"),
             ["StatsWeb:Proxy:StatsDataBaseUrl"] = ModuleUrl("STATS_DATA_PORT"),
+            ["StatsWeb:Proxy:EmailIngestionBaseUrl"] = ModuleUrl("EMAIL_INGESTION_PORT"),
         };
 
         if (LoggingDefaults.TryGetValue("LOG_LEVEL", out var logLevel))

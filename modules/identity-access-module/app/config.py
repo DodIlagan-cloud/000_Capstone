@@ -10,6 +10,18 @@ from dotenv.main import dotenv_values
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_FILE = SERVICE_ROOT / "config" / "defaults.env"
 LOCAL_CONFIG_FILE = SERVICE_ROOT / ".env"
+PLACEHOLDER_ACCESS_TOKEN_SECRET = "development-only-change-me"
+# Substrings that indicate an unreplaced example/placeholder secret. Rejected
+# in production even when long enough to pass the length check.
+PLACEHOLDER_SECRET_MARKERS = (
+    "change-me",
+    "changeme",
+    "replace-with",
+    "development-only",
+    "placeholder",
+    "example",
+)
+MIN_PRODUCTION_SECRET_LENGTH = 32
 
 
 def _load_config_values() -> dict[str, str]:
@@ -110,6 +122,7 @@ class Settings:
         #     self.access_token_secret_key,
         # )
         self.access_token_secret_key = _config_value(config_values, "ACCESS_TOKEN_SECRET_KEY")
+        self._validate_access_token_secret()
         # self.access_token_algorithm = os.getenv(
         #     "ACCESS_TOKEN_ALGORITHM",
         #     self.access_token_algorithm,
@@ -146,6 +159,22 @@ class Settings:
                 values.append(normalized_value.lower().lstrip(".") if strip_dot else normalized_value)
 
         return values
+
+    def _validate_access_token_secret(self) -> None:
+        if self.debug:
+            return
+
+        secret = self.access_token_secret_key.strip()
+        lowered = secret.lower()
+        looks_like_placeholder = (
+            secret == PLACEHOLDER_ACCESS_TOKEN_SECRET
+            or any(marker in lowered for marker in PLACEHOLDER_SECRET_MARKERS)
+        )
+        if looks_like_placeholder or len(secret) < MIN_PRODUCTION_SECRET_LENGTH:
+            raise RuntimeError(
+                "ACCESS_TOKEN_SECRET_KEY must be overridden with a non-placeholder value "
+                f"of at least {MIN_PRODUCTION_SECRET_LENGTH} characters when DEBUG=false."
+            )
 
 
 settings = Settings()

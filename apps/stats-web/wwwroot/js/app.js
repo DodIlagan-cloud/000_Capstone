@@ -46,7 +46,7 @@ async function loadLandingPage() {
     landingWorkspace.hidden = false;
     setAppMessage("Access granted.", "success");
   } catch (error) {
-    sessionStorage.removeItem(window.statsAccess.tokenKey);
+    await window.statsAccess.clearToken();
     setAppMessage(error.message || "Sign in again.");
     window.location.assign("/Login");
   }

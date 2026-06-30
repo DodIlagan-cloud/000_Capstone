@@ -27,6 +27,7 @@ for module_name in list(sys.modules):
 sys.path.insert(0, str(MODULE_ROOT))
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["DATABASE_PROVIDER"] = "SQLite"
+os.environ["ACCESS_TOKEN_SECRET_KEY"] = "test-access-token-secret-key-32-chars"
 # M1 End
 
 # M1 - User Access Management Start

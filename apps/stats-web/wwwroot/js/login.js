@@ -25,10 +25,6 @@ function showPasswordSetup(message) {
 }
 
 async function continueFromSession() {
-  if (!window.statsAccess.token()) {
-    return;
-  }
-
   try {
     const user = await window.statsAccess.currentUser();
     if (user.must_change_password) {
@@ -36,9 +32,8 @@ async function continueFromSession() {
       return;
     }
     window.location.assign("/");
-  } catch (error) {
-    window.statsAccess.clearToken();
-    setMessage(loginMessage, error.message || "Sign in again.");
+  } catch {
+    await window.statsAccess.clearToken();
   }
 }
 
@@ -63,8 +58,8 @@ loginForm.addEventListener("submit", async (event) => {
       throw new Error(response.status === 403 ? "This account is inactive." : "Email or password is incorrect.");
     }
 
-    const tokenResponse = await response.json();
-    window.statsAccess.setToken(tokenResponse.access_token);
+    await response.json();
+    window.statsAccess.setToken();
     const user = await window.statsAccess.currentUser();
     loginForm.reset();
 
@@ -75,7 +70,7 @@ loginForm.addEventListener("submit", async (event) => {
 
     window.location.assign("/");
   } catch (error) {
-    window.statsAccess.clearToken();
+    await window.statsAccess.clearToken();
     setMessage(loginMessage, error.message || "Sign in failed.");
   } finally {
     loginSubmit.disabled = false;
