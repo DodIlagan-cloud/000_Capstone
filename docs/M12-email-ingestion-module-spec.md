@@ -56,6 +56,22 @@ M12 is designed to use the provisioned Azure cloud-dev resources:
 
 No production M12 path may require Outlook Desktop, a local mailbox profile, local scheduled tasks, local files, or a developer workstation.
 
+## Additive Workflow Principle
+
+M12 adds an email-driven intake pathway; it does not replace the existing manual document Upload workflow.
+
+| Workflow | Owner | Behavior |
+| --- | --- | --- |
+| Manual Upload | Stats Web plus M3/M4/M5/M7/M8/M9 | The existing `/Upload` page remains user-driven. A user uploads a file, reviews validation/extraction results, and controls the save behavior exactly as before. |
+| Email Ingestion | M12 plus downstream module APIs | Admin-configured mailbox profiles retrieve eligible PDF attachments and hand accepted files to the existing Blob-backed intake path. |
+
+Implementation and evidence rules:
+
+- M12 changes must not alter `RunProcessingJobAsync`, Upload page controls, manual review behavior, or user-confirmed save behavior.
+- Automated email processing may reuse downstream module API contracts, but it must not route through or rewrite the manual Upload UI workflow.
+- Evidence-driven tests for M12 must include a manual Upload checkpoint before the Email Setup flow to prove the existing behavior remains available.
+- Manual and email pathway failures must remain distinguishable in logs and UI evidence through `source_type`, source profile/run metadata, and correlation/run identifiers.
+
 ## Goals
 
 - Provide a standalone Email Ingestion API with health, source-profile, test-connection, dry-run, and run endpoints.
@@ -117,6 +133,7 @@ Required fields:
 | `attachment_policy` | Allowed extensions, MIME types, maximum size. |
 | `pdf_password_policy` | How locked PDFs are handled for this source, including reusable password rules. |
 | `post_process_policy` | Optional mark-read/move-email behavior after successful handoff. |
+| `polling_schedule` | Automatic-ingestion cadence for this profile: `off`, `hourly`, or `daily` with an optional `time_of_day` (UTC). Default `off`. Drives the later scheduled-automation slice; a runtime `last_auto_run_at` tracks the last automatic run. |
 
 One user can configure multiple profiles, for example:
 
@@ -203,7 +220,9 @@ Actions:
 - Test connection.
 - Dry run.
 - Run import now.
+- Ingest imported run to database (scaffold; process-to-database, not yet governed auto-save).
 - Disable profile.
+- Delete profile (removes the source row; the referenced mailbox secret is deleted best-effort only when no other profile references the same secret reference, otherwise it is left in the secret provider to rotate/purge separately).
 - Rotate app password.
 
 ### Profile Settings
@@ -223,6 +242,7 @@ Profile edit fields:
 - Maximum attachment size.
 - Duplicate policy.
 - Post-success behavior: leave email unchanged, mark as read, or move to processed folder.
+- Automatic ingestion cadence: off, hourly, or daily with a UTC time-of-day (drives the later scheduled-automation slice; default off).
 - PDF password handling policy.
 - PDF password rules for different bill/document types.
 
@@ -279,6 +299,10 @@ Creates a source profile. If a mailbox app password is provided, the backend mus
 `PATCH /api/v1/email-ingestion-sources/{source_id}`
 
 Updates safe profile settings or rotates the secret reference.
+
+`DELETE /api/v1/email-ingestion-sources/{source_id}`
+
+Removes a source profile (returns 404 when it does not exist). Deletes the profile row from the configured store. The referenced mailbox secret is then deleted best-effort, but only when no remaining profile references the same secret reference; a shared or undeletable secret remains in the secret provider to be rotated or purged separately (Key Vault deletions are soft-deletes and may need purge/recover before the same secret name is reused).
 
 `POST /api/v1/email-ingestion-sources/{source_id}/test-connection`
 
@@ -340,15 +364,21 @@ Run status is:
 
 ## Password-Protected PDF Handling
 
-Password handling is a cross-module workflow:
+**Canonical model:** passwords live only in M12. An encrypted PDF is unlocked
+*before* Blob, so an unlockable PDF becomes a clean, readable PDF in intake and the
+rest of the pipeline needs no password logic - identical to the manual Upload path.
+A PDF with no matching saved secret is parked as `password_required` (not handed off)
+and surfaced through reporting coverage rather than silently dropped.
+
+Cross-module responsibilities:
 
 | Module | Responsibility |
 | --- | --- |
-| M12 | Retrieve and hand off original encrypted PDF with source metadata. |
-| M3/M4 | Store original file through Blob-backed intake and create ingestion record. |
-| M5 | Detect encrypted PDFs and attempt unlock only when a password is supplied. |
-| M9 | Persist document processing status and pending-password state. |
-| Stats Web | Let user/admin enter password, retry, skip, or configure source password rule. |
+| M12 | Detect encrypted PDFs during retrieval and unlock them in memory using the profile's saved PDF password secrets, then hand off the *decrypted* PDF. If no saved secret opens it, park the attachment as `password_required` and do not hand it off. |
+| M3/M4 | Store the accepted (decrypted) file through Blob-backed intake and create the ingestion record. |
+| M5-M9 | Process a normal, readable PDF - no password logic. The email path converges with manual Upload at "clean PDF in intake". |
+| M11 | Surface parked/excluded documents (`password_required`, `skipped`, `failed`) as source-coverage / review-impact so reported totals stay honest. |
+| Stats Web | Configure source-level PDF password rules. (One-time user password entry + retry queue is deferred - see Deferred Items.) |
 
 Password sources:
 
@@ -367,7 +397,7 @@ Security requirements:
 - Allow multiple password rules per source profile, matched by sender, subject, and/or filename keywords.
 - Store only `password_secret_ref` values in source profiles; actual reusable passwords remain in Key Vault.
 - Audit who supplied a password, when, for which document/source, and whether it succeeded.
-- Keep original encrypted PDFs private in Blob Storage.
+- Unlocked PDFs are stored decrypted in Blob under the same access controls as manually uploaded files; the raw password is never persisted. Parked `password_required` files are not handed off.
 
 ## Deduplication
 
@@ -389,6 +419,10 @@ Committed defaults live in `modules/email-ingestion-module/config/defaults.env`.
 | `EMAIL_PROVIDER` | Default provider adapter label. Source profiles choose the active provider; `synthetic` remains the safe test default. |
 | `EMAIL_INGESTION_MODE` | Runtime mode such as `dry_run` or `handoff`. |
 | `FILE_INGESTION_BASE_URL` | M3/M4 API target for accepted attachment handoff. |
+| `DOCUMENT_PARSING_BASE_URL` | M5 parse API target for the database-ingest path (process-imported / scheduled ingest). |
+| `TRANSACTION_EXTRACTION_BASE_URL` | M7 extraction API target for the database-ingest path. |
+| `DATA_VALIDATION_BASE_URL` | M8 validation API target for the database-ingest path. |
+| `STATS_DATA_BASE_URL` | M9 Stats Data API target (processing jobs, recognition context, transaction save) for the database-ingest path. |
 | `EMAIL_SOURCE_CONFIG_STORE` | Source profile store, initially `azure_sql` or local test fixture. |
 | `EMAIL_SECRET_PROVIDER` | Secret provider. Production uses `azure_key_vault`; local/test may use `environment`, `memory`, or SQL-backed encrypted storage. |
 | `EMAIL_KEY_VAULT_URL` | Azure Key Vault URL used when `EMAIL_SECRET_PROVIDER=azure_key_vault`. |
@@ -445,11 +479,13 @@ Recommended secret names:
 
 ### Phase 5 - Password-Protected PDF Workflow
 
-- Add encrypted-PDF detection checkpoint.
-- Add `password_required` / `password_failed` / `unlocked` statuses.
-- Add UI queue for password-required documents.
-- Add one-time password attempt endpoint.
-- Add optional source-level password secret rules.
+- Add encrypted-PDF detection checkpoint. (done)
+- Add `password_required` / `password_failed` / `unlocked` statuses. (done)
+- Unlock in M12 using saved source-level password secrets before Blob handoff, so the
+  decrypted PDF flows through the pipeline like a manual upload. (done)
+- Optional source-level password secret rules. (done)
+- Deferred: the UI queue for password-required documents and the one-time
+  password-attempt endpoint (see Deferred Items under the Completion Plan).
 
 ### Phase 6 - Run History and Persistent Deduplication
 
@@ -464,7 +500,119 @@ Recommended secret names:
 - Add scheduled polling through Azure Container Apps Job only after explicit approval.
 - Capture cloud smoke evidence and redacted logs.
 
+## Completion Plan (Remaining Work)
+
+The build phases above delivered the email-to-Blob adapter (the current acceptance
+slice) plus scaffolds for database ingest and scheduling. Remaining work to full
+completion, in dependency order:
+
+### C1 - Make the manual email-to-database path run + close cheap gaps (done)
+
+- Wire the pipeline base URLs (`DOCUMENT_PARSING_BASE_URL`,
+  `TRANSACTION_EXTRACTION_BASE_URL`, `DATA_VALIDATION_BASE_URL`, `STATS_DATA_BASE_URL`)
+  into the M12 runtime. (done - container start script derives them from the module
+  port vars; committed `defaults.env` fallbacks; registered in `stats.runtime.json`.)
+- Execute `post_process_policy` (mark-as-read / move-to-folder) after successful
+  handoff so scheduled polling does not rescan the same messages. (done -
+  `imap_service.apply_post_process`, invoked only for real IMAP non-dry runs that
+  handed files off; failures are a warning finding, not a run failure; default no-op.)
+- Keep the container unit suite green. (Codex runs the suite.)
+
+### C2 - Trusted automated persistence + reporting (M12 side verified)
+
+**Verified against M9:** `_classification_confirmation_allowed` requires
+`classification_human_confirmed = true` **and** `classification_source =
+user_confirmed_*` **and** `classification_confirmation_mode = upload_transaction_review`;
+otherwise M9 creates **pending** recognition suggestions + `review_items` and does not
+activate labels or learn merchants. The M12 automated save (`PipelineClients.save`)
+sends only the M8 `validation_result` + system identities and sets none of those
+markers, so the automated path is governed-by-default. Locked by
+`tests/unit/email_ingestion_module/test_pipeline_save_governance.py`. Excluded/parked
+candidates (`password_required`, `skipped`, `failed`) are already persisted per run in
+`email_ingestion_run_candidates`, so the coverage data exists. **Remaining is an M11
+deliverable:** the `review-items` / source-coverage read surface (M11 spec lists it as
+needed but not yet implemented).
+
+
+M12 does **not** own classification or governance (see Non-Goals). The governance is
+already specified and implemented downstream: M8 marks records for review when labels
+are unknown, out-of-vocabulary, pending, ambiguous, or below the confidence threshold
+and emits `review_items` + `document_review_status` (M8 spec, "Review items" and
+"Mark records for review"); M9 treats the Upload review/accept/save as the
+human-confirmation event that activates labels and bypasses the `/Admin/Classifications`
+pending path, and learns merchants only from `classification_human_confirmed = true`
+(M9 spec, "Recognition Label Suggestions And Synchronization"). So the automated save
+becomes governed simply by taking the **unreviewed** route, not by adding a new engine.
+
+- **Ensure the automated save flows the unreviewed path.** The orchestrator must not
+  set `classification_human_confirmed` / `classification_confirmed_by_user_id`, and
+  must pass the `active_recognition_context` it already fetches. Then M8 flags review
+  and M9 writes **pending** recognition suggestions + `review_items` for unknown /
+  low-confidence / out-of-vocabulary rows, while confident known-vocabulary rows save
+  as transactions. Merchant learning stays uncontaminated (it requires human
+  confirmation). This promotes next-items' *Post-MVP Admin Recognition Workflow For
+  Automated Ingestion*.
+- **Verify, don't rebuild:** confirm `_classification_activation_allowed` keys on
+  human-confirmation / known vocabulary and that the automated `transactions/batches`
+  save does not leak a confirmed flag. Only if it does is a code fix needed.
+- **Surface saved-vs-review** in the run/UI (`ProcessImportedResult` already carries
+  `saved_record_count` + `review_item_count`).
+- **Reporting coverage is an M11 deliverable.** M12 persists a lightweight
+  pending/excluded record for `password_required` / `skipped` / `failed` (documents
+  seen but not ingested); M11 delivers the source-coverage / review-backlog surface it
+  already specs, including the `GET /api/v1/review-items` read API it lists as needed
+  but not yet implemented (M11 spec).
+
+### C3 - Unattended trigger infrastructure
+
+- Repo scaffold is built:
+  `infrastructure/cloud/deploy-m12-scheduled-ingestion-containerapp-job.ps1`
+  creates/updates the scheduled Azure Container Apps Job,
+  `/app/run-m12-scheduled-ingestion.sh` performs the internal-key POST, and the
+  scheduled endpoint uses an app-side non-blocking lock.
+- Remaining live-infra step: run the deployment script with the actual Stats Web
+  URL, registry identity resource id, image tag, and Key Vault secret in Azure.
+- Optional later: Event Grid on Blob-Created to decouple the intake-to-database half.
+
+### C4 - Cloud evidence and acceptance
+
+- Slice 1 cloud smoke: mailbox PDF visible in Blob before/after, redacted logs.
+- Database-ingest cloud proof: Azure SQL rows from a governed run
+  (`source_type=email_attachment`, system `saved_by_user_id`, and any review-routed
+  rows).
+- Update evidence and tick the acceptance criteria per slice.
+
+### Deferred Items
+
+- One-time user PDF password entry: the
+  `POST /api/v1/email-ingestions/documents/{document_id}/password-attempts` endpoint
+  and the Password-Protected PDF queue UI. Needed only if admins must unlock PDFs that
+  have no matching saved secret; the endpoint contract is already defined in the API
+  Contract section above.
+
 ## Testing
+
+M12 testing is split by implementation boundary so the evidence does not overstate
+the current build. The current evidence set is named:
+
+```text
+M12 Email Ingestion Evidence - Manual Import, Blob Handoff, and Database Processing
+```
+
+The current acceptance boundary is:
+
+1. **Manual Upload regression remains unchanged.** `/Upload` must still load and
+   remain the user-driven upload/review/save workflow.
+2. **M12 email import reaches Blob-backed intake.** `/EmailSetup` must prove the
+   configured mailbox profile can retrieve eligible PDF attachments and hand them to
+   M3/M4 intake, where the accepted files are visible in Blob storage.
+3. **Phase A database-ingest scaffold is verified after import.** The
+   "Ingest to database" action processes the exact imported run into M9 through
+   the existing module APIs. This is currently process-to-database using a system
+   identity. It is not yet the final governed auto-save pathway.
+4. **Full unattended automation remains future acceptance.** Container Apps Job,
+   Event Grid/Durable orchestration, and recognition-governed persistence are not
+   accepted as complete until their infrastructure and governance checks exist.
 
 Unit/API tests must verify:
 
@@ -479,15 +627,72 @@ Unit/API tests must verify:
 - Password-protected PDF candidates become `password_required`.
 - Failed unlock attempts return `password_failed` without logging the password.
 - Source-level password secret references are returned, but secret values are never returned.
+- Source profile deletion removes the selected source from the configured mailbox
+  list and returns 404 for a missing source without exposing or deleting raw secret
+  values through the UI/API response.
+- `process_imported_run` uses the explicit import `run_id`, rejects a run id from
+  another source, and does not reprocess an ingestion already marked processed.
+- `process_imported_run` reports successful database-ingest counts (`processed`,
+  `succeeded`, saved records, review items), `already_processed` retry behavior,
+  `no_imported_files`, and configuration failures such as missing
+  `STATS_INTERNAL_API_KEY` with `failed_count = 1`.
+- Scheduled ingestion only processes the run it just imported; if import fails or
+  produces no run id, it must not fall back to an older latest run.
+- Scheduled ingestion tests include disabled/off-cadence profiles, due profiles,
+  exact returned `run_id` propagation, failed imports, and the guarantee that failed
+  imports do not advance `last_auto_run_at`.
+- File-intake readback `GET /api/v1/ingestions/{id}/content` rejects missing or
+  wrong `X-Stats-Internal-Key` values and streams stored bytes only to an internal
+  caller.
 
-Cloud evidence should verify:
+Test prerequisites:
 
+- `STATS_INTERNAL_API_KEY` must be configured for process-imported and scheduled
+  database-ingest tests.
+- `STATS_TESTDATA_DIR` must point to a folder with top-level PDF files for
+  file-intake real-PDF unit tests.
+- The selected email source profile must already have its mailbox app password
+  saved behind `secret_ref`, so the UI password field can remain blank for later
+  test connection/import checks.
+- PDF password handling is tested inside M12 up to unlock/handoff using configured
+  saved PDF password rules. Full locked-PDF parse/extraction/database evidence is
+  only in scope after the M3/M4/M5 path accepts the unlocked/decrypted file for that
+  run; one-time password queue/retry remains deferred.
+
+Current container/cloud evidence should verify:
+
+- Evidence execution follows the failure-stop rule: after each step, verify the
+  expected result before continuing. If an unexpected failure occurs, stop the test
+  loop, inspect UI/log/API/database evidence, report the failed step, expected
+  result, actual result, likely cause, recommended fix, and whether continuing would
+  risk bad evidence or data mutation. Resume only after the failure is understood or
+  the user approves the next action.
 - Container App starts with M12 health check passing.
-- IMAP connection test succeeds without printing secrets.
-- Dry run lists redacted candidate metadata.
-- Real run stores accepted attachment through Blob-backed intake.
-- Blob container evidence shows the imported PDF under the configured intake prefix or ingestion id, with account/container/blob metadata visible and storage secrets hidden.
-- Password-required PDF is visible in the queue.
+- One visible Edge browser session is used for the whole walkthrough.
+- `/Upload` is captured first as the unchanged manual-flow checkpoint.
+- `/EmailSetup` is captured with the configured source profile selected.
+- Configured mailboxes show `Select` and `Delete` row actions; Delete uses an
+  inline confirmation before removing the selected profile from the table.
+- Test connection either succeeds or shows a specific actionable error, such as
+  saved-secret decrypt failure or folder-name mismatch. Failed evidence is valid
+  only when the failure reason and corrective action are captured.
+- Dry run lists redacted candidate metadata and shows sender/subject filters in
+  the result summary.
+- Run import stores accepted PDF attachments through Blob-backed intake.
+- Blob evidence includes a before/after proof: the mailbox PDF exists before the
+  run, and the imported PDF appears under the configured Blob intake prefix or
+  ingestion id after the run.
+- "Ingest to database" evidence includes current-step/status proof in the UI and
+  Azure SQL proof from inside `stats-runtime`: database/server identity, query text,
+  matching processing job/document/transaction rows, `source_type=email_attachment`,
+  `saved_by_user_id=system-email-automation`, and any review-item counts emitted by
+  M8/M9.
+- Process-imported failure evidence, when intentionally exercised, captures the
+  visible reason and result counts (`failed_count = 1`) for setup/configuration
+  failures such as a missing internal service key.
+- Password-required or password-failed candidates are visible when a locked PDF
+  cannot be opened by configured saved PDF password rules. The later one-time
+  password queue/retry workflow is not part of the current M12 acceptance boundary.
 - Logs do not contain mailbox app passwords, PDF passwords, full email bodies, or raw attachment contents.
 
 ### Evidence-Driven Test Cases
@@ -495,22 +700,23 @@ Cloud evidence should verify:
 The current M12 evidence-driven test matrix is maintained in:
 
 ```text
-modules/email-ingestion-module/test-results/m12-email-ingestion-evidence-test-cases-2026-06-29.md
+tests/scripts/M12-EmailIngestion/m12-email-ingestion-evidence-test-cases-2026-06-29.md
 ```
 
 The repeatable runtime evidence check is maintained in:
 
 ```text
-modules/email-ingestion-module/test-results/m12_email_ingestion_runtime_evidence_check.py
+tests/scripts/M12-EmailIngestion/m12_email_ingestion_runtime_evidence_check.py
 ```
 
 The repeatable Blob container evidence check is maintained in:
 
 ```text
-modules/email-ingestion-module/test-results/m12_email_ingestion_blob_evidence_check.py
+tests/scripts/M12-EmailIngestion/m12_email_ingestion_blob_evidence_check.py
 ```
 
-This evidence set includes the M12 behavior tightened during the 2026-06-29 build loop:
+This evidence set includes the M12 behavior tightened during the 2026-06-29 to
+2026-07-01 build loop:
 
 - mailbox app password is centrally saved behind `secret_ref` and never returned to the browser,
 - Test connection can use the saved secret with the password field left blank,
@@ -518,10 +724,19 @@ This evidence set includes the M12 behavior tightened during the 2026-06-29 buil
 - IMAP port and SSL controls are hidden from users and inferred by the runtime,
 - Saved PDF passwords are collapsed by default,
 - source profile action text is `Select`,
+- source profile delete action and inline confirmation are covered by UI/API
+  evidence,
 - configured mailboxes and run results are paginated at 10 rows per page,
 - non-PDF email assets are ignored before candidate validation so only PDF attachments enter the run results,
 - run message limits are explicit and can be disabled with `max_messages = 0`,
-- real import evidence includes terminal Blob listing plus a browser screenshot of the imported blob row in the configured container.
+- real import evidence includes terminal Blob listing plus a browser screenshot of
+  the imported blob row in the configured container,
+- database-ingest scaffold evidence proves the persisted rows in Azure SQL without
+  claiming final governed auto-save,
+- scheduled automation unit evidence proves stale latest runs are not processed when
+  import fails and `last_auto_run_at` is not advanced,
+- process-imported unit evidence proves success, already-processed retry,
+  no-imported-files, and configuration-failure result shapes.
 
 Official module acceptance after M13 uses:
 
@@ -531,22 +746,34 @@ Official module acceptance after M13 uses:
 
 ## Acceptance Criteria
 
-M12 is complete for the cloud email automated-pathway slice when:
+M12 is complete for the current email-to-Blob intake slice when:
 
 - `modules/email-ingestion-module/` contains a standalone FastAPI runtime.
 - `/health` returns healthy module metadata.
 - Stats Web Email Setup supports multiple email source profiles.
-- IMAP source profiles can be created, tested, disabled, updated, and run.
+- IMAP source profiles can be created, selected, tested, disabled, updated, deleted,
+  and run.
 - Mailbox app passwords and reusable PDF passwords are stored only in the configured secret provider.
 - Manual dry run retrieves redacted candidate metadata from the configured mailbox.
 - Manual import run sends valid attachments to M3/M4 with email source metadata.
 - Original accepted files are stored in Blob-backed intake storage in cloud-dev.
 - Evidence includes a Blob container screenshot showing imported email PDFs under the configured intake prefix or ingestion id.
+- Evidence includes Azure SQL proof for the process-to-database scaffold when the
+  "Ingest to database" action is in scope for the run.
 - Unsupported, empty, oversized, duplicate, and failed candidates do not proceed.
-- Password-protected PDFs are routed to `password_required` instead of causing silent parse failure.
-- User/admin can submit a one-time PDF password and retry parsing without exposing the password.
+- Locked PDFs are unlocked only by configured saved PDF password rules or are
+  reported as password-related candidates instead of silently failing.
 - Run summaries and findings are visible in Stats Web.
 - Unit and contract tests pass.
 - Cloud smoke evidence confirms M12 runs in Azure Container Apps without local-machine dependency.
+
+The later unattended automation slice is accepted only after:
+
+- scheduled import does not process stale runs when import fails and does not
+  advance `last_auto_run_at` for failed/no-run-id imports,
+- Container Apps Job/Event Grid/Durable or equivalent trigger infrastructure exists,
+- the automated persistence policy gates unreviewed data through recognition
+  governance instead of plain process-to-database,
+- database proof shows the automated provenance and any review-routed rows.
 
 <!-- M12 End -->

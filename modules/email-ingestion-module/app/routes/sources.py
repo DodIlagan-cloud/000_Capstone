@@ -13,10 +13,12 @@ from app.models.ingestion import (
     TestConnectionRequest,
     TestConnectionResult,
 )
-from app.services.secret_service import resolve_secret
+from app.services.secret_service import SecretResolutionError, resolve_secret
 from app.services.auth_service import require_email_ingestion_auth
 from app.services.source_profile_service import (
+    SourceProfileConflictError,
     create_source_profile,
+    delete_source_profile,
     get_source_profile,
     list_source_profiles,
     mark_connection_test,
@@ -39,7 +41,10 @@ def list_sources() -> EmailSourceProfileList:
 
 @router.post("", response_model=EmailSourceProfile)
 def create_source(request: EmailSourceProfileCreate) -> EmailSourceProfile:
-    return create_source_profile(request)
+    try:
+        return create_source_profile(request)
+    except SourceProfileConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.patch("/{source_id}", response_model=EmailSourceProfile)
@@ -50,14 +55,22 @@ def update_source(source_id: str, request: EmailSourceProfileUpdate) -> EmailSou
     return profile
 
 
+@router.delete("/{source_id}")
+def delete_source(source_id: str) -> dict:
+    if not delete_source_profile(source_id):
+        raise HTTPException(status_code=404, detail="Email source profile was not found.")
+    return {"status": "deleted", "source_id": source_id}
+
+
 @router.post("/{source_id}/test-connection", response_model=TestConnectionResult)
 def test_source_connection(source_id: str, request: TestConnectionRequest) -> TestConnectionResult:
     profile = get_source_profile(source_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Email source profile was not found.")
 
-    password = request.app_password or resolve_secret(profile.secret_ref)
     test_profile = profile.model_copy(update={"folder": request.folder}) if request.folder else profile
+    # Check provider support before touching the secret store so unsupported
+    # providers do not trigger pointless Key Vault / SQL reads.
     if not supports_imap_provider(profile.provider):
         mark_connection_test(source_id, SourceConnectionStatus.failed)
         return TestConnectionResult(
@@ -66,6 +79,17 @@ def test_source_connection(source_id: str, request: TestConnectionRequest) -> Te
             provider=profile.provider,
             folder=test_profile.folder,
             message=f"{profile.provider.value} does not support connection testing.",
+        )
+    try:
+        password = request.app_password or resolve_secret(profile.secret_ref)
+    except SecretResolutionError as exc:
+        mark_connection_test(source_id, SourceConnectionStatus.failed)
+        return TestConnectionResult(
+            source_id=source_id,
+            status=SourceConnectionStatus.failed,
+            provider=profile.provider,
+            folder=test_profile.folder,
+            message=str(exc),
         )
     try:
         test_connection(test_profile, password)

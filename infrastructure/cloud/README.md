@@ -153,6 +153,107 @@ If users already exist, M1 refuses the bootstrap because `create_initial_admin()
 
 The runtime Container App and the bootstrap job may use the same user-assigned managed identity for image pull and secret access, but they have different responsibilities. The runtime identity starts the app and reads runtime secrets during normal operation. The bootstrap job identity is used only when the operator intentionally runs the one-time admin creation job against a fresh database.
 
+## M12 Scheduled Email Ingestion Job
+
+M12 owns the unattended mailbox polling trigger. The runtime exposes the
+internal-key-protected scheduler endpoint, and cloud-dev/prod-sim uses a scheduled
+Azure Container Apps Job to call it:
+
+```text
+POST /api/v1/email-ingestions/scheduled-runs
+```
+
+Before creating or starting the scheduled job, the always-on Stats Container App
+must already be deployed with the M12 runtime settings from
+`azure-container-apps.env.example`:
+
+- `EMAIL_PROVIDER=imap`
+- `EMAIL_INGESTION_MODE=handoff`
+- `EMAIL_SOURCE_CONFIG_STORE=azure_sql`
+- `EMAIL_SECRET_PROVIDER=azure_key_vault` or `azure_sql`
+- `FILE_INGESTION_BASE_URL=http://localhost:8014`
+- `DOCUMENT_PARSING_BASE_URL=http://localhost:8015`
+- `TRANSACTION_EXTRACTION_BASE_URL=http://localhost:8016`
+- `DATA_VALIDATION_BASE_URL=http://localhost:8017`
+- `STATS_DATA_BASE_URL=http://localhost:8018`
+- `STATS_INTERNAL_API_KEY`, `AZURE_SQL_CONNECTIONSTRING`, storage settings, and
+  `ACCESS_TOKEN_SECRET_KEY` supplied as secret references
+
+Those downstream URLs intentionally stay `localhost`: M12, M3/M4, M5, M7, M8,
+M9, and Stats Web run inside the same `stats-runtime` replica, while browsers and
+evidence scripts reach M12 only through the public Stats Web ingress.
+
+The job uses the normal `stats-runtime` image with a different command:
+
+```text
+/app/run-m12-scheduled-ingestion.sh
+```
+
+Create or update the scheduled job:
+
+```powershell
+.\infrastructure\cloud\deploy-m12-scheduled-ingestion-containerapp-job.ps1 `
+  -StatsWebBaseUrl "https://replace-with-stats-app-hostname.example" `
+  -RegistryIdentityResourceId "/subscriptions/<subscription-id>/resourceGroups/rg-stats-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-stats-dev-acr-pull"
+```
+
+The default job is:
+
+```text
+job-stats-m12-email-ingestion
+```
+
+The default schedule is hourly:
+
+```text
+0 * * * *
+```
+
+For a one-off smoke execution after creation:
+
+```powershell
+.\infrastructure\cloud\deploy-m12-scheduled-ingestion-containerapp-job.ps1 `
+  -StatsWebBaseUrl "https://replace-with-stats-app-hostname.example" `
+  -RegistryIdentityResourceId "/subscriptions/<subscription-id>/resourceGroups/rg-stats-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-stats-dev-acr-pull" `
+  -StartJob
+```
+
+The job sends:
+
+- `X-Stats-CSRF: 1`
+- `X-Stats-Internal-Key` from the `stats-internal-api-key` Key Vault secret
+
+Overlap controls:
+
+- Container Apps Job is configured with `parallelism=1` and
+  `replica-completion-count=1`.
+- The M12 scheduler endpoint also has an app-side non-blocking lock, so a second
+  tick returns a locked/no-op result if a previous tick is still running in the same
+  runtime process.
+
+Do not enable profile cadences for production mailboxes until the manual profile,
+saved secrets, PDF password rules, Blob handoff, and database-ingest evidence have
+passed.
+
+For cloud M12 acceptance evidence after the manual `Run import` and
+`Ingest to database` actions have completed against the public `/EmailSetup`
+page, run the suite from the workstation:
+
+```powershell
+$env:STATS_INTERNAL_API_KEY = "<internal key value for this evidence session>"
+$env:AZURE_SQL_CONNECTIONSTRING = "<Azure SQL connection string or DSN>"
+$env:AZURE_STORAGE_ACCOUNT_NAME = "<storage account>"
+$env:AZURE_STORAGE_CONTAINER_NAME = "<container>"
+python tests\scripts\M12-EmailIngestion\m12_evidence_suite.py --target cloud `
+  --web-base-url "https://replace-with-stats-app-hostname.example" `
+  --visual-evidence-dir "<folder-with-visual-evidence-manifest>"
+```
+
+The cloud suite uses the public Stats Web URL for API proof, local `az` login for
+Blob proof, and local `pyodbc` for Azure SQL proof. Do not run the container
+target for cloud acceptance evidence; `--target container` proves only the local
+`stats-runtime` container.
+
 ## Azure-Side Image Build
 
 Use `build-stats-acr-image.ps1` when the image build should happen in Azure instead of on the local workstation. The script creates or reuses a resource group and Azure Container Registry, then runs `az acr build` with the repository root as the build context.

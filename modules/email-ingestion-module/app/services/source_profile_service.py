@@ -4,9 +4,11 @@ M12 End"""
 
 from datetime import UTC, datetime
 import json
+import logging
 import re
 
 from app.config import settings
+from app.services import sql_store
 from app.models.ingestion import (
     AttachmentPolicy,
     EmailConnectionSettings,
@@ -16,13 +18,20 @@ from app.models.ingestion import (
     EmailSourceProfileList,
     EmailSourceProfileUpdate,
     PdfPasswordPolicy,
+    PollingSchedule,
     PostProcessPolicy,
     SourceConnectionStatus,
 )
-from app.services.secret_service import normalize_secret_ref, secret_name_for_source, store_secret
+from app.services.secret_service import delete_secret, normalize_secret_ref, secret_name_for_source, store_secret
 
+
+logger = logging.getLogger(__name__)
 
 _profiles: dict[str, EmailSourceProfile] = {}
+
+
+class SourceProfileConflictError(RuntimeError):
+    """Raised when creating a source whose source_id already exists."""
 
 
 def list_source_profiles() -> EmailSourceProfileList:
@@ -39,6 +48,12 @@ def get_source_profile(source_id: str) -> EmailSourceProfile | None:
 
 def create_source_profile(request: EmailSourceProfileCreate) -> EmailSourceProfile:
     source_id = request.source_id or _source_id(request.display_name, request.email_address)
+    if get_source_profile(source_id) is not None:
+        # Creating must not silently overwrite an existing profile (or re-point its
+        # secret_ref); updates go through PATCH.
+        raise SourceProfileConflictError(
+            f"An email source with id '{source_id}' already exists. Update it instead, or use a different display name."
+        )
     secret_ref = request.secret_ref or (secret_name_for_source(source_id, request.provider.value) if request.app_password else None)
     secret_ref = normalize_secret_ref(secret_ref) if secret_ref else None
     store_secret(secret_ref, request.app_password)
@@ -56,6 +71,7 @@ def create_source_profile(request: EmailSourceProfileCreate) -> EmailSourceProfi
         attachment_policy=request.attachment_policy,
         pdf_password_policy=request.pdf_password_policy,
         post_process_policy=request.post_process_policy,
+        polling_schedule=request.polling_schedule,
         secret_ref=secret_ref,
         connection_status=SourceConnectionStatus.needs_setup if not secret_ref else SourceConnectionStatus.not_tested,
     )
@@ -125,11 +141,70 @@ def mark_run(source_id: str, run_id: str, status: str) -> None:
     existing = get_source_profile(source_id)
     if existing is None:
         return
-    updated = existing.model_copy(update={"last_run_id": run_id, "last_run_status": status})
+    updated = existing.model_copy(
+        update={
+            "last_run_id": run_id,
+            "last_run_status": status,
+            "last_run_at": datetime.now(UTC).isoformat(),
+        }
+    )
     if _use_azure_sql():
         _upsert_source_profile_sql(updated)
         return
     _profiles[source_id] = updated
+
+
+def mark_auto_run(source_id: str, timestamp_iso: str) -> None:
+    existing = get_source_profile(source_id)
+    if existing is None:
+        return
+    updated = existing.model_copy(update={"last_auto_run_at": timestamp_iso})
+    if _use_azure_sql():
+        _upsert_source_profile_sql(updated)
+        return
+    _profiles[source_id] = updated
+
+
+def delete_source_profile(source_id: str) -> bool:
+    """Remove a source profile. Returns False when it does not exist.
+
+    The profile's mailbox secret is deleted best-effort from the secret provider
+    ONLY when no remaining profile references the same secret_ref (the Secret
+    reference field is editable, so profiles can legitimately share one). A shared
+    or undeletable secret stays in the provider to be rotated or purged manually.
+    PDF password rule secrets are always left in place for the same reason.
+    """
+    existing = get_source_profile(source_id)
+    if existing is None:
+        return False
+    if _use_azure_sql():
+        _delete_source_profile_sql(source_id)
+    else:
+        _profiles.pop(source_id, None)
+    _delete_secret_if_unreferenced(existing.secret_ref)
+    return True
+
+
+def _delete_secret_if_unreferenced(secret_ref: str | None) -> None:
+    if not secret_ref:
+        return
+    try:
+        remaining = list_source_profiles().sources
+    except Exception as exc:  # pragma: no cover - store read guard
+        # If the reference check cannot run, keep the secret (safe default).
+        logger.warning("M12 secret reference check failed; keeping secret. error=%s", str(exc))
+        return
+    if any(profile.secret_ref == secret_ref for profile in remaining):
+        logger.info("M12 mailbox secret kept: still referenced by another source profile.")
+        return
+    delete_secret(secret_ref)
+
+
+def _delete_source_profile_sql(source_id: str) -> None:
+    with sql_store.connect() as connection:
+        cursor = connection.cursor()
+        cursor.execute(f"DELETE FROM {sql_store.qualified('email_ingestion_sources')} WHERE source_id = ?", source_id)
+        connection.commit()
 
 
 def clear_source_profiles() -> None:
@@ -146,54 +221,44 @@ def _use_azure_sql() -> bool:
     return settings.email_source_config_store.lower() == "azure_sql" and bool(settings.azure_sql_connectionstring)
 
 
-def _connection_string() -> str:
-    connection_string = settings.azure_sql_connectionstring or ""
-    if "Driver=" not in connection_string:
-        connection_string = "Driver={ODBC Driver 18 for SQL Server};" + connection_string
-    return (
-        connection_string
-        .replace("Initial Catalog=", "Database=")
-        .replace("User ID=", "UID=")
-        .replace("Password=", "PWD=")
-        .replace("Encrypt=True", "Encrypt=yes")
-        .replace("Encrypt=False", "Encrypt=no")
-        .replace("TrustServerCertificate=True", "TrustServerCertificate=yes")
-        .replace("TrustServerCertificate=False", "TrustServerCertificate=no")
-    )
-
-
-def _connect_sql():
-    import pyodbc
-
-    return pyodbc.connect(_connection_string(), timeout=10, autocommit=False)
-
-
 def _list_source_profiles_sql() -> list[EmailSourceProfile]:
-    with _connect_sql() as connection:
+    with sql_store.connect() as connection:
         cursor = connection.cursor()
         cursor.execute(
-            """
+            f"""
             SELECT source_id, display_name, provider, email_address, enabled, folder, secret_ref,
                    connection_status, sender_allowlist_json, subject_contains_json,
                    connection_settings_json, attachment_policy_json, pdf_password_policy_json, post_process_policy_json,
-                   last_tested_at_utc, last_run_id, last_run_status
-            FROM dbo.email_ingestion_sources
+                   polling_schedule_json, last_tested_at_utc, last_run_id, last_run_status, last_run_at_utc, last_auto_run_at_utc
+            FROM {sql_store.qualified('email_ingestion_sources')}
             ORDER BY display_name
             """
         )
-        return [_row_to_profile(row) for row in cursor.fetchall()]
+        profiles: list[EmailSourceProfile] = []
+        for row in cursor.fetchall():
+            # One bad row (e.g. an unknown provider value) must not 500 the whole
+            # source list; skip it with a warning so the rest stay manageable.
+            try:
+                profiles.append(_row_to_profile(row))
+            except Exception as exc:  # pragma: no cover - defensive row guard
+                logger.warning(
+                    "M12 source profile row skipped. source_id=%s error=%s",
+                    getattr(row, "source_id", None),
+                    str(exc),
+                )
+        return profiles
 
 
 def _get_source_profile_sql(source_id: str) -> EmailSourceProfile | None:
-    with _connect_sql() as connection:
+    with sql_store.connect() as connection:
         cursor = connection.cursor()
         cursor.execute(
-            """
+            f"""
             SELECT source_id, display_name, provider, email_address, enabled, folder, secret_ref,
                    connection_status, sender_allowlist_json, subject_contains_json,
                    connection_settings_json, attachment_policy_json, pdf_password_policy_json, post_process_policy_json,
-                   last_tested_at_utc, last_run_id, last_run_status
-            FROM dbo.email_ingestion_sources
+                   polling_schedule_json, last_tested_at_utc, last_run_id, last_run_status, last_run_at_utc, last_auto_run_at_utc
+            FROM {sql_store.qualified('email_ingestion_sources')}
             WHERE source_id = ?
             """,
             source_id,
@@ -203,25 +268,29 @@ def _get_source_profile_sql(source_id: str) -> EmailSourceProfile | None:
 
 
 def _upsert_source_profile_sql(profile: EmailSourceProfile) -> None:
-    with _connect_sql() as connection:
+    with sql_store.connect() as connection:
         cursor = connection.cursor()
         cursor.execute(
-            """
-            MERGE dbo.email_ingestion_sources AS target
+            f"""
+            MERGE {sql_store.qualified('email_ingestion_sources')} AS target
             USING (SELECT ? AS source_id) AS source
                 ON target.source_id = source.source_id
             WHEN MATCHED THEN UPDATE SET
                 display_name = ?, provider = ?, email_address = ?, enabled = ?, folder = ?, secret_ref = ?,
                 connection_status = ?, sender_allowlist_json = ?, subject_contains_json = ?, connection_settings_json = ?,
                 attachment_policy_json = ?, pdf_password_policy_json = ?, post_process_policy_json = ?,
+                polling_schedule_json = ?,
                 last_tested_at_utc = TRY_CONVERT(datetime2(3), ?), last_run_id = ?, last_run_status = ?,
+                last_run_at_utc = TRY_CONVERT(datetime2(3), ?),
+                last_auto_run_at_utc = TRY_CONVERT(datetime2(3), ?),
                 updated_at_utc = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN INSERT (
                 source_id, display_name, provider, email_address, enabled, folder, secret_ref,
                 connection_status, sender_allowlist_json, subject_contains_json, connection_settings_json,
                 attachment_policy_json, pdf_password_policy_json, post_process_policy_json,
-                last_tested_at_utc, last_run_id, last_run_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRY_CONVERT(datetime2(3), ?), ?, ?);
+                polling_schedule_json,
+                last_tested_at_utc, last_run_id, last_run_status, last_run_at_utc, last_auto_run_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRY_CONVERT(datetime2(3), ?), ?, ?, TRY_CONVERT(datetime2(3), ?), TRY_CONVERT(datetime2(3), ?));
             """,
             profile.source_id,
             profile.display_name,
@@ -237,9 +306,12 @@ def _upsert_source_profile_sql(profile: EmailSourceProfile) -> None:
             profile.attachment_policy.model_dump_json(),
             profile.pdf_password_policy.model_dump_json(),
             profile.post_process_policy.model_dump_json(),
+            profile.polling_schedule.model_dump_json(),
             profile.last_tested_at,
             profile.last_run_id,
             profile.last_run_status,
+            profile.last_run_at,
+            profile.last_auto_run_at,
             profile.source_id,
             profile.display_name,
             profile.provider.value,
@@ -254,9 +326,12 @@ def _upsert_source_profile_sql(profile: EmailSourceProfile) -> None:
             profile.attachment_policy.model_dump_json(),
             profile.pdf_password_policy.model_dump_json(),
             profile.post_process_policy.model_dump_json(),
+            profile.polling_schedule.model_dump_json(),
             profile.last_tested_at,
             profile.last_run_id,
             profile.last_run_status,
+            profile.last_run_at,
+            profile.last_auto_run_at,
         )
         connection.commit()
 
@@ -277,7 +352,10 @@ def _row_to_profile(row) -> EmailSourceProfile:
         attachment_policy=AttachmentPolicy(**json.loads(row.attachment_policy_json or "{}")),
         pdf_password_policy=PdfPasswordPolicy(**json.loads(row.pdf_password_policy_json or "{}")),
         post_process_policy=PostProcessPolicy(**json.loads(row.post_process_policy_json or "{}")),
+        polling_schedule=PollingSchedule(**json.loads(row.polling_schedule_json or "{}")),
         last_tested_at=row.last_tested_at_utc.isoformat() if row.last_tested_at_utc else None,
         last_run_id=row.last_run_id,
         last_run_status=row.last_run_status,
+        last_run_at=row.last_run_at_utc.isoformat() if row.last_run_at_utc else None,
+        last_auto_run_at=row.last_auto_run_at_utc.isoformat() if row.last_auto_run_at_utc else None,
     )

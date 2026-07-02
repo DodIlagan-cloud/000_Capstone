@@ -6,6 +6,7 @@ import base64
 import hashlib
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import PurePath
 
 import httpx
@@ -18,15 +19,19 @@ from app.models.ingestion import (
     AutomatedEmailIngestionResult,
     EmailFinding,
     EmailIngestionEvaluation,
+    EmailIngestionRunCandidate,
+    EmailIngestionRunDetail,
     EmailIngestionStatus,
     EmailIngestionSummary,
     EmailSourceMetadata,
     FileIngestionHandoff,
     FindingSeverity,
 )
-from app.services.secret_service import resolve_secret
+from app.services import run_history_service
+from app.services.schedule_rules import parse_iso
+from app.services.secret_service import SecretResolutionError, resolve_secret
 from app.services.source_profile_service import get_source_profile, mark_run
-from app.services.imap_service import ImapProviderError, fetch_messages, supports_imap_provider
+from app.services.imap_service import ImapProviderError, apply_post_process, fetch_messages, supports_imap_provider
 
 
 logger = logging.getLogger(__name__)
@@ -34,52 +39,72 @@ logger = logging.getLogger(__name__)
 
 def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> AutomatedEmailIngestionResult:
     run_id = f"email_run_{uuid.uuid4().hex[:12]}"
+    correlation_id = f"email_corr_{uuid.uuid4().hex[:12]}"
+    started_at = datetime.now(UTC).isoformat()
     findings: list[EmailFinding] = []
     candidates: list[AttachmentCandidate] = []
+    run_candidate_records: list[EmailIngestionRunCandidate] = []
     seen_keys: set[str] = set()
     source_profile = get_source_profile(request.source_id)
     messages = request.messages
     max_messages = _effective_max_messages(request)
+    mode = _run_mode(request)
+    mailbox_password: str | None = None
+    retrieval_profile = None
+    retrieved_from_imap = False
+    processed_internet_ids: set[str] = set()
+
+    logger.info(
+        "M12 email ingestion run started. run_id=%s correlation_id=%s source_id=%s mode=%s",
+        run_id,
+        correlation_id,
+        request.source_id,
+        mode,
+    )
 
     if not messages and source_profile is not None and supports_imap_provider(source_profile.provider):
         try:
-            messages = fetch_messages(_profile_for_retrieval(request, source_profile), resolve_secret(source_profile.secret_ref), max_messages)
+            mailbox_password = resolve_secret(source_profile.secret_ref)
+        except SecretResolutionError as exc:
+            return _finalize_failure(
+                request, run_id, correlation_id, started_at, mode, source_profile,
+                code="MAILBOX_SECRET_UNREADABLE", message=str(exc),
+            )
+        retrieval_profile = _profile_for_retrieval(request, source_profile)
+        received_after, received_before = _retrieval_window(request)
+        skipped_oversized: list[dict] = []
+        try:
+            messages = fetch_messages(
+                retrieval_profile,
+                mailbox_password,
+                max_messages,
+                received_after=received_after,
+                received_before=received_before,
+                skipped_messages=skipped_oversized,
+            )
+            retrieved_from_imap = True
         except ImapProviderError as exc:
-            finding = EmailFinding(
-                code="MAILBOX_RETRIEVAL_FAILED",
-                severity=FindingSeverity.error,
-                message=str(exc),
+            return _finalize_failure(
+                request, run_id, correlation_id, started_at, mode, source_profile,
+                code="MAILBOX_RETRIEVAL_FAILED", message=str(exc),
             )
-            summary = EmailIngestionSummary(
-                message_count=0,
-                attachment_count=0,
-                retrieved_count=0,
-                skipped_count=0,
-                duplicate_count=0,
-                failed_count=1,
-                handed_off_count=0,
-                password_required_count=0,
+        # A message dropped by the pre-fetch size guard must be visible: a small,
+        # valid PDF inside a large MIME email would otherwise disappear without a
+        # candidate row or finding.
+        for skipped in skipped_oversized:
+            findings.append(
+                EmailFinding(
+                    code="EMAIL_MESSAGE_FETCH_SKIPPED_TOO_LARGE",
+                    severity=FindingSeverity.warning,
+                    message=(
+                        f"Email message was skipped before download: total message size "
+                        f"{skipped.get('size_bytes')} bytes exceeds the fetch safety limit "
+                        f"{skipped.get('limit_bytes')} bytes. A small PDF inside a large email "
+                        "is also skipped; raise MAX_ATTACHMENT_SIZE_BYTES if this message must be imported."
+                    ),
+                    message_id=skipped.get("message_id"),
+                )
             )
-            result = AutomatedEmailIngestionResult(
-                run_id=run_id,
-                status=EmailIngestionStatus.failed,
-                source_id=request.source_id,
-                provider=source_profile.provider,
-                folder=source_profile.folder,
-                candidates=[],
-                summary=summary,
-                evaluation=EmailIngestionEvaluation(
-                    run_id=run_id,
-                    source_id=request.source_id,
-                    provider=source_profile.provider,
-                    status=EmailIngestionStatus.failed,
-                    finding_counts=_finding_counts([finding]),
-                    dry_run=request.policy.dry_run,
-                ),
-                findings=[finding],
-            )
-            mark_run(request.source_id, result.run_id, result.status.value)
-            return result
 
     allowed_extensions = {
         item.lower() for item in _policy_values(
@@ -129,11 +154,20 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
             )
             candidate_findings = _validate_attachment(attachment, allowed_extensions, allowed_mime_types, max_size)
             sha256 = attachment.sha256 or _content_sha256(attachment.content_base64)
-            duplicate_key = f"{request.source_id}:{message.message_id}:{attachment.attachment_id}:{sha256 or attachment.filename}"
+            duplicate_key = _dedup_key(request.source_id, message, attachment, sha256)
             password_rule = None
             unlocked_via_rule = False
             handoff_content_base64 = attachment.content_base64
             handoff_sha256 = sha256
+            # Cross-run dedup: an attachment that a prior run already imported
+            # (handed off to file intake) must not be re-imported. This applies to
+            # dry and real runs alike, so dry runs surface the already-imported
+            # state and real runs do not create duplicate file-intake entries.
+            already_imported = (
+                request.policy.deduplicate
+                and duplicate_key not in seen_keys
+                and run_history_service.is_attachment_already_imported(duplicate_key)
+            )
 
             if request.policy.deduplicate and duplicate_key in seen_keys:
                 candidate_findings.append(
@@ -141,6 +175,17 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
                         code="DUPLICATE_EMAIL_ATTACHMENT",
                         severity=FindingSeverity.warning,
                         message="Attachment was already seen in this automated run.",
+                        message_id=message.message_id,
+                        attachment_name=attachment.filename,
+                    )
+                )
+                status = AttachmentStatus.duplicate
+            elif already_imported:
+                candidate_findings.append(
+                    EmailFinding(
+                        code="DUPLICATE_EMAIL_ATTACHMENT_PREVIOUSLY_IMPORTED",
+                        severity=FindingSeverity.warning,
+                        message="Attachment was already imported by a previous run and was skipped.",
                         message_id=message.message_id,
                         attachment_name=attachment.filename,
                     )
@@ -168,7 +213,7 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
                     unlocked_bytes = None
                     for candidate_rule in password_rules:
                         unlocked_bytes = _unlock_pdf(
-                            attachment.content_base64, resolve_secret(candidate_rule.password_secret_ref)
+                            attachment.content_base64, _resolve_secret_safe(candidate_rule.password_secret_ref)
                         )
                         if unlocked_bytes is not None:
                             password_rule = candidate_rule
@@ -233,14 +278,21 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
             else:
                 password_state = None
 
+            candidate_id = f"email_attachment_{uuid.uuid4().hex[:12]}"
+            # For rule-unlocked PDFs the bytes in file intake are the DECRYPTED
+            # content, so the recorded sha256 must match those bytes; the
+            # encrypted-source hash is kept as original_sha256 for provenance.
+            processed_sha256 = handoff_sha256
+            original_sha256 = sha256 if unlocked_via_rule and sha256 != handoff_sha256 else None
             candidates.append(
                 AttachmentCandidate(
-                    candidate_id=f"email_attachment_{uuid.uuid4().hex[:12]}",
+                    candidate_id=candidate_id,
                     status=status,
                     filename=attachment.filename,
                     content_type=attachment.content_type,
                     size_bytes=attachment.size_bytes,
-                    sha256=sha256,
+                    sha256=processed_sha256,
+                    original_sha256=original_sha256,
                     source=source,
                     handoff=handoff,
                     password_state=password_state,
@@ -249,11 +301,56 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
                     findings=candidate_findings,
                 )
             )
+            run_candidate_records.append(
+                EmailIngestionRunCandidate(
+                    candidate_id=candidate_id,
+                    filename=attachment.filename,
+                    status=status,
+                    sender=message.sender,
+                    subject_redacted=_redact_subject(message.subject),
+                    received_at=message.received_at,
+                    message_id=message.message_id,
+                    attachment_id=attachment.attachment_id,
+                    sha256=processed_sha256,
+                    original_sha256=original_sha256,
+                    dedup_key=duplicate_key,
+                    handoff_ingestion_id=handoff.ingestion_id if handoff else None,
+                    handoff_status=handoff.status if handoff else None,
+                    handoff_content_reference=handoff.content_reference if handoff else None,
+                    handoff_error=handoff.error if handoff else None,
+                    finding_codes=[finding.code for finding in candidate_findings],
+                )
+            )
+            if status == AttachmentStatus.handed_off and message.internet_message_id:
+                processed_internet_ids.add(message.internet_message_id)
+
+    # Post-process only real mailbox runs that actually handed files off: mark-read /
+    # move so scheduled polling does not rescan. Failure here is mailbox hygiene, not
+    # an ingestion failure, so it is recorded as a warning finding and does not fail
+    # the run. Default post_process_policy is a no-op.
+    if (
+        retrieved_from_imap
+        and not request.policy.dry_run
+        and mailbox_password
+        and processed_internet_ids
+        and retrieval_profile is not None
+    ):
+        try:
+            apply_post_process(retrieval_profile, processed_internet_ids, mailbox_password)
+        except ImapProviderError as exc:
+            findings.append(
+                EmailFinding(
+                    code="POST_PROCESS_FAILED",
+                    severity=FindingSeverity.warning,
+                    message=str(exc),
+                )
+            )
 
     findings.extend(finding for candidate in candidates for finding in candidate.findings)
     summary = _summarize(messages, request, candidates)
     status = _result_status(summary)
     finding_counts = _finding_counts(findings)
+    error_message = _run_error_message(findings)
 
     result = AutomatedEmailIngestionResult(
         run_id=run_id,
@@ -274,6 +371,127 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
         findings=findings,
     )
     mark_run(request.source_id, run_id, status.value)
+    _persist_run_history(
+        request, run_id, correlation_id, started_at, mode, status, summary, run_candidate_records, error_message
+    )
+    logger.info(
+        "M12 email ingestion run completed. run_id=%s correlation_id=%s source_id=%s status=%s "
+        "attachments=%s handed_off=%s duplicates=%s skipped=%s failed=%s",
+        run_id,
+        correlation_id,
+        request.source_id,
+        status.value,
+        summary.attachment_count,
+        summary.handed_off_count,
+        summary.duplicate_count,
+        summary.skipped_count,
+        summary.failed_count,
+    )
+    return result
+
+
+def _run_mode(request: AutomatedEmailIngestionRequest) -> str:
+    if request.mode:
+        return request.mode
+    return "dry_run" if request.policy.dry_run else "handoff"
+
+
+def _resolve_secret_safe(secret_ref: str | None) -> str | None:
+    # Used for PDF password rules: a corrupt/unreadable saved secret should make
+    # the unlock attempt fail (password_failed), not raise a 500. The raw secret
+    # is never logged here.
+    try:
+        return resolve_secret(secret_ref)
+    except SecretResolutionError:
+        return None
+
+
+def _run_error_message(findings: list[EmailFinding]) -> str | None:
+    error = next((finding for finding in findings if finding.severity == FindingSeverity.error), None)
+    return error.message if error else None
+
+
+def _persist_run_history(
+    request: AutomatedEmailIngestionRequest,
+    run_id: str,
+    correlation_id: str,
+    started_at: str,
+    mode: str,
+    status: EmailIngestionStatus,
+    summary: EmailIngestionSummary,
+    run_candidate_records: list[EmailIngestionRunCandidate],
+    error_message: str | None,
+) -> None:
+    # Persisting run history must never break an ingestion that already handed
+    # attachments to file intake, so failures are swallowed inside the store.
+    run_history_service.record_run(
+        EmailIngestionRunDetail(
+            run_id=run_id,
+            source_id=request.source_id,
+            mode=mode,
+            status=status,
+            started_at=started_at,
+            completed_at=datetime.now(UTC).isoformat(),
+            correlation_id=correlation_id,
+            error_message=error_message,
+            summary=summary,
+            candidates=run_candidate_records,
+        )
+    )
+
+
+def _finalize_failure(
+    request: AutomatedEmailIngestionRequest,
+    run_id: str,
+    correlation_id: str,
+    started_at: str,
+    mode: str,
+    source_profile,
+    code: str,
+    message: str,
+) -> AutomatedEmailIngestionResult:
+    finding = EmailFinding(code=code, severity=FindingSeverity.error, message=message)
+    summary = EmailIngestionSummary(
+        message_count=0,
+        attachment_count=0,
+        retrieved_count=0,
+        skipped_count=0,
+        duplicate_count=0,
+        failed_count=1,
+        handed_off_count=0,
+        password_required_count=0,
+    )
+    provider = source_profile.provider if source_profile else request.authorization.provider or settings.email_provider
+    folder = source_profile.folder if source_profile else settings.default_mailbox_folder
+    result = AutomatedEmailIngestionResult(
+        run_id=run_id,
+        status=EmailIngestionStatus.failed,
+        source_id=request.source_id,
+        provider=provider,
+        folder=folder,
+        candidates=[],
+        summary=summary,
+        evaluation=EmailIngestionEvaluation(
+            run_id=run_id,
+            source_id=request.source_id,
+            provider=provider,
+            status=EmailIngestionStatus.failed,
+            finding_counts=_finding_counts([finding]),
+            dry_run=request.policy.dry_run,
+        ),
+        findings=[finding],
+    )
+    mark_run(request.source_id, run_id, result.status.value)
+    _persist_run_history(
+        request, run_id, correlation_id, started_at, mode, result.status, summary, [], message
+    )
+    logger.warning(
+        "M12 email ingestion run failed. run_id=%s correlation_id=%s source_id=%s code=%s",
+        run_id,
+        correlation_id,
+        request.source_id,
+        code,
+    )
     return result
 
 
@@ -289,6 +507,26 @@ def _effective_max_messages(request: AutomatedEmailIngestionRequest) -> int:
     if request.retrieval.max_messages is None:
         return settings.default_max_messages
     return request.retrieval.max_messages
+
+
+def _retrieval_window(request: AutomatedEmailIngestionRequest) -> tuple[datetime | None, datetime | None]:
+    # The request's received_after/received_before bound the IMAP search. When no
+    # explicit lower bound is given, DEFAULT_LOOKBACK_HOURS applies so runs do not
+    # scan the whole mailbox; 0 disables the default window.
+    received_after = parse_iso(request.retrieval.received_after)
+    received_before = parse_iso(request.retrieval.received_before)
+    if received_after is None and settings.default_lookback_hours > 0:
+        received_after = datetime.now(UTC) - timedelta(hours=settings.default_lookback_hours)
+    return received_after, received_before
+
+
+def _dedup_key(source_id: str, message, attachment, sha256: str | None) -> str:
+    # IMAP UIDs/sequence ids are mailbox-session artifacts, so cross-run dedup keys
+    # prefer the stable Message-ID header plus the content hash. The attachment
+    # index + filename fallback only applies when neither stable part is available.
+    message_key = message.internet_message_id or message.message_id
+    content_key = sha256 or f"{attachment.attachment_id}:{attachment.filename}"
+    return f"{source_id}:{message_key}:{content_key}"
 
 
 def _effective_mailbox_folder(request: AutomatedEmailIngestionRequest, source_profile) -> str:
@@ -409,7 +647,7 @@ def _handoff_to_file_ingestion(
                 "idempotency_key": trace_source_id,
             },
             files={"file": (attachment.filename, content, attachment.content_type)},
-            timeout=10.0,
+            timeout=float(settings.handoff_timeout_seconds),
         )
         payload = response.json()
         content_reference = (payload.get("handoff") or {}).get("content_reference")

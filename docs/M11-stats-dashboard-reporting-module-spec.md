@@ -356,8 +356,100 @@ Expected initial sections:
 | Financial overview | What changed in spending, and is the current period moving up or down? | Prior-month expense total, current running expense total, movement against prior month, monthly history, and context about what to check before trusting category-level conclusions |
 | Spending categories | Where is the money going, and which categories drive spend? | Category breakdown, amount, share of total, confidence/readiness, review count, uncategorized total, and link to review uncategorized transactions |
 | Classification quality | How reliable are category and transaction labels? | Categorized vs uncategorized counts, unknown transaction type counts, low-confidence labels, pending/approved/rejected suggestion counts when available, and labels needing review |
-| Source coverage | Is the report based on enough source material? | Months covered, documents per month, transactions per month, missing/weak months, source institution mix, and OCR/validation issue impact |
+| Source coverage | Is the report based on enough source material? | Months covered, documents per month, transactions per month, missing/weak months, source institution mix, email ingestion run/candidate statistics, and OCR/validation issue impact |
 | Review impact | What weakens trust in the reported numbers? | Review-required transactions, low OCR quality documents, validation warnings, missing dates/amounts/categories, duplicates/exclusions, and affected totals |
+
+#### Source Coverage Tab Plan
+
+The Source coverage tab should answer whether the selected reporting period has enough saved source material to support the financial story. It should not duplicate the Documents page table. Instead, it should summarize coverage gaps and then link back to Documents for file-level investigation.
+
+This tab should align with data Stats already has or is actively adding:
+
+- M9 saved documents and document provenance.
+- M9 saved transaction rows.
+- M9 processing status, findings, and review-item records.
+- M12 email ingestion source profiles, run headers, and content-free candidate rows.
+- M12 handoff/process-imported outcomes when an email attachment enters the normal M3 to M9 pipeline.
+
+Planned user outcomes:
+
+- See which months in the selected period have saved source records.
+- See whether expense totals are based on manual uploads, email-imported documents, statements, receipts, invoices, payment proofs, or other saved document types.
+- Identify months with no documents, documents with no saved transactions, failed/deferred parsing, or records excluded from reporting.
+- See whether email ingestion is contributing usable source data or mostly producing duplicates, skipped files, failed candidates, or password-required candidates.
+- Understand whether the current report is complete enough to compare against another period.
+
+Planned data groups:
+
+| Group | Fields Needed | Source Boundary |
+| --- | --- | --- |
+| Period coverage | Reporting month, document count, transaction count, expense total, review-required count | M9 reporting read model over saved documents and transactions |
+| Source type mix | Source type, document type, source institution/merchant, count, represented amount | M9 document provenance plus transaction totals |
+| Weak or missing source periods | Month, reason, expected/observed source count where known, affected amount where known | M9 read model; no dashboard-side inference |
+| Document quality impact | OCR/read status, validation status, failed/deferred/skipped counts, no-transaction document count | M9 document provenance and processing status |
+| Email ingestion coverage | Source profile, run time, run status, message count, attachment count, retrieved, handed off, skipped, duplicate, failed, password required, process-imported saved/review/failed counts where available | M12 email ingestion run history and M9 handoff outcomes, surfaced through a curated read model |
+
+Planned first UI:
+
+- Coverage summary strip: months covered, documents represented, transactions represented, weak/missing months, and latest email ingestion run status.
+- Month coverage matrix or compact bar list showing documents and saved transactions per month.
+- Source mix list grouped by source type and document type.
+- Email ingestion statistics panel showing recent run health and candidate outcomes without exposing mailbox content.
+- Coverage gaps panel with links to filtered Documents where possible.
+- Empty state that says no saved source records exist for the selected period, with a link back to Upload.
+
+Acceptance for first wiring:
+
+- Uses the same reporting currency and as-of timeframe as the rest of Reports.
+- Does not show raw OCR text, email body text, mailbox secrets, full subjects, full sender content, or source-account details.
+- Does not count unsaved upload results or dry-run-only email candidates as report evidence.
+- Keeps Documents as the place for row-level provenance and deletion/removal actions.
+- Treats email ingestion statistics as source coverage context, not as financial totals.
+
+#### Review Impact Tab Plan
+
+The Review impact tab should answer which unresolved issues can change reported totals or category conclusions. It is the action-priority view for report trust, not a generic error log.
+
+This tab should align with data Stats already has or is actively adding:
+
+- M9 review items and findings produced from validation and persistence.
+- M9 transaction quality, duplicate, classification, and document provenance fields.
+- M12 email ingestion run/candidate statuses that explain why expected email attachments did not become saved financial records.
+- M12 process-imported results when imported attachments are parsed/extracted/validated/saved through the normal pipeline.
+
+Planned user outcomes:
+
+- See how many transactions/documents still need review before the report can be trusted.
+- Prioritize high-value uncertain records before low-value clean-up.
+- Understand whether review blockers affect totals, category analysis, source coverage, duplicate risk, or email-ingestion completeness.
+- See repeated unknown descriptions/categories that should become managed classification rules instead of one-off fixes.
+- See email ingestion blockers, such as failed, skipped, duplicate, password-required, or not-yet-processed candidates, as part of reporting readiness.
+
+Planned data groups:
+
+| Group | Fields Needed | Source Boundary |
+| --- | --- | --- |
+| Review summary | Review-required transaction count, affected expense total, affected document count, highest affected amount | M9 review and transaction read models |
+| Issue type mix | Issue type/reason code, count, affected amount, severity | M8/M9 findings persisted by M9 |
+| High-impact records | Transaction/document id, date, description label, amount, currency, reason, source document link | M9 review-items API/read model |
+| Repeated classification gaps | Normalized description/category candidate, occurrence count, affected amount, current label status | M9 persisted classification outcome and suggestion records |
+| Email ingestion blockers | Source profile, run id/time, candidate status, finding codes, handed-off count, process-imported saved/review/failed counts, blocked/skipped/password-required counts | M12 run history plus M9 save outcomes through a curated read model |
+
+Planned first UI:
+
+- Review summary strip: affected total, records needing review, documents affected, highest uncertain record.
+- Issue breakdown list grouped by reason: missing category, unknown transaction type, duplicate candidate, validation warning, source quality issue, missing date/amount, email ingestion blocker.
+- High-impact queue sorted by affected reporting amount, not by upload order.
+- Email ingestion readiness panel showing recent failed/blocked/skipped/password-required candidates and whether imported candidates have been processed into the database.
+- Suggested next action panel: review transactions, manage recognition settings, inspect source documents, or return to Email ingestion setup depending on issue type.
+- Empty state that clearly says no review-impact records are affecting the selected period.
+
+Acceptance for first wiring:
+
+- Shows counts and affected totals only from persisted M9/M12 records.
+- Does not invent classification suggestions in the browser.
+- Does not expose future-work sections in the production UI.
+- Does not require users to inspect every transaction when the issue can be grouped by repeated reason, normalized description, source status, or email-ingestion candidate status.
 
 Deferred report sections:
 
@@ -504,9 +596,13 @@ transaction_classification
 source_document_coverage
 data_quality_confidence
 review_exceptions
+email_ingestion_source_coverage
+email_ingestion_review_impact
 ```
 
 M11 should treat these as read models. M9 owns how they are derived.
+
+The email-ingestion reporting shapes should be read-only summaries over M12 operational records. They should include run and candidate counts, status distribution, latest run state, and process-imported outcomes, but not mailbox credentials, email body text, raw attachment content, or unredacted subject/sender data.
 
 Future reporting read models may include `upcoming_obligations`, `credit_exposure`, and `reconciliation_status` after M9 promotes stable obligation and matching data.
 
@@ -766,12 +862,13 @@ M11 should display masked account/card/reference values only. Full sensitive val
 - Add or consume M9 transaction, document summary, statement, financial summary, finding, and review endpoints as they become available.
 - Render real Home financial cards, recent notable expenses, top contributors, and trends from curated M9/Fabric/Power BI analytics data.
 - Render document counts, source summaries, row counts, review counts, and quality summaries on `/Documents`.
+- Add read-only reporting summaries over M12 email ingestion runs and candidates so source coverage and review impact can show email-import health without making M11 own mailbox ingestion.
 - Add filters and drilldowns.
 - Add user-facing error and partial-data states.
 
 ### Phase 3: Reporting Views
 
-- Add native Reports sections for spending categories, classification quality, source document coverage, data quality/confidence, and transaction drilldown.
+- Add native Reports sections for spending categories, classification quality, source document coverage, email ingestion coverage, review impact, data quality/confidence, and transaction drilldown.
 - Keep obligations, credit-card exposure, budget-vs-actual, and reconciliation as future report sections until the supporting M9 read models are stable.
 - Add export-ready view structure when output requirements are approved.
 - Keep native provenance and workflow views usable when Power BI is unavailable.
@@ -805,6 +902,8 @@ M11 should display masked account/card/reference values only. Full sensitive val
 - Reports does not duplicate Home KPI cards as primary content; it explains category drivers, classification coverage, source coverage, data quality, and review impact behind the Home numbers.
 - Documents views show provenance first: document counts, source/type summaries, saved records, quality, row counts, review counts, and source drilldowns.
 - Reports includes selected reporting period, currency, data readiness/classification coverage, source context, and review impact.
+- Source coverage includes a reserved email ingestion statistics area showing run health and candidate outcomes from M12 without exposing mailbox content or treating unsaved candidates as financial evidence.
+- Review impact includes email-ingestion blockers when they explain why expected source data did not become saved reportable records.
 - Each displayed financial number can trace to M9 source document/transaction/evidence metadata when available.
 - Power BI/Fabric are treated as analytical services over curated M9 data; Stats Web renders the primary product-facing dashboard and report investigation experience.
 - A full pasted Power BI report canvas is not required for the default Reports UX and should not be the only way users understand reporting results.

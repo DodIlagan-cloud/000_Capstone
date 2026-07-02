@@ -33,9 +33,9 @@
         <nav class="shell-nav" aria-label="Stats workspace navigation">
           <a href="/">Home</a>
           <a href="/Upload">Upload documents</a>
-          <a href="/EmailSetup" aria-current="page">Email ingestion setup</a>
           <a href="/Documents">Documents</a>
           <a href="/Reports">Reports</a>
+          <a data-admin-link href="/EmailSetup" aria-current="page" hidden>Email ingestion setup</a>
           <a data-admin-link href="/Admin/Classifications" hidden>Recognition settings</a>
         </nav>
 
@@ -214,6 +214,22 @@
                 </fieldset>
               </template>
 
+              <div class="email-field-grid email-schedule-fields">
+                <label for="email-polling-cadence">
+                  Automatic ingestion
+                  <select id="email-polling-cadence" name="polling_cadence">
+                    <option value="off">Off (manual only)</option>
+                    <option value="hourly">Hourly</option>
+                    <option value="daily">Daily</option>
+                  </select>
+                  <span class="field-hint">Runs import and ingest-to-database automatically on this cadence (UTC).</span>
+                </label>
+                <label for="email-polling-time" id="email-polling-time-field" hidden>
+                  Daily time (UTC)
+                  <input id="email-polling-time" name="polling_time" type="time" value="00:00" />
+                </label>
+              </div>
+
               <label class="active-toggle" for="email-enabled">
                 <input id="email-enabled" name="enabled" type="checkbox" checked />
                 Enabled
@@ -236,6 +252,7 @@
               <div class="next-actions">
                 <button id="email-dry-run-button" class="secondary-action" type="button">Dry run</button>
                 <button id="email-import-run-button" type="button">Run import</button>
+                <button id="email-ingest-db-button" type="button">Ingest to database</button>
               </div>
             </div>
             <div class="email-run-status-card">
@@ -271,6 +288,33 @@
               </table>
             </div>
             <nav id="email-run-pagination" class="email-pagination" aria-label="Email ingestion result pages" hidden></nav>
+
+            <details id="email-recent-runs" class="email-collapsible-pane email-recent-runs-pane">
+              <summary class="email-pane-summary">
+                <div>
+                  <p class="session-label">History</p>
+                  <h3 id="email-recent-runs-title">Recent runs</h3>
+                </div>
+                <span id="email-recent-runs-count" class="state-pill">0 runs</span>
+              </summary>
+              <div class="email-pane-body">
+                <p id="email-recent-runs-empty" class="empty-state" hidden>No runs recorded yet.</p>
+                <div id="email-recent-runs-table-wrap" class="table-wrap compact-table-wrap" hidden>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Status</th>
+                        <th>Attachments</th>
+                        <th>Imported</th>
+                        <th>Issue</th>
+                      </tr>
+                    </thead>
+                    <tbody id="email-recent-runs-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
           </section>
         </section>
       </section>

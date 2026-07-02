@@ -20,7 +20,7 @@ from app.models.ingestion import (
     ValidationSummary,
 )
 from app.models.validation import ValidationStatus
-from app.services.storage_service import StorageSettings, store_intake_content
+from app.services.storage_service import StorageSettings, load_intake_content, store_intake_content
 
 
 _records: dict[str, IngestionRecord] = {}
@@ -35,6 +35,40 @@ def reset_ingestion_store() -> None:
 
 def get_ingestion_record(ingestion_id: str) -> Optional[IngestionRecord]:
     return _records.get(ingestion_id)
+
+
+def load_ingestion_content(
+    *,
+    ingestion_id: str,
+    storage_root: Path,
+    storage_provider: str = "LocalFileSystem",
+    azure_storage_account_name: str = "",
+    azure_storage_container_name: str = "",
+    azure_storage_connection_string: str = "",
+    azure_storage_blob_prefix: str = "intake",
+) -> Optional[tuple[bytes, str, str]]:
+    """Read back stored intake content for a previously accepted file.
+
+    Returns (content, media_type, filename) or None when the record/handoff is
+    missing. Additive: does not change ingestion creation or status behaviour.
+    """
+    record = _records.get(ingestion_id)
+    if record is None or record.handoff is None:
+        return None
+    content = load_intake_content(
+        ingestion_id=ingestion_id,
+        normalized_filename=record.handoff.normalized_filename,
+        settings=StorageSettings(
+            provider=storage_provider,
+            storage_root=storage_root,
+            azure_account_name=azure_storage_account_name,
+            azure_container_name=azure_storage_container_name,
+            azure_connection_string=azure_storage_connection_string,
+            azure_blob_prefix=azure_storage_blob_prefix,
+        ),
+    )
+    media_type = record.handoff.detected_mime_type or "application/octet-stream"
+    return content, media_type, record.handoff.normalized_filename
 
 
 def create_ingestion_record(

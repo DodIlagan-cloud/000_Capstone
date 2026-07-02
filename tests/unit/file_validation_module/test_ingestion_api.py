@@ -155,3 +155,33 @@ def test_get_ingestion_status_returns_404_for_missing_record(client):
     response = client.get("/api/v1/ingestions/missing")
 
     assert response.status_code == 404
+
+
+def test_ingestion_content_readback_requires_internal_key(client, real_pdf_file, monkeypatch):
+    import app.config as config
+
+    monkeypatch.setattr(config.settings, "stats_internal_api_key", "test-internal-key")
+    pdf_content = real_pdf_file.read_bytes()
+    ingestion_id = client.post(
+        "/api/v1/ingestions",
+        data={"validation_status": "accepted", "idempotency_key": "content-auth"},
+        files={"file": (real_pdf_file.name, pdf_content, "application/pdf")},
+    ).json()["ingestion_id"]
+
+    # Missing and wrong internal key are both rejected.
+    assert client.get(f"/api/v1/ingestions/{ingestion_id}/content").status_code == 401
+    assert (
+        client.get(
+            f"/api/v1/ingestions/{ingestion_id}/content",
+            headers={"X-Stats-Internal-Key": "wrong-key"},
+        ).status_code
+        == 401
+    )
+
+    # The correct internal key streams the stored original bytes.
+    ok = client.get(
+        f"/api/v1/ingestions/{ingestion_id}/content",
+        headers={"X-Stats-Internal-Key": "test-internal-key"},
+    )
+    assert ok.status_code == 200
+    assert ok.content == pdf_content

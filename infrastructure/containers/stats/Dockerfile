@@ -80,16 +80,18 @@ COPY infrastructure/containers/stats/Dockerfile /app/infrastructure/containers/s
 COPY infrastructure/containers/stats/.env.container.example /app/infrastructure/containers/stats/.env.container.example
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/start-stats-runtime.sh
 COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh
+COPY infrastructure/containers/stats/run-m12-scheduled-ingestion.sh /app/infrastructure/containers/stats/run-m12-scheduled-ingestion.sh
 COPY infrastructure/compose/stats-runtime.compose.yml /app/infrastructure/compose/stats-runtime.compose.yml
 COPY --from=dotnet-build /app/stats-web /app/stats-web
 COPY infrastructure/containers/stats/start-stats-runtime.sh /app/start-stats-runtime.sh
 COPY infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/run-stats-admin-bootstrap.sh
+COPY infrastructure/containers/stats/run-m12-scheduled-ingestion.sh /app/run-m12-scheduled-ingestion.sh
 
 RUN /usr/bin/tesseract --version \
     && /opt/stats/runtime/bin/python -c "import fitz; import pytesseract; import pyodbc; from PIL import Image; print('M5 OCR and Azure SQL runtime dependencies available')" \
-    && sed -i 's/\r$//' /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh \
-    && sed -i '1s/^\xEF\xBB\xBF//' /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh \
-    && chmod +x /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh
+    && sed -i 's/\r$//' /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/run-m12-scheduled-ingestion.sh /app/infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/run-m12-scheduled-ingestion.sh \
+    && sed -i '1s/^\xEF\xBB\xBF//' /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/run-m12-scheduled-ingestion.sh /app/infrastructure/containers/stats/start-stats-runtime.sh /app/infrastructure/containers/stats/run-stats-admin-bootstrap.sh /app/infrastructure/containers/stats/run-m12-scheduled-ingestion.sh \
+    && chmod +x /app/start-stats-runtime.sh /app/run-stats-admin-bootstrap.sh /app/run-m12-scheduled-ingestion.sh
 
 ENV PATH="/opt/stats/runtime/bin:${PATH}"
 ENV DATABASE_PROVIDER=AzureSql

@@ -3,6 +3,7 @@ Loads email ingestion runtime defaults from committed config before local overri
 M12 End"""
 
 import os
+import re
 from pathlib import Path
 from typing import List
 
@@ -25,6 +26,15 @@ PLACEHOLDER_SECRET_MARKERS = (
     "placeholder",
     "example",
 )
+
+# Bearer-token verification supports only HMAC-SHA2 algorithms (see
+# app/services/auth_service._HMAC_DIGESTS). Reject unsupported values at startup
+# instead of silently rejecting every token at request time.
+SUPPORTED_ACCESS_TOKEN_ALGORITHMS = ("HS256", "HS384", "HS512")
+
+# database_schema is interpolated into SQL statements as an identifier, so it must
+# match a strict identifier pattern (no quoting/injection surface).
+_SCHEMA_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _load_config_values() -> dict[str, str]:
@@ -55,6 +65,16 @@ def _parse_int(value: str | None, default: int) -> int:
         return int(value) if value is not None else default
     except ValueError:
         return default
+
+
+def _require_int(values: dict[str, str], key: str) -> int:
+    # Required numeric settings fail fast on typos instead of silently falling
+    # back to a default (e.g. API_PORT=80l9 must not become port 0).
+    raw_value = _config_value(values, key)
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"Setting {key} must be an integer, got {raw_value!r}.") from exc
 
 
 class Settings:
@@ -89,6 +109,8 @@ class Settings:
     pdf_password_secret_prefix: str
     block_private_imap_hosts: bool
     allowed_imap_hosts: list[str]
+    imap_timeout_seconds: int
+    handoff_timeout_seconds: int
     azure_sql_connectionstring: str | None
     database_schema: str
 
@@ -100,11 +122,16 @@ class Settings:
         self.debug = _parse_bool(_config_value(config_values, "DEBUG"))
         self.api_prefix = _config_value(config_values, "API_PREFIX")
         self.api_host = _config_value(config_values, "API_HOST")
-        self.api_port = _parse_int(_config_value(config_values, "API_PORT"), 0)
+        self.api_port = _require_int(config_values, "API_PORT")
         self.cors_allowed_origins = self._parse_csv_values(_config_value(config_values, "CORS_ALLOWED_ORIGINS"))
         self.log_level = _config_value(config_values, "LOG_LEVEL")
         self.access_token_secret_key = _config_value(config_values, "ACCESS_TOKEN_SECRET_KEY")
         self.access_token_algorithm = _config_value(config_values, "ACCESS_TOKEN_ALGORITHM")
+        if self.access_token_algorithm.upper() not in SUPPORTED_ACCESS_TOKEN_ALGORITHMS:
+            raise RuntimeError(
+                f"ACCESS_TOKEN_ALGORITHM must be one of {SUPPORTED_ACCESS_TOKEN_ALGORITHMS}; "
+                f"got {self.access_token_algorithm!r}."
+            )
         self._validate_access_token_secret()
         self.email_provider = _config_value(config_values, "EMAIL_PROVIDER")
         self.email_ingestion_mode = _config_value(config_values, "EMAIL_INGESTION_MODE")
@@ -124,17 +151,23 @@ class Settings:
         self.allowed_attachment_mime_types = [
             value.lower() for value in self._parse_csv_values(_config_value(config_values, "ALLOWED_ATTACHMENT_MIME_TYPES"))
         ]
-        self.max_attachment_size_bytes = _parse_int(_config_value(config_values, "MAX_ATTACHMENT_SIZE_BYTES"), 0)
+        self.max_attachment_size_bytes = _require_int(config_values, "MAX_ATTACHMENT_SIZE_BYTES")
         self.default_mailbox_folder = _config_value(config_values, "DEFAULT_MAILBOX_FOLDER")
-        self.default_lookback_hours = _parse_int(_config_value(config_values, "DEFAULT_LOOKBACK_HOURS"), 24)
-        self.default_max_messages = _parse_int(_config_value(config_values, "DEFAULT_MAX_MESSAGES"), 25)
+        self.default_lookback_hours = _require_int(config_values, "DEFAULT_LOOKBACK_HOURS")
+        self.default_max_messages = _require_int(config_values, "DEFAULT_MAX_MESSAGES")
         self.polling_enabled = _parse_bool(_config_value(config_values, "POLLING_ENABLED"), False)
         self.redact_email_subjects = _parse_bool(_config_value(config_values, "REDACT_EMAIL_SUBJECTS"), True)
         self.pdf_password_secret_prefix = _config_value(config_values, "PDF_PASSWORD_SECRET_PREFIX")
         self.block_private_imap_hosts = _parse_bool(config_values.get("BLOCK_PRIVATE_IMAP_HOSTS"), True)
         self.allowed_imap_hosts = self._parse_csv_values(config_values.get("ALLOWED_IMAP_HOSTS"))
+        self.imap_timeout_seconds = _parse_int(config_values.get("IMAP_TIMEOUT_SECONDS"), 30)
+        self.handoff_timeout_seconds = _parse_int(config_values.get("HANDOFF_TIMEOUT_SECONDS"), 60)
         self.azure_sql_connectionstring = config_values.get("AZURE_SQL_CONNECTIONSTRING")
         self.database_schema = config_values.get("DATABASE_SCHEMA", "dbo")
+        if not _SCHEMA_NAME_PATTERN.fullmatch(self.database_schema):
+            raise RuntimeError(
+                f"DATABASE_SCHEMA must be a plain SQL identifier, got {self.database_schema!r}."
+            )
 
     @staticmethod
     def _parse_csv_values(value: str | None) -> list[str]:

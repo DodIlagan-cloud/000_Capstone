@@ -18,9 +18,12 @@ BEGIN
         attachment_policy_json nvarchar(max) NOT NULL CONSTRAINT df_email_sources_attachment_policy DEFAULT '{}',
         pdf_password_policy_json nvarchar(max) NOT NULL CONSTRAINT df_email_sources_pdf_password_policy DEFAULT '{}',
         post_process_policy_json nvarchar(max) NOT NULL CONSTRAINT df_email_sources_post_process_policy DEFAULT '{}',
+        polling_schedule_json nvarchar(max) NOT NULL CONSTRAINT df_email_sources_polling_schedule DEFAULT '{}',
         last_tested_at_utc datetime2(3) NULL,
         last_run_id nvarchar(80) NULL,
         last_run_status nvarchar(40) NULL,
+        last_run_at_utc datetime2(3) NULL,
+        last_auto_run_at_utc datetime2(3) NULL,
         created_at_utc datetime2(3) NOT NULL CONSTRAINT df_email_sources_created_at DEFAULT SYSUTCDATETIME(),
         updated_at_utc datetime2(3) NOT NULL CONSTRAINT df_email_sources_updated_at DEFAULT SYSUTCDATETIME()
     );
@@ -66,6 +69,25 @@ BEGIN
     ALTER TABLE dbo.email_ingestion_sources
         ADD post_process_policy_json nvarchar(max) NOT NULL
             CONSTRAINT df_email_sources_post_process_policy DEFAULT '{}';
+END;
+
+IF COL_LENGTH('dbo.email_ingestion_sources', 'polling_schedule_json') IS NULL
+BEGIN
+    ALTER TABLE dbo.email_ingestion_sources
+        ADD polling_schedule_json nvarchar(max) NOT NULL
+            CONSTRAINT df_email_sources_polling_schedule DEFAULT '{}';
+END;
+
+IF COL_LENGTH('dbo.email_ingestion_sources', 'last_run_at_utc') IS NULL
+BEGIN
+    ALTER TABLE dbo.email_ingestion_sources
+        ADD last_run_at_utc datetime2(3) NULL;
+END;
+
+IF COL_LENGTH('dbo.email_ingestion_sources', 'last_auto_run_at_utc') IS NULL
+BEGIN
+    ALTER TABLE dbo.email_ingestion_sources
+        ADD last_auto_run_at_utc datetime2(3) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_email_sources_enabled_provider' AND object_id = OBJECT_ID('dbo.email_ingestion_sources'))

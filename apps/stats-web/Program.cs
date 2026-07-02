@@ -1620,7 +1620,14 @@ public static class StatsWebApiProxy
         try
         {
             var client = httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromMinutes(5);
+            // M12: scheduled mailbox ingestion and process-imported drive whole
+            // documents through parse -> extract -> validate -> save, which can far
+            // exceed the 5-minute browser-call default. The Container Apps Job replica
+            // timeout (55 min) is the real bound for the scheduled tick, so give those
+            // internal long-running routes headroom instead of failing mid-pipeline.
+            client.Timeout = IsLongRunningEmailIngestionRequest(path)
+                ? TimeSpan.FromMinutes(55)
+                : TimeSpan.FromMinutes(5);
             using var responseMessage = await client.SendAsync(
                 requestMessage,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -1727,6 +1734,15 @@ public static class StatsWebApiProxy
     private static bool IsLoginRequest(string path, string method)
     {
         return HttpMethods.IsPost(method) && path.Equals("auth/login", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // M12: routes that run whole documents through the automated pipeline and can
+    // legitimately take much longer than a browser API call.
+    private static bool IsLongRunningEmailIngestionRequest(string path)
+    {
+        return path.StartsWith("email-ingestions/scheduled-runs", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("email-ingestions/process-imported", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("email-ingestions/automated-runs", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsTokenIssuingAuthRequest(string path, string method)

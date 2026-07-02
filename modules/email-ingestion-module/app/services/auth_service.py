@@ -18,6 +18,15 @@ from app.config import settings
 # trusted server-to-server caller and is exempt from the role check.
 ADMIN_ROLE = "admin"
 
+# ACCESS_TOKEN_ALGORITHM maps to a concrete HMAC digest here; config validates the
+# value at startup so an unsupported algorithm fails fast rather than silently
+# rejecting every token at request time.
+_HMAC_DIGESTS = {
+    "HS256": hashlib.sha256,
+    "HS384": hashlib.sha384,
+    "HS512": hashlib.sha512,
+}
+
 
 def require_email_ingestion_auth(
     authorization: str | None = Header(default=None),
@@ -38,6 +47,20 @@ def require_email_ingestion_auth(
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication is required.")
 
 
+def require_internal_service_auth(
+    internal_api_key: str | None = Header(default=None, alias="X-Stats-Internal-Key"),
+) -> None:
+    # Stricter than require_email_ingestion_auth: only the internal service key is
+    # accepted (no admin bearer). Used by cloud-only endpoints such as the scheduler
+    # tick, which must not be reachable with a user token.
+    if _valid_internal_key(internal_api_key):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="This endpoint requires the internal service key.",
+    )
+
+
 def _valid_internal_key(value: str | None) -> bool:
     expected = settings.stats_internal_api_key
     if not expected or not value:
@@ -55,13 +78,14 @@ def _decode_access_token(token: str) -> dict[str, Any] | None:
     try:
         header_segment, payload_segment, signature_segment = token.split(".", 2)
         header = json.loads(_b64decode(header_segment))
-        if header.get("alg") != settings.access_token_algorithm:
+        digest = _HMAC_DIGESTS.get(settings.access_token_algorithm.upper())
+        if digest is None or header.get("alg") != settings.access_token_algorithm:
             return None
         signing_input = f"{header_segment}.{payload_segment}"
         expected_signature = hmac.new(
             settings.access_token_secret_key.encode("utf-8"),
             signing_input.encode("ascii"),
-            hashlib.sha256,
+            digest,
         ).digest()
         if not hmac.compare_digest(_b64encode(expected_signature), signature_segment):
             return None

@@ -488,11 +488,13 @@ def test_automated_run_fetches_messages_for_imap_source_profile(client, monkeypa
         assert secret_ref == "stats-email-gmail-imap-app-password-fetch-mailbox"
         return "resolved-app-password"
 
-    def fake_fetch_messages(profile, password, max_messages):
+    def fake_fetch_messages(profile, password, max_messages, **kwargs):
         assert profile.source_id == "fetch-mailbox"
         assert profile.folder == "Statements"
         assert password == "resolved-app-password"
         assert max_messages == 25
+        # The default lookback window must reach the IMAP fetch as received_after.
+        assert kwargs.get("received_after") is not None
         from app.models.ingestion import EmailAttachmentInput, EmailMessageInput
 
         return [
@@ -593,7 +595,7 @@ def test_automated_run_uses_requested_mailbox_folder_for_imap_fetch(client, monk
 
     monkeypatch.setattr("app.services.ingestion_service.resolve_secret", lambda _secret_ref: "resolved-app-password")
 
-    def fake_fetch_messages(profile, _password, _max_messages):
+    def fake_fetch_messages(profile, _password, _max_messages, **_kwargs):
         assert profile.folder == "Statements"
         return []
 
@@ -629,7 +631,7 @@ def test_automated_run_passes_unlimited_to_imap_fetch(client, monkeypatch):
 
     monkeypatch.setattr("app.services.ingestion_service.resolve_secret", lambda _secret_ref: "resolved-app-password")
 
-    def fake_fetch_messages(_profile, _password, max_messages):
+    def fake_fetch_messages(_profile, _password, max_messages, **_kwargs):
         assert max_messages == 0
         return []
 
@@ -796,6 +798,12 @@ def test_unlocked_pdf_is_handed_off_with_decrypted_content(client, email_payload
     # The decrypted bytes (not the encrypted original) are handed off, with a matching hash.
     assert captured["files"]["file"][1] == unlocked_bytes
     assert captured["data"]["validation_sha256"] == hashlib.sha256(unlocked_bytes).hexdigest()
+    # Provenance: the candidate's sha256 matches the stored (decrypted) content so
+    # run history lines up with Blob/intake evidence; the encrypted-source hash is
+    # preserved separately.
+    encrypted_pdf = b"%PDF-1.7\n1 0 obj\n<< /Encrypt 5 0 R >>\nendobj\n%%EOF"
+    assert payload["candidates"][0]["sha256"] == hashlib.sha256(unlocked_bytes).hexdigest()
+    assert payload["candidates"][0]["original_sha256"] == hashlib.sha256(encrypted_pdf).hexdigest()
 
 
 def test_matched_rule_marks_password_failed_when_unlock_fails(client, email_payload, monkeypatch):
@@ -1174,7 +1182,8 @@ def test_imap_message_size_guard_skips_oversized_fetch(monkeypatch):
     from app.services import imap_service
 
     class FakeMailbox:
-        def fetch(self, message_id, query):
+        def uid(self, command, message_id, query):
+            assert command == "fetch"
             assert message_id == b"1"
             assert query == "(RFC822.SIZE)"
             return "OK", [b"1 (RFC822.SIZE 99999999)"]
@@ -1226,3 +1235,190 @@ def test_sender_or_subject_filters_keep_sender_only_match(client, email_payload)
     assert payload["summary"]["message_count"] == 2
     retrieved = {c["source"]["message_id"] for c in payload["candidates"]}
     assert retrieved == {"m-hsbc", "m-bpi"}
+
+
+def test_imap_login_failure_is_wrapped_as_provider_error(monkeypatch):
+    # A wrong app password raises imaplib.IMAP4.error; callers only handle
+    # ImapProviderError, so the adapter must wrap it (review finding H1).
+    import imaplib
+
+    from app.models.ingestion import EmailSourceProfile
+    from app.services import imap_service
+
+    class FakeMailbox:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def login(self, _email_address, _password):
+            raise imaplib.IMAP4.error("[AUTHENTICATIONFAILED] Invalid credentials")
+
+    profile = EmailSourceProfile(
+        source_id="wrong-password",
+        display_name="Wrong Password",
+        provider="custom_imap",
+        email_address="user@example.com",
+        connection_settings={"imap_host": "imap.example.com"},
+    )
+    monkeypatch.setattr(imap_service, "_connect", lambda _profile: FakeMailbox())
+
+    with pytest.raises(imap_service.ImapProviderError, match="IMAP connection test failed"):
+        imap_service.test_connection(profile, "bad-password")
+
+
+def test_imap_date_criteria_use_rfc3501_dates():
+    # The retrieval window becomes SINCE/BEFORE with locale-independent month
+    # names (review finding H4).
+    from datetime import UTC, datetime
+
+    from app.services import imap_service
+
+    criteria = imap_service._date_criteria(
+        datetime(2026, 7, 1, 15, 30, tzinfo=UTC),
+        datetime(2026, 7, 2, tzinfo=UTC),
+    )
+
+    assert criteria == ["SINCE", "01-Jul-2026", "BEFORE", "02-Jul-2026"]
+
+
+def test_cross_run_dedup_survives_changing_imap_sequence_ids(
+    run_ingestion_func, ingestion_request_cls, email_payload, monkeypatch
+):
+    # Sequence-style message ids change between mailbox sessions, so cross-run
+    # dedup must key on the stable Message-ID header + content hash (finding H3).
+    from app.services import ingestion_service
+
+    class Queued:
+        is_success = True
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"ingestion_id": "ing_dedup_1", "status": "queued", "handoff": {"content_reference": "blob://x"}}
+
+    monkeypatch.setattr(ingestion_service.httpx, "post", lambda *_a, **_k: Queued())
+
+    email_payload["policy"]["handoff_to_file_ingestion"] = True
+    email_payload["policy"]["dry_run"] = False
+    email_payload["messages"][0]["message_id"] = "42"
+    first = run_ingestion_func(ingestion_request_cls(**email_payload))
+    assert first.summary.handed_off_count == 1
+
+    email_payload["messages"][0]["message_id"] = "99"  # same email, new session id
+    email_payload["policy"]["dry_run"] = True
+    email_payload["policy"]["handoff_to_file_ingestion"] = False
+    second = run_ingestion_func(ingestion_request_cls(**email_payload))
+
+    assert second.summary.duplicate_count == 1
+    assert second.candidates[0].status.value == "duplicate"
+    assert second.candidates[0].findings[0].code == "DUPLICATE_EMAIL_ATTACHMENT_PREVIOUSLY_IMPORTED"
+
+
+def test_create_source_returns_conflict_for_existing_id(client):
+    # POST must not silently overwrite an existing profile (review finding M4).
+    body = {
+        "source_id": "dup-source",
+        "display_name": "Dup Source",
+        "provider": "custom_imap",
+        "email_address": "dup@example.com",
+    }
+
+    assert client.post("/api/v1/email-ingestion-sources", json=body).status_code == 200
+    response = client.post("/api/v1/email-ingestion-sources", json=body)
+
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
+
+
+def test_oversized_message_skip_is_reported_to_caller(monkeypatch):
+    # A message dropped by the pre-fetch size guard must be reported so the run
+    # can surface a finding instead of silently losing a small PDF inside a
+    # large MIME email (external review P2).
+    from app.models.ingestion import EmailSourceProfile
+    from app.services import imap_service
+
+    class FakeMailbox:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def login(self, _email, _password):
+            return None
+
+        def select(self, _folder, readonly=True):
+            return "OK", [b"1"]
+
+        def uid(self, command, *args):
+            if command == "search":
+                return "OK", [b"7"]
+            assert command == "fetch"
+            assert args[1] == "(RFC822.SIZE)"
+            return "OK", [b"7 (RFC822.SIZE 99999999)"]
+
+    profile = EmailSourceProfile(
+        source_id="oversized",
+        display_name="Oversized",
+        provider="custom_imap",
+        email_address="big@example.com",
+        connection_settings={"imap_host": "imap.example.com"},
+    )
+    monkeypatch.setattr(imap_service, "_connect", lambda _profile: FakeMailbox())
+    monkeypatch.setattr(imap_service.settings, "max_attachment_size_bytes", 1024)
+
+    skipped: list[dict] = []
+    messages = imap_service.fetch_messages(profile, "pw", 10, skipped_messages=skipped)
+
+    assert messages == []
+    assert len(skipped) == 1
+    assert skipped[0]["message_id"] == "7"
+    assert skipped[0]["size_bytes"] == 99999999
+    assert skipped[0]["limit_bytes"] > 1024
+
+
+def test_delete_profile_keeps_secret_shared_by_another_profile():
+    # Two profiles may reference the same secret_ref (the field is editable), so
+    # deleting one profile must not delete the shared mailbox secret; deleting
+    # the last referencing profile removes it (external review pass 3, P1).
+    from app.models.ingestion import EmailSourceProfileCreate
+    from app.services.secret_service import resolve_secret
+    from app.services.source_profile_service import create_source_profile, delete_source_profile
+
+    def _profile(source_id):
+        return EmailSourceProfileCreate(
+            source_id=source_id,
+            display_name=source_id,
+            provider="custom_imap",
+            email_address=f"{source_id}@example.test",
+            app_password="shared-password",
+            secret_ref="stats-email-shared-secret",
+            connection_settings={"imap_host": "imap.example.test"},
+        )
+
+    create_source_profile(_profile("shared-a"))
+    create_source_profile(_profile("shared-b"))
+    assert resolve_secret("stats-email-shared-secret") == "shared-password"
+
+    assert delete_source_profile("shared-a") is True
+    assert resolve_secret("stats-email-shared-secret") == "shared-password"  # still referenced by shared-b
+
+    assert delete_source_profile("shared-b") is True
+    assert resolve_secret("stats-email-shared-secret") is None  # last reference gone
+
+
+def test_polling_schedule_rejects_invalid_time_of_day(client):
+    response = client.post(
+        "/api/v1/email-ingestion-sources",
+        json={
+            "source_id": "bad-schedule",
+            "display_name": "Bad Schedule",
+            "provider": "custom_imap",
+            "email_address": "bad@example.com",
+            "polling_schedule": {"cadence": "daily", "time_of_day": "25:99"},
+        },
+    )
+
+    assert response.status_code == 422

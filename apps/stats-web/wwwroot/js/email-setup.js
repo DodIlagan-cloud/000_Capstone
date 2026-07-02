@@ -17,6 +17,8 @@ const runPagination = document.querySelector("#email-run-pagination");
 const selectedSourceIdInput = document.querySelector("#email-source-id");
 const providerInput = document.querySelector("#email-provider");
 const customImapFields = document.querySelector("#email-custom-imap-fields");
+const pollingCadenceInput = document.querySelector("#email-polling-cadence");
+const pollingTimeField = document.querySelector("#email-polling-time-field");
 const pdfRulesList = document.querySelector("#email-pdf-rules-list");
 const pdfRulesEmpty = document.querySelector("#email-pdf-rules-empty");
 const pdfRulesCount = document.querySelector("#email-pdf-rules-count");
@@ -24,6 +26,7 @@ const pdfRulesSection = document.querySelector("#email-pdf-rules-section");
 const pdfRuleTemplate = document.querySelector("#email-pdf-rule-template");
 const dryRunButton = document.querySelector("#email-dry-run-button");
 const importRunButton = document.querySelector("#email-import-run-button");
+const ingestDbButton = document.querySelector("#email-ingest-db-button");
 const runMaxMessagesInput = document.querySelector("#email-run-max-messages");
 const runNoLimitInput = document.querySelector("#email-run-no-limit");
 const runMetrics = {
@@ -32,12 +35,19 @@ const runMetrics = {
   imported: document.querySelector("#email-run-imported"),
   passwords: document.querySelector("#email-run-passwords"),
 };
+const recentRunsEmpty = document.querySelector("#email-recent-runs-empty");
+const recentRunsTableWrap = document.querySelector("#email-recent-runs-table-wrap");
+const recentRunsBody = document.querySelector("#email-recent-runs-body");
+const recentRunsCount = document.querySelector("#email-recent-runs-count");
+
+const RECENT_RUNS_LIMIT = 5;
 
 let emailSources = [];
 let selectedSourceId = "";
 let sourcesPage = 1;
 let runCandidates = [];
 let runPage = 1;
+let latestImportRunId = "";
 const SOURCES_PAGE_SIZE = 10;
 const RUN_PAGE_SIZE = 10;
 
@@ -66,6 +76,9 @@ function setRunState(message, tone = "pending") {
 function setRunButtonsDisabled(isDisabled) {
   dryRunButton.disabled = isDisabled;
   importRunButton.disabled = isDisabled;
+  if (ingestDbButton) {
+    ingestDbButton.disabled = isDisabled;
+  }
 }
 
 function selectedRunMaxMessages() {
@@ -199,6 +212,14 @@ function formatStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
+function formatLastRun(source) {
+  if (source.last_run_at) {
+    return formatRunTime(source.last_run_at);
+  }
+  // Ran before the timestamp was recorded vs never ran.
+  return source.last_run_status ? "—" : "Never";
+}
+
 function authJsonHeaders() {
   return {
     ...window.statsAccess.authHeaders(),
@@ -230,6 +251,12 @@ function updateProviderFields() {
   const isCustomImap = providerInput.value === "custom_imap";
   customImapFields.hidden = !isCustomImap;
   sourceForm.elements.imap_host.required = isCustomImap;
+}
+
+function updatePollingFields() {
+  if (pollingTimeField) {
+    pollingTimeField.hidden = pollingCadenceInput.value !== "daily";
+  }
 }
 
 function updateAppPasswordHint(hasSavedSecret) {
@@ -273,6 +300,10 @@ function profilePayload() {
     post_process_policy: {
       mark_as_read: false,
       move_to_folder: null,
+    },
+    polling_schedule: {
+      cadence: form.get("polling_cadence") || "off",
+      time_of_day: form.get("polling_time") || null,
     },
   };
 
@@ -342,15 +373,24 @@ function renderSources() {
     status.textContent = formatStatus(source.connection_status);
     statusCell.append(status);
     const runCell = document.createElement("td");
-    runCell.textContent = source.last_run_status ? `${formatStatus(source.last_run_status)} (${source.last_run_id || "run"})` : "Never";
+    runCell.textContent = formatLastRun(source);
 
     const actionCell = document.createElement("td");
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "row-actions";
+    actionGroup.style.flexWrap = "nowrap";
     const editButton = document.createElement("button");
     editButton.type = "button";
     editButton.className = "secondary-action";
     editButton.textContent = "Select";
     editButton.addEventListener("click", () => selectSource(source.source_id));
-    actionCell.append(editButton);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "secondary-action";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", () => confirmDeleteSource(actionGroup, source.source_id, source.display_name));
+    actionGroup.append(editButton, deleteButton);
+    actionCell.append(actionGroup);
 
     row.append(profileCell, emailCell, folderCell, statusCell, runCell, actionCell);
     sourcesTableBody.append(row);
@@ -418,6 +458,9 @@ function selectSource(sourceId) {
   const fields = sourceForm.elements;
   selectedSourceId = source.source_id;
   selectedSourceIdInput.value = source.source_id;
+  // New source context: drop any remembered import run so "Ingest to database"
+  // falls back to this source's latest import run rather than another source's.
+  latestImportRunId = "";
   sourceFormTitle.textContent = `Edit ${source.display_name}`;
   fields.display_name.value = source.display_name || "";
   fields.provider.value = source.provider || "custom_imap";
@@ -434,14 +477,19 @@ function selectSource(sourceId) {
   fields.pdf_default_action.value = source.pdf_password_policy?.default_action || "ask_user";
   fields.pdf_password_secret_ref.value = source.pdf_password_policy?.password_secret_ref || "";
   renderPdfRules(source.pdf_password_policy?.password_rules || []);
+  fields.polling_cadence.value = source.polling_schedule?.cadence || "off";
+  fields.polling_time.value = source.polling_schedule?.time_of_day || "00:00";
   fields.enabled.checked = source.enabled !== false;
   updateProviderFields();
+  updatePollingFields();
   updateAppPasswordHint(Boolean(source.secret_ref));
   setRunState(`Selected ${source.display_name}.`, "success");
   setEmailFormState(`Selected ${source.display_name}.`, "success");
+  loadRecentRuns(source.source_id);
 }
 
 function resetForm() {
+  latestImportRunId = "";
   const fields = sourceForm.elements;
   selectedSourceId = "";
   sourceForm.reset();
@@ -454,12 +502,57 @@ function resetForm() {
   fields.max_attachment_mb.value = "25";
   fields.pdf_default_action.value = "ask_user";
   renderPdfRules([]);
+  fields.polling_cadence.value = "off";
+  fields.polling_time.value = "00:00";
   fields.enabled.checked = true;
   sourceFormTitle.textContent = "Add mailbox source";
   updateProviderFields();
+  updatePollingFields();
   updateAppPasswordHint(false);
   setRunState("Select a source profile.", "pending");
   setEmailFormState("", "pending");
+  loadRecentRuns("");
+}
+
+function confirmDeleteSource(group, sourceId, displayName) {
+  // Themed inline confirmation (same button/tone classes as the rest of the page)
+  // instead of the browser's native, unstyled confirm dialog.
+  group.replaceChildren();
+  const prompt = document.createElement("span");
+  prompt.className = "table-note";
+  prompt.textContent = "Delete profile?";
+  const confirmButton = document.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.className = "secondary-action";
+  confirmButton.textContent = "Confirm";
+  confirmButton.addEventListener("click", () => deleteSource(sourceId, displayName));
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.className = "secondary-action";
+  cancelButton.textContent = "Cancel";
+  cancelButton.addEventListener("click", () => renderSources());
+  group.append(prompt, confirmButton, cancelButton);
+}
+
+async function deleteSource(sourceId, displayName) {
+  const label = displayName || sourceId;
+  setEmailState(`Deleting ${label}.`, "pending");
+  try {
+    const response = await fetch(emailApiUrl(`/api/v1/email-ingestion-sources/${encodeURIComponent(sourceId)}`), {
+      method: "DELETE",
+      headers: window.statsAccess.authHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(await errorMessageFromResponse(response, "Email source profile could not be deleted."));
+    }
+    setEmailState(`${label} deleted.`, "success");
+    if (selectedSourceIdInput.value === sourceId) {
+      resetForm();
+    }
+    await loadSources();
+  } catch (error) {
+    setEmailState(error.message || "Email source profile could not be deleted.", "error");
+  }
 }
 
 async function saveSource(event) {
@@ -576,9 +669,49 @@ async function runIngestion(dryRun) {
     }
     const result = await response.json();
     renderRun(result);
+    if (!dryRun) {
+      latestImportRunId = result.run_id || "";
+    }
     await loadSources();
+    await loadRecentRuns(selectedSourceIdInput.value);
   } catch (error) {
     setRunState(error.message || "Email ingestion run could not be completed.", "error");
+  } finally {
+    setRunButtonsDisabled(false);
+  }
+}
+
+async function ingestToDatabase() {
+  if (!selectedSourceIdInput.value) {
+    setRunState("Select a source profile first.", "error");
+    return;
+  }
+  setRunState("Ingesting imported files to the database...", "pending");
+  setRunButtonsDisabled(true);
+  try {
+    const response = await fetch(emailApiUrl("/api/v1/email-ingestions/process-imported"), {
+      method: "POST",
+      headers: authJsonHeaders(),
+      body: JSON.stringify({
+        source_id: selectedSourceIdInput.value,
+        run_id: latestImportRunId || null,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await errorMessageFromResponse(response, "Ingest to database could not be completed."));
+    }
+    const result = await response.json();
+    if (result.status === "no_imported_files") {
+      setRunState("No imported files to ingest. Run import first.", "pending");
+    } else {
+      setRunState(
+        `${formatStatus(result.status)} - ${result.processed_count} processed, ${result.succeeded_count} saved to database, ${result.failed_count} failed (${result.saved_record_count} records, ${result.review_item_count} for review).`,
+        result.status === "failed" ? "error" : "success"
+      );
+    }
+    await loadRecentRuns(selectedSourceIdInput.value);
+  } catch (error) {
+    setRunState(error.message || "Ingest to database could not be completed.", "error");
   } finally {
     setRunButtonsDisabled(false);
   }
@@ -650,6 +783,102 @@ function renderRunPagination(pageCount) {
   }, "Show email ingestion result page");
 }
 
+function formatRunTime(value) {
+  if (!value) {
+    return "Unknown time";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+  return parsed.toLocaleString();
+}
+
+function runIssueText(run) {
+  if (run.error_message) {
+    return run.error_message;
+  }
+  const summary = run.summary || {};
+  const parts = [];
+  if (summary.duplicate_count) {
+    parts.push(`${summary.duplicate_count} duplicate`);
+  }
+  if (summary.password_required_count) {
+    parts.push(`${summary.password_required_count} locked`);
+  }
+  if (summary.skipped_count) {
+    parts.push(`${summary.skipped_count} skipped`);
+  }
+  if (summary.failed_count) {
+    parts.push(`${summary.failed_count} failed`);
+  }
+  return parts.join(", ") || "None";
+}
+
+async function loadRecentRuns(sourceId) {
+  if (!recentRunsBody) {
+    return;
+  }
+  recentRunsBody.replaceChildren();
+  if (!sourceId) {
+    recentRunsEmpty.hidden = false;
+    recentRunsEmpty.textContent = "Select a source profile to see its recent runs.";
+    recentRunsTableWrap.hidden = true;
+    recentRunsCount.textContent = "0 runs";
+    return;
+  }
+  try {
+    const response = await fetch(
+      emailApiUrl(`/api/v1/email-ingestions/runs?source_id=${encodeURIComponent(sourceId)}&limit=${RECENT_RUNS_LIMIT}`),
+      { headers: window.statsAccess.authHeaders() }
+    );
+    if (!response.ok) {
+      throw new Error("Recent runs could not be loaded.");
+    }
+    const payload = await response.json();
+    const runs = payload.runs || [];
+    recentRunsCount.textContent = `${runs.length} run${runs.length === 1 ? "" : "s"}`;
+    if (!runs.length) {
+      recentRunsEmpty.hidden = false;
+      recentRunsEmpty.textContent = "No runs recorded yet.";
+      recentRunsTableWrap.hidden = true;
+      return;
+    }
+
+    runs.forEach((run) => {
+      const summary = run.summary || {};
+      const imported = summary.handed_off_count || 0;
+      const row = document.createElement("tr");
+      // Keep the run UUID out of the visible cells but available for traceability.
+      row.title = `Run ${run.run_id}`;
+
+      const whenCell = document.createElement("td");
+      whenCell.textContent = formatRunTime(run.started_at);
+      const statusCell = document.createElement("td");
+      const status = document.createElement("span");
+      status.className = "state-pill";
+      status.textContent = formatStatus(run.status);
+      statusCell.append(status);
+      const attachmentsCell = document.createElement("td");
+      attachmentsCell.textContent = String(summary.attachment_count || 0);
+      const importedCell = document.createElement("td");
+      importedCell.textContent = String(imported);
+      const issueCell = document.createElement("td");
+      issueCell.textContent = runIssueText(run);
+
+      row.append(whenCell, statusCell, attachmentsCell, importedCell, issueCell);
+      recentRunsBody.append(row);
+    });
+
+    recentRunsEmpty.hidden = true;
+    recentRunsTableWrap.hidden = false;
+  } catch (error) {
+    recentRunsEmpty.hidden = false;
+    recentRunsEmpty.textContent = error.message || "Recent runs could not be loaded.";
+    recentRunsTableWrap.hidden = true;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   window.statsAccess.initPasswordVisibilityToggles();
   document.querySelector("#email-refresh-button").addEventListener("click", loadSources);
@@ -658,10 +887,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#email-test-source-button").addEventListener("click", testConnection);
   dryRunButton.addEventListener("click", () => runIngestion(true));
   importRunButton.addEventListener("click", () => runIngestion(false));
+  if (ingestDbButton) {
+    ingestDbButton.addEventListener("click", ingestToDatabase);
+  }
   runNoLimitInput.addEventListener("change", updateRunLimitControl);
   providerInput.addEventListener("change", updateProviderFields);
+  pollingCadenceInput.addEventListener("change", updatePollingFields);
   sourceForm.addEventListener("submit", saveSource);
   updateProviderFields();
+  updatePollingFields();
   updateRunLimitControl();
   loadSources();
 });

@@ -56,6 +56,59 @@ def store_intake_content(
     raise RuntimeError(f"Unsupported STATS_STORAGE_PROVIDER: {settings.provider}")
 
 
+def load_intake_content(
+    *,
+    ingestion_id: str,
+    normalized_filename: str,
+    settings: StorageSettings,
+) -> bytes:
+    """Read back stored intake content for a previously accepted file.
+
+    Symmetric to store_intake_content. Additive read path used by automated
+    re-ingestion; the original write/handoff behaviour is unchanged.
+    """
+    provider = settings.provider.strip().lower()
+    if provider == LOCAL_FILE_SYSTEM:
+        target_file = (settings.storage_root / ingestion_id / normalized_filename).resolve()
+        storage_root = settings.storage_root.resolve()
+        if storage_root not in target_file.parents:
+            raise RuntimeError("Resolved intake path escapes the storage root.")
+        if not target_file.is_file():
+            raise FileNotFoundError(f"Stored intake content was not found for ingestion {ingestion_id}.")
+        return target_file.read_bytes()
+    if provider == AZURE_BLOB_STORAGE:
+        return _load_azure_blob(
+            ingestion_id=ingestion_id,
+            normalized_filename=normalized_filename,
+            settings=settings,
+        )
+    raise RuntimeError(f"Unsupported STATS_STORAGE_PROVIDER: {settings.provider}")
+
+
+def _load_azure_blob(
+    *,
+    ingestion_id: str,
+    normalized_filename: str,
+    settings: StorageSettings,
+) -> bytes:
+    if not settings.azure_container_name:
+        raise RuntimeError("AZURE_STORAGE_CONTAINER_NAME is required when STATS_STORAGE_PROVIDER=AzureBlobStorage")
+    if not settings.azure_connection_string:
+        raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING is required until managed identity storage auth is implemented")
+
+    try:
+        from azure.storage.blob import BlobServiceClient
+    except ImportError as exc:
+        raise RuntimeError("azure-storage-blob is required when STATS_STORAGE_PROVIDER=AzureBlobStorage") from exc
+
+    blob_prefix = settings.azure_blob_prefix.strip("/ ")
+    blob_name = f"{blob_prefix}/{ingestion_id}/{normalized_filename}" if blob_prefix else f"{ingestion_id}/{normalized_filename}"
+    service_client = BlobServiceClient.from_connection_string(settings.azure_connection_string)
+    container_client = service_client.get_container_client(settings.azure_container_name)
+    blob_client = container_client.get_blob_client(blob_name)
+    return blob_client.download_blob().readall()
+
+
 def _store_local_file(
     *,
     content: bytes,

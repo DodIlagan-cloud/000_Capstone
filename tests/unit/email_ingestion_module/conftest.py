@@ -66,12 +66,15 @@ def clear_email_sources():
     _activate_module_root()
     from app.services.secret_service import clear_cached_secrets
     from app.services.source_profile_service import clear_source_profiles
+    from app.services.run_history_service import clear_run_history
 
     clear_source_profiles()
     clear_cached_secrets()
+    clear_run_history()
     yield
     clear_source_profiles()
     clear_cached_secrets()
+    clear_run_history()
 
 
 @pytest.fixture()

@@ -24,9 +24,9 @@
           @* M2 - Stats Web Shell Start *@
           @* Keeps administrator user management connected to the broader Stats shell navigation. *@
           <a href="/Upload">Upload</a>
-          <a href="/EmailSetup">Email setup</a>
           @if (Model.IsAdmin)
           {
+            <a href="/EmailSetup">Email setup</a>
             <a href="/Admin/Classifications">Recognition settings</a>
           }
           @* M2 End *@

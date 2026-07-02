@@ -150,6 +150,10 @@ API_HOST=0.0.0.0 API_PORT=${STATS_DATA_PORT} \
 echo "[M12] Starting Email Ingestion API on port ${EMAIL_INGESTION_PORT} ..."
 cd "${EMAIL_INGESTION_MODULE_DIR}"
 API_HOST=0.0.0.0 API_PORT=${EMAIL_INGESTION_PORT} FILE_INGESTION_BASE_URL="http://localhost:${FILE_VALIDATION_PORT}" \
+    DOCUMENT_PARSING_BASE_URL="http://localhost:${DOCUMENT_PARSING_PORT}" \
+    TRANSACTION_EXTRACTION_BASE_URL="http://localhost:${TRANSACTION_EXTRACTION_PORT}" \
+    DATA_VALIDATION_BASE_URL="http://localhost:${DATA_VALIDATION_PORT}" \
+    STATS_DATA_BASE_URL="http://localhost:${STATS_DATA_PORT}" \
     python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${EMAIL_INGESTION_PORT}" &
 
 # -- Step 5: Wait for module API health ---------------------------------------

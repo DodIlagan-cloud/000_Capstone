@@ -97,6 +97,32 @@ class PostProcessPolicy(BaseModel):
     move_to_folder: Optional[str] = None
 
 
+class PollingCadence(str, Enum):
+    off = "off"
+    hourly = "hourly"
+    daily = "daily"
+
+
+class PollingSchedule(BaseModel):
+    # Automatic ingestion cadence, configured per profile on the Email Setup page.
+    # Default off so a profile is never auto-run unless explicitly scheduled.
+    cadence: PollingCadence = PollingCadence.off
+    # "HH:MM" UTC, used by the daily cadence. None defaults to 00:00.
+    time_of_day: Optional[str] = None
+
+    @field_validator("time_of_day")
+    @classmethod
+    def validate_time_of_day(cls, value: Optional[str]) -> Optional[str]:
+        import re
+
+        if value is None or not value.strip():
+            return None
+        cleaned = value.strip()
+        if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", cleaned):
+            raise ValueError("time_of_day must be HH:MM in 24-hour UTC time.")
+        return cleaned
+
+
 class EmailConnectionSettings(BaseModel):
     imap_host: Optional[str] = None
     imap_port: int = 993
@@ -115,6 +141,7 @@ class EmailSourceProfileBase(BaseModel):
     attachment_policy: AttachmentPolicy = Field(default_factory=AttachmentPolicy)
     pdf_password_policy: PdfPasswordPolicy = Field(default_factory=PdfPasswordPolicy)
     post_process_policy: PostProcessPolicy = Field(default_factory=PostProcessPolicy)
+    polling_schedule: PollingSchedule = Field(default_factory=PollingSchedule)
 
 
 class EmailSourceProfileCreate(EmailSourceProfileBase):
@@ -135,6 +162,7 @@ class EmailSourceProfileUpdate(BaseModel):
     attachment_policy: Optional[AttachmentPolicy] = None
     pdf_password_policy: Optional[PdfPasswordPolicy] = None
     post_process_policy: Optional[PostProcessPolicy] = None
+    polling_schedule: Optional[PollingSchedule] = None
     app_password: Optional[str] = None
     secret_ref: Optional[str] = None
 
@@ -146,6 +174,8 @@ class EmailSourceProfile(EmailSourceProfileBase):
     last_tested_at: Optional[str] = None
     last_run_id: Optional[str] = None
     last_run_status: Optional[str] = None
+    last_run_at: Optional[str] = None
+    last_auto_run_at: Optional[str] = None
 
 
 class EmailSourceProfileList(BaseModel):
@@ -248,7 +278,11 @@ class AttachmentCandidate(BaseModel):
     filename: str
     content_type: str
     size_bytes: int
+    # Hash of the content actually handed to file intake (for rule-unlocked PDFs
+    # this is the decrypted bytes). original_sha256 keeps the encrypted-source
+    # hash when it differs, so provenance covers both forms.
     sha256: Optional[str] = None
+    original_sha256: Optional[str] = None
     source: EmailSourceMetadata
     handoff: Optional[FileIngestionHandoff] = None
     password_state: Optional[str] = None
@@ -288,3 +322,79 @@ class AutomatedEmailIngestionResult(BaseModel):
     summary: EmailIngestionSummary
     evaluation: EmailIngestionEvaluation
     findings: list[EmailFinding] = Field(default_factory=list)
+
+
+class EmailIngestionRunCandidate(BaseModel):
+    """A persisted, content-free record of one attachment candidate from a run."""
+
+    candidate_id: str
+    filename: str
+    status: AttachmentStatus
+    sender: Optional[str] = None
+    subject_redacted: Optional[str] = None
+    received_at: Optional[str] = None
+    message_id: Optional[str] = None
+    attachment_id: Optional[str] = None
+    # sha256 matches the handed-off (processed) content; original_sha256 is the
+    # encrypted-source hash for rule-unlocked PDFs. dedup_key stays keyed on the
+    # original mailbox content, since that is what a re-import would produce.
+    sha256: Optional[str] = None
+    original_sha256: Optional[str] = None
+    dedup_key: Optional[str] = None
+    handoff_ingestion_id: Optional[str] = None
+    handoff_status: Optional[str] = None
+    handoff_content_reference: Optional[str] = None
+    handoff_error: Optional[str] = None
+    finding_codes: list[str] = Field(default_factory=list)
+
+
+class EmailIngestionRunSummaryRecord(BaseModel):
+    """A persisted run header without per-candidate detail."""
+
+    run_id: str
+    source_id: str
+    mode: str
+    status: EmailIngestionStatus
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    correlation_id: Optional[str] = None
+    error_message: Optional[str] = None
+    summary: EmailIngestionSummary
+
+
+class EmailIngestionRunDetail(EmailIngestionRunSummaryRecord):
+    candidates: list[EmailIngestionRunCandidate] = Field(default_factory=list)
+
+
+class EmailIngestionRunList(BaseModel):
+    runs: list[EmailIngestionRunSummaryRecord] = Field(default_factory=list)
+
+
+class ProcessImportedRequest(BaseModel):
+    source_id: str
+    run_id: Optional[str] = None
+
+
+class ProcessImportedCandidateResult(BaseModel):
+    ingestion_id: Optional[str] = None
+    filename: str
+    status: str
+    document_id: Optional[str] = None
+    saved_record_count: int = 0
+    review_item_count: int = 0
+    error: Optional[str] = None
+
+
+class ProcessImportedResult(BaseModel):
+    run_id: Optional[str] = None
+    source_id: str
+    status: str  # completed | completed_with_warnings | failed | not_found | no_imported_files
+    # Run-level error (e.g. a configuration failure before any candidate ran).
+    error: Optional[str] = None
+    processed_count: int = 0
+    succeeded_count: int = 0
+    failed_count: int = 0
+    already_processed_count: int = 0
+    saved_record_count: int = 0
+    review_item_count: int = 0
+    results: list[ProcessImportedCandidateResult] = Field(default_factory=list)

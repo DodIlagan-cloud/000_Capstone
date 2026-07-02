@@ -71,6 +71,7 @@ class Settings:
     azure_storage_blob_prefix: str
     default_workflow: str
     max_stored_file_size_bytes: int
+    stats_internal_api_key: str | None
     # M3 End
 
     def __init__(self):
@@ -113,6 +114,10 @@ class Settings:
             _config_value(config_values, "MAX_STORED_FILE_SIZE_BYTES"),
             0,
         )
+        # Optional internal service key. When set, the stored-content read-back
+        # endpoint requires it (server-to-server only). Other intake endpoints keep
+        # their existing posture.
+        self.stats_internal_api_key = config_values.get("STATS_INTERNAL_API_KEY")
 
     @staticmethod
     def _parse_csv_values(
