@@ -220,7 +220,7 @@ WHERE COALESCE(dfs.owing_amount, dfs.total_amount) IS NOT NULL
 GO
 
 CREATE OR ALTER VIEW dbo.vw_reporting_recent_notable_expenses AS
-SELECT TOP (100)
+SELECT
     t.transaction_id,
     t.document_id,
     d.uploaded_by_user_id,
@@ -246,11 +246,7 @@ LEFT JOIN dbo.findings AS f
     ON f.transaction_id = t.transaction_id
     AND LOWER(f.status) NOT IN ('resolved', 'closed')
 WHERE t.duplicate_of_transaction_id IS NULL
-    AND LOWER(t.direction) = 'debit'
-ORDER BY
-    CASE WHEN t.review_required = 1 THEN 0 ELSE 1 END,
-    ABS(t.amount) DESC,
-    t.transaction_date DESC;
+    AND LOWER(t.direction) = 'debit';
 GO
 
 CREATE OR ALTER VIEW dbo.vw_reporting_document_provenance AS
@@ -288,6 +284,83 @@ GROUP BY
     d.redaction_applied,
     d.created_at_utc,
     d.updated_at_utc;
+GO
+
+-- Review items read model: user-scopable via the owning document, enriched with
+-- transaction context so the Review Impact tab can sort a high-impact queue by
+-- affected reporting amount. Exposes redacted evidence only.
+CREATE OR ALTER VIEW dbo.vw_reporting_review_items AS
+SELECT
+    ri.review_item_id,
+    ri.document_id,
+    ri.transaction_id,
+    d.uploaded_by_user_id,
+    d.original_filename,
+    d.document_type,
+    d.source_type,
+    d.source_institution,
+    ri.item_type,
+    ri.severity,
+    ri.title,
+    ri.message,
+    ri.field_name,
+    ri.recommended_action,
+    ri.status,
+    ri.reason_codes_json,
+    ri.source_page_number,
+    ri.source_line_number,
+    ri.source_text_redacted,
+    t.description AS transaction_description,
+    t.normalized_description AS transaction_normalized_description,
+    t.amount AS transaction_amount,
+    t.currency AS transaction_currency,
+    t.direction AS transaction_direction,
+    CASE
+        WHEN LOWER(t.direction) = 'debit' THEN ABS(t.amount)
+        ELSE CAST(NULL AS decimal(19, 4))
+    END AS affected_expense_amount,
+    t.spending_category,
+    t.transaction_type,
+    ri.created_at_utc,
+    ri.resolved_at_utc
+FROM dbo.review_items AS ri
+INNER JOIN dbo.stats_documents AS d
+    ON d.document_id = ri.document_id
+LEFT JOIN dbo.transactions AS t
+    ON t.transaction_id = ri.transaction_id;
+GO
+
+-- Findings read model: open system/module findings, user-scopable via the owning
+-- document and amount-aware via the linked transaction for trust-impact ordering.
+CREATE OR ALTER VIEW dbo.vw_reporting_findings AS
+SELECT
+    f.finding_id,
+    f.document_id,
+    f.transaction_id,
+    f.processing_run_id,
+    d.uploaded_by_user_id,
+    d.original_filename,
+    d.document_type,
+    d.source_type,
+    f.source_module,
+    f.code,
+    f.severity,
+    f.message,
+    f.status,
+    t.description AS transaction_description,
+    t.amount AS transaction_amount,
+    t.currency AS transaction_currency,
+    CASE
+        WHEN LOWER(t.direction) = 'debit' THEN ABS(t.amount)
+        ELSE CAST(NULL AS decimal(19, 4))
+    END AS affected_expense_amount,
+    f.created_at_utc,
+    f.resolved_at_utc
+FROM dbo.findings AS f
+INNER JOIN dbo.stats_documents AS d
+    ON d.document_id = f.document_id
+LEFT JOIN dbo.transactions AS t
+    ON t.transaction_id = f.transaction_id;
 GO
 
 -- M11 End

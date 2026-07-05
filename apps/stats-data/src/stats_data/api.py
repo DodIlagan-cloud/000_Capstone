@@ -38,6 +38,15 @@ from stats_data.validation_persistence import (
     persist_validation_result_with_temp_handoff,
     table_counts,
 )
+from stats_data.reporting_queries import (
+    TransactionFilters,
+    fetch_document_detail,
+    fetch_document_provenance,
+    fetch_findings,
+    fetch_review_items,
+    fetch_transactions,
+    summarize_document_rows,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -438,8 +447,17 @@ def list_upload_processing_steps(job_id: str) -> ProcessingStepsResponse:
 
 
 @app.post("/api/v1/transactions/batches", response_model=SaveTransactionsBatchResponse)
-def save_transactions_batch(request: SaveTransactionsBatchRequest) -> SaveTransactionsBatchResponse:
+def save_transactions_batch(
+    request: SaveTransactionsBatchRequest,
+    x_stats_user_id: str | None = Header(default=None, alias="X-Stats-User-Id"),
+) -> SaveTransactionsBatchResponse:
     result = dict(request.validation_result)
+    # P2-2: the trusted proxy identity is authoritative for ownership. When present
+    # it overrides any client-supplied owner id so records cannot be saved under
+    # another user's account; internal callers without the header keep body values.
+    trusted_user_id = (x_stats_user_id or "").strip() or None
+    owner_user_id = trusted_user_id or request.uploaded_by_user_id
+    saved_by_user_id = trusted_user_id or request.saved_by_user_id
     summary = result.get("summary") or {}
     step_started_at = _utc_now_iso()
     step_timer = perf_counter()
@@ -454,8 +472,8 @@ def save_transactions_batch(request: SaveTransactionsBatchRequest) -> SaveTransa
             plan = persist_validation_result_with_temp_handoff(
                 connection,
                 result,
-                uploaded_by_user_id=request.uploaded_by_user_id,
-                saved_by_user_id=request.saved_by_user_id,
+                uploaded_by_user_id=owner_user_id,
+                saved_by_user_id=saved_by_user_id,
                 storage_reference=request.storage_reference,
             )
             _append_api_step(
@@ -500,8 +518,14 @@ def save_transactions_batch(request: SaveTransactionsBatchRequest) -> SaveTransa
 
 
 @app.post("/api/v1/transactions/duplicate-checks", response_model=DuplicateCheckResponse)
-def check_transaction_duplicates(request: DuplicateCheckRequest) -> DuplicateCheckResponse:
+def check_transaction_duplicates(
+    request: DuplicateCheckRequest,
+    x_stats_user_id: str | None = Header(default=None, alias="X-Stats-User-Id"),
+) -> DuplicateCheckResponse:
     result = dict(request.validation_result)
+    trusted_user_id = (x_stats_user_id or "").strip() or None
+    owner_user_id = trusted_user_id or request.uploaded_by_user_id
+    saved_by_user_id = trusted_user_id or request.saved_by_user_id
     step_started_at = _utc_now_iso()
     step_timer = perf_counter()
 
@@ -515,8 +539,8 @@ def check_transaction_duplicates(request: DuplicateCheckRequest) -> DuplicateChe
             check_result = check_validation_duplicates(
                 connection,
                 result,
-                uploaded_by_user_id=request.uploaded_by_user_id,
-                saved_by_user_id=request.saved_by_user_id,
+                uploaded_by_user_id=owner_user_id,
+                saved_by_user_id=saved_by_user_id,
                 storage_reference=request.storage_reference,
             )
             _append_api_step(
@@ -552,8 +576,52 @@ def check_transaction_duplicates(request: DuplicateCheckRequest) -> DuplicateChe
     )
 
 
+def require_user_id(
+    x_stats_user_id: str | None = Header(default=None, alias="X-Stats-User-Id"),
+) -> str:
+    """Resolve the authenticated user id from the trusted proxy identity header.
+
+    Stats Web resolves the signed-in user and injects ``X-Stats-User-Id`` after
+    stripping any client-supplied copy, so this value is trusted for scoping.
+    """
+    user_id = (x_stats_user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Missing authenticated user context.")
+    return user_id
+
+
+def require_admin_flag(
+    x_stats_user_role: str | None = Header(default=None, alias="X-Stats-User-Role"),
+) -> bool:
+    """Read the trusted role header the proxy injects. Admins get role-aware
+    cross-user visibility (spec: Security And Data Governance), which also keeps
+    legacy rows with a NULL owner visible to administrators (P2-3)."""
+    return (x_stats_user_role or "").strip().lower() == "admin"
+
+
+def _query_read_model(runner) -> Any:
+    """Open a connection, run a user-scoped read, and always close it."""
+    try:
+        connection = open_azure_sql_connection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        try:
+            return runner(connection)
+        finally:
+            connection.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Stats Data reporting query failed.") from exc
+
+
 @app.get("/api/v1/documents", response_model=UploadedDocumentsResponse)
-def recent_uploaded_documents(limit: int = 25) -> UploadedDocumentsResponse:
+def recent_uploaded_documents(
+    limit: int = 25,
+    user_id: str = Depends(require_user_id),
+    is_admin: bool = Depends(require_admin_flag),
+) -> UploadedDocumentsResponse:
     try:
         connection = open_azure_sql_connection()
     except RuntimeError as exc:
@@ -561,13 +629,115 @@ def recent_uploaded_documents(limit: int = 25) -> UploadedDocumentsResponse:
 
     try:
         try:
-            documents = list_recent_uploaded_documents(connection, limit=limit)
+            documents = list_recent_uploaded_documents(
+                connection, limit=limit, owner_user_id=None if is_admin else user_id
+            )
         finally:
             connection.close()
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Stats Data document list failed.") from exc
 
     return UploadedDocumentsResponse(documents=[UploadedDocumentSummaryResponse(**document.__dict__) for document in documents])
+
+
+@app.get("/api/v1/transactions")
+def list_transactions(
+    user_id: str = Depends(require_user_id),
+    is_admin: bool = Depends(require_admin_flag),
+    currency: str | None = None,
+    direction: str | None = None,
+    transaction_type: str | None = None,
+    transaction_subtype: str | None = None,
+    spending_category: str | None = None,
+    spending_subcategory: str | None = None,
+    merchant: str | None = None,
+    source_institution: str | None = None,
+    payment_method: str | None = None,
+    quality_status: str | None = None,
+    classification_source: str | None = None,
+    review_required: bool | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    filters = TransactionFilters(
+        currency=currency,
+        direction=direction,
+        transaction_type=transaction_type,
+        transaction_subtype=transaction_subtype,
+        spending_category=spending_category,
+        spending_subcategory=spending_subcategory,
+        merchant=merchant,
+        source_institution=source_institution,
+        payment_method=payment_method,
+        quality_status=quality_status,
+        classification_source=classification_source,
+        review_required=review_required,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+    rows = _query_read_model(lambda conn: fetch_transactions(conn, user_id, filters, include_all=is_admin))
+    return {"items": rows, "count": len(rows)}
+
+
+@app.get("/api/v1/documents/summary")
+def documents_summary(
+    user_id: str = Depends(require_user_id),
+    is_admin: bool = Depends(require_admin_flag),
+) -> dict[str, Any]:
+    rows = _query_read_model(lambda conn: fetch_document_provenance(conn, user_id, include_all=is_admin))
+    return {"summary": summarize_document_rows(rows), "documents": rows}
+
+
+@app.get("/api/v1/documents/{document_id}")
+def document_detail(
+    document_id: str,
+    user_id: str = Depends(require_user_id),
+    is_admin: bool = Depends(require_admin_flag),
+) -> dict[str, Any]:
+    document = _query_read_model(
+        lambda conn: fetch_document_detail(conn, user_id, document_id, include_all=is_admin)
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"document": document}
+
+
+@app.get("/api/v1/review-items")
+def list_review_items(
+    user_id: str = Depends(require_user_id),
+    is_admin: bool = Depends(require_admin_flag),
+    status: str | None = None,
+    severity: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    rows = _query_read_model(
+        lambda conn: fetch_review_items(
+            conn, user_id, status=status, severity=severity, limit=limit, offset=offset, include_all=is_admin
+        )
+    )
+    return {"items": rows, "count": len(rows)}
+
+
+@app.get("/api/v1/findings")
+def list_findings(
+    user_id: str = Depends(require_user_id),
+    is_admin: bool = Depends(require_admin_flag),
+    status: str | None = None,
+    severity: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    rows = _query_read_model(
+        lambda conn: fetch_findings(
+            conn, user_id, status=status, severity=severity, limit=limit, offset=offset, include_all=is_admin
+        )
+    )
+    return {"items": rows, "count": len(rows)}
 
 
 @app.get("/api/v1/admin/recognition-settings/suggestions", response_model=RecognitionSuggestionsResponse)

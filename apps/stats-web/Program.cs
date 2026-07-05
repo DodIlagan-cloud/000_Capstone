@@ -180,7 +180,7 @@ app.Run();
 
 public sealed record StatsApiOptions(string BaseUrl);
 
-public sealed record StatsCurrentUser(string Email, string Role, bool MustChangePassword)
+public sealed record StatsCurrentUser(string Email, string Role, bool MustChangePassword, string Id = "")
 {
     public bool IsAdmin => string.Equals(Role, "admin", StringComparison.OrdinalIgnoreCase) && !MustChangePassword;
 }
@@ -190,11 +190,22 @@ public sealed class StatsUserContextService(IHttpClientFactory httpClientFactory
     public const string AccessTokenCookieName = "stats_access_token";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    private const string CurrentUserCacheKey = "stats_current_user";
+
     public async Task<StatsCurrentUser?> GetCurrentUserAsync(HttpContext context)
     {
+        // P2-6: resolve identity at most once per request. The proxy, the KPI and
+        // embed endpoints, and the page models all call this; without caching each
+        // one hits M1 /auth/me again on the same request.
+        if (context.Items.TryGetValue(CurrentUserCacheKey, out var cached))
+        {
+            return cached as StatsCurrentUser;
+        }
+
         var token = AccessToken(context);
         if (string.IsNullOrWhiteSpace(token))
         {
+            context.Items[CurrentUserCacheKey] = null;
             return null;
         }
 
@@ -212,11 +223,14 @@ public sealed class StatsUserContextService(IHttpClientFactory httpClientFactory
             using var stream = await response.Content.ReadAsStreamAsync(context.RequestAborted);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: context.RequestAborted);
             var root = document.RootElement;
-            return new StatsCurrentUser(
+            var resolvedUser = new StatsCurrentUser(
                 Email: Text(root, "email"),
                 Role: Text(root, "role"),
-                MustChangePassword: Bool(root, "must_change_password")
+                MustChangePassword: Bool(root, "must_change_password"),
+                Id: Text(root, "id")
             );
+            context.Items[CurrentUserCacheKey] = resolvedUser;
+            return resolvedUser;
         }
         catch (Exception exception) when (
             exception is HttpRequestException
@@ -548,6 +562,16 @@ public sealed record StatsWebShellOptions(
         && !string.IsNullOrWhiteSpace(PowerBiWorkspaceId)
         && !string.IsNullOrWhiteSpace(PowerBiReportId);
 
+    // P2-7: KPI executeQueries needs only tenant/client/secret/workspace/dataset,
+    // not an embed report id. A KPI-only deployment must not read as not-configured
+    // just because no report is set for the (separate) embed path.
+    public bool DirectPowerBiKpiConfigured =>
+        !string.IsNullOrWhiteSpace(PowerBiTenantId)
+        && !string.IsNullOrWhiteSpace(PowerBiClientId)
+        && !string.IsNullOrWhiteSpace(PowerBiClientSecret)
+        && !string.IsNullOrWhiteSpace(PowerBiWorkspaceId)
+        && !string.IsNullOrWhiteSpace(PowerBiDatasetId);
+
     public bool ReportingEmbedConfigured => ExternalReportingEmbedConfigured || DirectPowerBiEmbedConfigured;
 }
 // M2 End
@@ -591,14 +615,26 @@ public static class StatsReportingKpis
 
         if (!user.IsAdmin)
         {
-            return Results.StatusCode(StatusCodes.Status403Forbidden);
+            // L1: return a controlled payload so the browser can explain the state
+            // instead of throwing on an empty 403 body.
+            return Results.Json(
+                new
+                {
+                    status = "not_authorized",
+                    message = "Financial KPI cards are limited to administrators until per-user analytics scoping is enabled.",
+                    selected_currency = selectedCurrency,
+                    rate_basis = "transaction_date",
+                    cards = Array.Empty<object>()
+                },
+                statusCode: StatusCodes.Status403Forbidden
+            );
         }
 
         var logger = loggerFactory.CreateLogger("StatsReportingKpis");
         try
         {
             var asOfDate = ResolveReportingAsOfDate(shellOptions);
-            if (!shellOptions.DirectPowerBiEmbedConfigured || string.IsNullOrWhiteSpace(shellOptions.PowerBiDatasetId))
+            if (!shellOptions.DirectPowerBiKpiConfigured)
             {
                 return Results.Ok(NotConfigured(selectedCurrency, asOfDate));
             }
@@ -734,6 +770,17 @@ VAR MonthlyBase =
                     RETURN 'Monthly Expenses'[expense_total] * COALESCE(ExchangeRate, 0)
                 ),
                 0
+            ),
+        "unconverted_expense_total",
+            VAR HistoryMonth = 'Monthly Expenses'[month_start_date]
+            RETURN COALESCE(
+                SUMX(
+                    FILTER('Monthly Expenses', 'Monthly Expenses'[month_start_date] = HistoryMonth),
+                    VAR SourceCurrency = 'Monthly Expenses'[currency]
+                    VAR ExchangeRate = MAXX(FILTER(FxRates, [source_currency] = SourceCurrency && [target_currency] = SelectedCurrency), [rate])
+                    RETURN IF(ISBLANK(ExchangeRate), 'Monthly Expenses'[expense_total], 0)
+                ),
+                0
             )
     )
 VAR LatestReportingMonth =
@@ -769,6 +816,14 @@ VAR PreviousMonthExpenses =
         MAXX(
             FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = PriorReportingMonth),
             [converted_expense_total]
+        ),
+        0
+    )
+VAR CurrentMonthUnconverted =
+    COALESCE(
+        MAXX(
+            FILTER(MonthlyBase, 'Monthly Expenses'[month_start_date] = LatestReportingMonth),
+            [unconverted_expense_total]
         ),
         0
     )
@@ -902,7 +957,10 @@ RETURN
 ROW(
     "last_month_expenses", LastMonthExpenses,
     "this_month_expenses", CurrentMonthExpenses,
-    "expense_trend_delta", CurrentMonthExpenses - PreviousMonthExpenses,
+    "expense_trend_delta", CurrentMonthExpenses - LastMonthExpenses,
+    "this_month_label", FORMAT(LatestReportingMonth, "yyyy-MM"),
+    "last_month_label", FORMAT(PreviousReportingMonth, "yyyy-MM"),
+    "current_month_unconverted_total", CurrentMonthUnconverted,
     "top_contributor_name", MAXX(CurrentTopContributor, 'Top Expense Contributors'[expense_contributor]),
     "top_contributor_amount", COALESCE(MAXX(CurrentTopContributor, [converted_expense_total]), 0),
     "notable_expense_description", MAXX(NotableExpense, 'Recent Notable Expenses'[description]),
@@ -916,7 +974,7 @@ ROW(
     ),
     "spending_categories", CONCATENATEX(
         CategoryRows,
-        SUBSTITUTE('Spending Categories'[spending_category], "|", "/") & ":"
+        SUBSTITUTE(SUBSTITUTE('Spending Categories'[spending_category], "|", "/"), ":", " ") & ":"
             & FORMAT([converted_expense_total], "0.####") & ":"
             & FORMAT([category_transaction_count], "0") & ":"
             & FORMAT([category_review_required_count], "0") & ":"
@@ -1021,8 +1079,8 @@ ROW(
 
         var cards = new[]
         {
-            Card("last_month_expenses", "Last month expenses", MoneyAt(row, "last_month_expenses"), "Total debit spending for the previous calendar month."),
-            Card("this_month_running", "This month running", MoneyAt(row, "this_month_expenses"), "Month-to-date expense total in the selected currency."),
+            Card("last_month_expenses", "Last month expenses", MoneyAt(row, "last_month_expenses"), $"Total debit spending for {TextAt(row, "last_month_label") ?? "the previous calendar month"}."),
+            Card("this_month_running", "This month running", MoneyAt(row, "this_month_expenses"), $"Expense total for {TextAt(row, "this_month_label") ?? "the current month"} in the selected currency."),
             Card("top_contributor", "Top contributor", MoneyAt(row, "top_contributor_amount"), TextAt(row, "top_contributor_name") ?? "No contributor for the current month."),
             Card("expense_trend", "Change vs prior month", MoneyAt(row, "expense_trend_delta"), "This month spending minus the previous month; positive means spending is higher."),
             Card("notable_expenses", "Notable expenses", MoneyAt(row, "notable_expense_amount"), TextAt(row, "notable_expense_description") ?? "No recent notable expense.")
@@ -1035,6 +1093,10 @@ ROW(
             selected_currency = selectedCurrency,
             rate_basis = "transaction_date",
             as_of_date = asOfDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            this_month_label = TextAt(row, "this_month_label"),
+            last_month_label = TextAt(row, "last_month_label"),
+            current_month_unconverted_total = MoneyAt(row, "current_month_unconverted_total"),
+            has_unconverted_amounts = (MoneyAt(row, "current_month_unconverted_total") ?? 0m) > 0m,
             last_refreshed_at_utc = (string?)null,
             cards,
             monthly_history = ParseMonthlyHistory(TextAt(row, "monthly_history")),
@@ -1234,9 +1296,25 @@ public static class StatsReportingEmbedConfig
     {
         var selectedCurrency = NormalizeCurrency(context.Request.Query["currency"].ToString());
         var selectedSurface = NormalizeSurface(context.Request.Query["surface"].ToString());
-        if (await userContext.GetCurrentUserAsync(context) is null)
+        var embedUser = await userContext.GetCurrentUserAsync(context);
+        if (embedUser is null)
         {
             return Results.Unauthorized();
+        }
+
+        // H1: parity with the KPI path. In AppOwnsData mode the View embed token
+        // exposes the entire semantic model, so restrict embed configuration to
+        // administrators until row-level security scopes analytics per user.
+        if (!embedUser.IsAdmin)
+        {
+            return Results.Json(
+                new
+                {
+                    status = "not_authorized",
+                    message = "Financial reporting is limited to administrators until per-user analytics scoping is enabled."
+                },
+                statusCode: StatusCodes.Status403Forbidden
+            );
         }
 
         if (shellOptions.ExternalReportingEmbedConfigured)
@@ -1561,6 +1639,7 @@ public static class StatsWebApiProxy
         HttpContext context,
         IHttpClientFactory httpClientFactory,
         StatsWebProxyOptions proxyOptions,
+        StatsUserContextService userContext,
         ILoggerFactory loggerFactory
     )
     {
@@ -1589,7 +1668,8 @@ public static class StatsWebApiProxy
         {
             if (IsHopByHopHeader(header.Key)
                 || string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(header.Key, "Cookie", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(header.Key, "Cookie", StringComparison.OrdinalIgnoreCase)
+                || header.Key.StartsWith("X-Stats-User", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -1599,6 +1679,16 @@ public static class StatsWebApiProxy
                 requestMessage.Content ??= new StreamContent(context.Request.Body);
                 requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
             }
+        }
+
+        // Trusted identity injection: Stats Web has already authenticated the
+        // caller, so inject the resolved user id (any client-supplied copy was
+        // stripped above) for downstream M9 user scoping.
+        var proxyUser = await userContext.GetCurrentUserAsync(context);
+        if (proxyUser is not null && !string.IsNullOrWhiteSpace(proxyUser.Id))
+        {
+            requestMessage.Headers.TryAddWithoutValidation("X-Stats-User-Id", proxyUser.Id);
+            requestMessage.Headers.TryAddWithoutValidation("X-Stats-User-Role", proxyUser.Role);
         }
 
         if (context.Request.ContentLength > 0 && requestMessage.Content is null)

@@ -168,6 +168,8 @@ def test_reporting_read_models_carry_owner_boundary_and_debit_quality_scope():
         "vw_reporting_upcoming_obligations",
         "vw_reporting_recent_notable_expenses",
         "vw_reporting_document_provenance",
+        "vw_reporting_review_items",
+        "vw_reporting_findings",
     ]:
         view_sql = sql.split(f"CREATE OR ALTER VIEW dbo.{view_name}", 1)[1].split("GO", 1)[0]
         assert "uploaded_by_user_id" in view_sql
@@ -531,7 +533,7 @@ def test_admin_navigation_is_client_revealed_after_identity_check():
 
     for page_file in page_files:
         source = page_file.read_text(encoding="utf-8")
-        if page_file.name != "Index.cshtml":
+        if page_file.name not in {"Index.cshtml", "Reports.cshtml"}:
             assert "@if (Model.IsAdmin)" not in source
         assert 'data-admin-link href="/Users" hidden>Manage users' in source
         assert 'data-admin-link href="/Admin/Classifications" hidden>Recognition settings' in source
@@ -615,6 +617,9 @@ def test_reporting_endpoints_require_server_side_user_context():
     assert "await userContext.GetCurrentUserAsync(context)" in program_source
     assert "return Results.Unauthorized();" in program_source
     assert "return Results.StatusCode(StatusCodes.Status403Forbidden);" in program_source
+    assert 'status = "not_authorized"' in program_source
+    assert "Financial KPI cards are limited to administrators" in program_source
+    assert "Financial reporting is limited to administrators" in program_source
     assert "or JsonException" in program_source
 
 

@@ -383,13 +383,24 @@ def persist_validation_result(connection: Any, result: dict[str, Any], **kwargs:
     return plan
 
 
-def list_recent_uploaded_documents(connection: Any, *, limit: int = 25) -> list[UploadedDocumentSummary]:
-    """Return recent uploaded documents saved through M9."""
+def list_recent_uploaded_documents(
+    connection: Any, *, limit: int = 25, owner_user_id: str | None = None
+) -> list[UploadedDocumentSummary]:
+    """Return recent uploaded documents saved through M9.
+
+    When ``owner_user_id`` is provided the result is scoped to that user's
+    documents. The browser-facing endpoint always supplies it (from the trusted
+    proxy identity header) so ordinary users only see their own records; internal
+    callers may omit it to preserve existing behavior.
+    """
     normalized_limit = max(1, min(int(limit), 100))
+    owner_filter = "WHERE sd.uploaded_by_user_id = ?" if owner_user_id else ""
+    params: list[Any] = [owner_user_id] if owner_user_id else []
+    params.append(normalized_limit)
     cursor = connection.cursor()
     try:
         cursor.execute(
-            """
+            f"""
 SELECT
     sd.document_id,
     sd.original_filename,
@@ -420,10 +431,11 @@ OUTER APPLY (
     FROM dbo.review_items AS r
     WHERE r.document_id = sd.document_id
 ) AS ri
+{owner_filter}
 ORDER BY sd.created_at_utc DESC
 OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY;
 """,
-            normalized_limit,
+            *params,
         )
         return [_uploaded_document_summary(row) for row in cursor.fetchall()]
     finally:

@@ -513,7 +513,10 @@ async function loadReportingKpis() {
     });
     const payload = await response.json();
     const status = payload.status || (response.ok ? "configured" : "unavailable");
-    setReportingStatus(status, payload.message);
+    const statusMessage = payload.has_unconverted_amounts
+      ? (payload.message || "") + " Some amounts could not be converted to the selected currency and are excluded from totals."
+      : payload.message;
+    setReportingStatus(status, statusMessage);
     renderKpiCards(payload.cards, payload.selected_currency || currency);
     renderReportMetrics(payload.cards, payload.selected_currency || currency);
     renderMonthlyHistory(payload.monthly_history, payload.selected_currency || currency);
@@ -522,7 +525,7 @@ async function loadReportingKpis() {
 
     if (reportingLastUpdated) {
       reportingLastUpdated.textContent = status === "configured"
-        ? formatReportingDate(payload.last_refreshed_at_utc || new Date().toISOString())
+        ? formatReportingDate(payload.last_refreshed_at_utc)
         : "Not connected";
     }
 

@@ -61,3 +61,8 @@ Thumbs.db
 docs/video-scripts/azure-deployment-video-script.md
 /docs/assets
 /claude-review-inbox
+
+# Real Fabric/Power BI resource identifiers kept out of source per the repo secret rule (M11 L6).
+docs/M11-fabric-runtime-ids.local.md
+docs/assessment3-content-pack.md
+docs/assessment3-working-notes.md

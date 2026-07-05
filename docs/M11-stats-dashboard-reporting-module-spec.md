@@ -689,8 +689,8 @@ Completed checks:
 - Capacity region is `Australia East`.
 - Capacity SKU is `F2`.
 - Capacity state is `Paused`.
-- Native tenant account `Dod@ejpilagangmail.onmicrosoft.com` exists and has Owner access on the active subscription.
-- Capacity administrator is `Dod@ejpilagangmail.onmicrosoft.com`.
+- Native tenant account `<tenant-admin-account: see docs/M11-fabric-runtime-ids.local.md>` exists and has Owner access on the active subscription.
+- Capacity administrator is `<tenant-admin-account: see docs/M11-fabric-runtime-ids.local.md>`.
 - Tags include `project=stats`, `module=M11`, `environment=dev`, and `cost-control=suspend-when-idle`.
 - Because the capacity is paused, Fabric hourly compute cost should not be running while M11 is idle.
 
@@ -703,7 +703,7 @@ Remaining setup:
 Workspace status:
 
 - Fabric workspace `Stats - Dev - Reporting` has been created.
-- Both the original portal user and native tenant account `Dod@ejpilagangmail.onmicrosoft.com` have Admin access on the workspace.
+- Both the original portal user and native tenant account `<tenant-admin-account: see docs/M11-fabric-runtime-ids.local.md>` have Admin access on the workspace.
 - Workspace capacity assignment has completed for `capstatsdev001`.
 - Workspace type is `Fabric`.
 - Semantic model storage format is small semantic model storage format.
@@ -715,16 +715,18 @@ Reporting model status:
 - Draft reporting read-model SQL has been prepared in `apps/stats-data/reporting/financial_reporting_read_models.sql`.
 - M11 read-model SQL has been applied to cloud-dev Azure SQL for reporting validation.
 - The reporting read models now include `vw_reporting_spending_categories` and `vw_reporting_classification_quality` so Reports can explain category readiness and classification trust.
-- Latest verified cloud-dev rows after the current reporting update: `vw_reporting_transactions` 1, `vw_reporting_monthly_expenses` 1, `vw_reporting_top_expense_contributors` 1, `vw_reporting_spending_categories` 1, `vw_reporting_classification_quality` 1, `vw_reporting_upcoming_obligations` 0, `vw_reporting_recent_notable_expenses` 1, and `vw_reporting_document_provenance` 1.
+- The current local read-model revision also adds `vw_reporting_review_items` and `vw_reporting_findings` for the Review impact tab. These views must be re-applied to cloud-dev Azure SQL before the deployed reporting baseline is treated as current.
+- Latest verified cloud-dev rows before the review/findings view addition: `vw_reporting_transactions` 1, `vw_reporting_monthly_expenses` 1, `vw_reporting_top_expense_contributors` 1, `vw_reporting_spending_categories` 1, `vw_reporting_classification_quality` 1, `vw_reporting_upcoming_obligations` 0, `vw_reporting_recent_notable_expenses` 1, and `vw_reporting_document_provenance` 1.
+- Cloud-dev SQL application plan for the current revision: run the idempotent `CREATE OR ALTER VIEW` batches from `apps/stats-data/reporting/financial_reporting_read_models.sql` against `sqldb-stats-dev`, then verify all ten reporting views exist and return counts without printing row contents or secrets: transactions, monthly expenses, top contributors, spending categories, classification quality, upcoming obligations, recent notable expenses, document provenance, review items, and findings.
 - Power BI semantic model `Stats Financial KPIs Dev` has been created in `Stats - Dev - Reporting`.
-- Semantic model ID is `48d2cf50-7694-44a3-8e33-6919c24677e4`.
+- Semantic model ID is `<redacted: see docs/M11-fabric-runtime-ids.local.md>`.
 - Azure SQL data-source credentials have been configured for the semantic model through the Power BI datasource API without printing secret values.
 - Semantic model refresh has been triggered and completed successfully through the Power BI API.
 - Fabric Create Report API attempts were accepted as long-running operations but failed during report import because the Power BI report workload rejected the generated PBIR `version.json` schema.
 - The first report item was then created manually in the Power BI/Fabric portal from the `Stats Financial KPIs Dev` semantic model.
 - Report `Financial Overview Dev` exists in workspace `Stats - Dev - Reporting`.
-- Report ID is `6e8c2178-de48-4199-886d-1d72adb73658`.
-- Report default page display name is `Page 1`; internal page name is `8af1331343190715ce1b`.
+- Report ID is `<redacted: see docs/M11-fabric-runtime-ids.local.md>`.
+- Report default page display name is `Page 1`; internal page name is `<redacted: see docs/M11-fabric-runtime-ids.local.md>`.
 - `M11` is a milestone/spec/test label only. It must not be used as a prefix in production-facing Stats Web labels, Power BI report names, report pages, semantic model table names, dashboards, or user-visible artefacts.
 - Stats Web `/Reports` no longer loads the Power BI client script by default and now renders the product-facing report investigation page natively.
 - The read-model SQL is still not a formal M9 migration. M9 should promote it into migrations or a managed reporting-view deployment path after review.
@@ -845,6 +847,21 @@ M11 should display masked account/card/reference values only. Full sensitive val
 - Show redacted evidence snippets only when M9 supplies them.
 - Treat dashboard screenshots, report exports, and evidence views as sensitive financial artefacts.
 - Do not store report snapshots until retention and privacy requirements are explicit.
+
+### Interim Analytics Access Decision
+
+The Power BI analytics path (Home KPI cards and the embed-config endpoint) has no row-level security yet: the semantic model returns all users' financial data, and an `AppOwnsData` view token would expose it to any holder. Until per-user scoping exists, both `/api/v1/reporting/kpis` and `/api/v1/reporting/embed-config` are restricted to administrators. Ordinary-user access to analytics is blocked by design until one of the following lands:
+
+- Row-level security roles on the Fabric semantic model plus `EffectiveIdentity` on generated embed tokens, or
+- A per-user filtered reporting surface built over the user-scoped M9 read models (which already carry `uploaded_by_user_id`).
+
+Native operational and provenance views remain user-scoped through the M9 query APIs and are not affected by this interim restriction.
+
+### Scoped-Read Migration Notes
+
+- Legacy `stats_documents` / `transactions` rows saved before ownership capture (NULL `uploaded_by_user_id`, or an empty client id) do not match a non-admin scoped read. Administrators still see them through role-aware cross-user visibility, but ordinary users will not. Before enabling scoped reads broadly, backfill `uploaded_by_user_id` for pre-ownership rows or accept that unowned rows are admin-only. (Review P2-3.)
+- The transaction save path derives ownership from the trusted proxy identity header when present; client-supplied owner ids are ignored except for internal callers that carry no header. (Review P2-2.)
+- The direct Power BI embed path (`#reporting-embed-host`, `renderPowerBiReport`, vendored `powerbi.min.js`) is not rendered by any production page. It is retained, admin-gated, only for Phase 4 validation/export; if Phase 4 does not adopt it, remove it or move it behind an explicit validation-only surface. (Review P2-8.)
 
 ## Implementation Phases
 

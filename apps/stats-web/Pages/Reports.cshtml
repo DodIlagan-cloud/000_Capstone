@@ -47,6 +47,8 @@
             </div>
           </div>
 
+            @if (Model.IsAdmin)
+            {
           <section class="report-layout native-report-layout" aria-label="Analytics report area">
             <nav class="report-tabs" aria-label="Report sections">
               <div class="report-page-list" role="list">
@@ -257,6 +259,11 @@
               </section>
             </div>
           </section>
+            }
+            else
+            {
+              <p class="empty-state report-state-message" role="status">Financial reporting is limited to administrators until per-user analytics scoping is enabled.</p>
+            }
         </section>
       </section>
     </main>
