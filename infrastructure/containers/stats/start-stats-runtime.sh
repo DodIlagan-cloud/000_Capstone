@@ -7,6 +7,8 @@ set -e
 
 # -- Configuration ------------------------------------------------------------
 HEALTH_TIMEOUT=${HEALTH_TIMEOUT:-60}
+STARTUP_DIAGNOSTIC_ON_FAILURE=${STARTUP_DIAGNOSTIC_ON_FAILURE:-false}
+CONTAINER_TEST_MODE=${CONTAINER_TEST_MODE:-false}
 STATS_APP_ROOT=${STATS_APP_ROOT:-/app}
 STATS_RUNTIME_CONFIG=${STATS_RUNTIME_CONFIG:-${STATS_APP_ROOT}/config/stats.runtime.json}
 STATS_PATHS_CONFIG=${STATS_PATHS_CONFIG:-${STATS_APP_ROOT}/config/stats.paths.json}
@@ -35,6 +37,10 @@ STATS_DATA_MIGRATIONS_DIR=${STATS_DATA_MIGRATIONS_DIR:-${STATS_DATA_DIR}/migrati
 DATABASE_PROVIDER=${DATABASE_PROVIDER:-AzureSql}
 AZURE_SQL_CONNECTIONSTRING=${AZURE_SQL_CONNECTIONSTRING:-}
 
+is_container_test_mode() {
+    [ "$(echo "${CONTAINER_TEST_MODE}" | tr '[:upper:]' '[:lower:]')" = "true" ]
+}
+
 # -- Helpers ------------------------------------------------------------------
 wait_for_health() {
     local name="$1"
@@ -57,9 +63,10 @@ wait_for_health() {
 
 wait_for_azure_sql() {
     local elapsed=0
+    local probe_timeout=8
     echo "[M13] Waiting for Azure SQL connectivity ..."
     while [ "${elapsed}" -lt "${HEALTH_TIMEOUT}" ]; do
-        if AZURE_SQL_CONNECTIONSTRING="${AZURE_SQL_CONNECTIONSTRING}" python3 -c "
+        if AZURE_SQL_CONNECTIONSTRING="${AZURE_SQL_CONNECTIONSTRING}" timeout "${probe_timeout}s" python3 -c "
 import os, sys, pyodbc
 connection_string = os.environ.get('AZURE_SQL_CONNECTIONSTRING', '')
 if not connection_string:
@@ -87,29 +94,99 @@ except Exception:
             return 0
         fi
         sleep 1
-        elapsed=$((elapsed + 1))
+        elapsed=$((elapsed + probe_timeout + 1))
     done
 
-    echo "[M13] ERROR: Azure SQL did not become reachable within ${HEALTH_TIMEOUT}s. Aborting."
-    exit 1
+    echo "[M13] ERROR: Azure SQL did not become reachable within ${HEALTH_TIMEOUT}s."
+    return 1
 }
 
 wait_for_database() {
     if [ "$(echo "${DATABASE_PROVIDER}" | tr '[:upper:]' '[:lower:]')" != "azuresql" ]; then
         echo "[M13] ERROR: DATABASE_PROVIDER must be AzureSql for the active Stats runtime."
-        exit 1
+        return 1
     fi
     wait_for_azure_sql
 }
 
+start_startup_diagnostic() {
+    echo "[M13] Starting startup diagnostic page on port ${STATS_WEB_PORT}."
+    STARTUP_DIAGNOSTIC_PORT="${STATS_WEB_PORT}" python3 - <<'PY'
+import json
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+port = int(os.environ.get("STARTUP_DIAGNOSTIC_PORT", "8080"))
+message = "Stats runtime is waiting for Azure SQL connectivity before it can start the cloud-aligned services."
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            body = json.dumps({
+                "status": "unhealthy",
+                "service": "Stats Runtime",
+                "reason": "azure_sql_unreachable",
+            }).encode("utf-8")
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        body = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stats Runtime Startup</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f7f7f5; color: #202124; }}
+    main {{ max-width: 760px; margin: 12vh auto; padding: 32px; }}
+    h1 {{ font-size: 28px; margin: 0 0 16px; }}
+    p {{ font-size: 16px; line-height: 1.55; }}
+    code {{ background: #ececea; padding: 2px 5px; border-radius: 4px; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Stats runtime is still starting</h1>
+    <p>{message}</p>
+    <p>This local container is using the same Azure SQL-backed profile as cloud. Check that this machine can reach <code>sql-stats-dev-001.database.windows.net:1433</code>, then restart the container.</p>
+  </main>
+</body>
+</html>""".encode("utf-8")
+        self.send_response(503)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+PY
+}
+
 # -- Step 1: Wait for database ------------------------------------------------
-wait_for_database
+if is_container_test_mode; then
+    echo "[M13] Container test mode enabled: skipping Azure SQL startup gate and Stats Data persistence startup."
+    mkdir -p /app/data
+elif ! wait_for_database; then
+    if [ "$(echo "${STARTUP_DIAGNOSTIC_ON_FAILURE}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+        start_startup_diagnostic
+    fi
+    exit 1
+fi
 
 # -- Step 2: Stats Data migrations -------------------------------------------
-echo "[M9] Applying Stats Data Azure SQL migrations ..."
-cd "${STATS_DATA_DIR}"
-STATS_DATA_MIGRATIONS_DIR="${STATS_DATA_MIGRATIONS_DIR}" \
-    python3 scripts/apply_azure_sql_migrations.py
+if ! is_container_test_mode; then
+    echo "[M9] Applying Stats Data Azure SQL migrations ..."
+    cd "${STATS_DATA_DIR}"
+    STATS_DATA_MIGRATIONS_DIR="${STATS_DATA_MIGRATIONS_DIR}" \
+        python3 scripts/apply_azure_sql_migrations.py
+fi
 
 # -- Step 3: Identity DB init -------------------------------------------------
 echo "[M13] Initialising Identity database ..."
@@ -142,10 +219,12 @@ cd "${DATA_VALIDATION_MODULE_DIR}"
 API_HOST=0.0.0.0 API_PORT=${DATA_VALIDATION_PORT} \
     python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${DATA_VALIDATION_PORT}" &
 
-echo "[M9] Starting Stats Data API on port ${STATS_DATA_PORT} ..."
-cd "${STATS_DATA_SRC_DIR}"
-API_HOST=0.0.0.0 API_PORT=${STATS_DATA_PORT} \
-    python3 -m uvicorn stats_data.main:app --host 0.0.0.0 --port "${STATS_DATA_PORT}" &
+if ! is_container_test_mode; then
+    echo "[M9] Starting Stats Data API on port ${STATS_DATA_PORT} ..."
+    cd "${STATS_DATA_SRC_DIR}"
+    API_HOST=0.0.0.0 API_PORT=${STATS_DATA_PORT} \
+        python3 -m uvicorn stats_data.main:app --host 0.0.0.0 --port "${STATS_DATA_PORT}" &
+fi
 
 echo "[M12] Starting Email Ingestion API on port ${EMAIL_INGESTION_PORT} ..."
 cd "${EMAIL_INGESTION_MODULE_DIR}"
@@ -162,7 +241,9 @@ wait_for_health "File Validation API"   "http://localhost:${FILE_VALIDATION_PORT
 wait_for_health "Document Parsing API"  "http://localhost:${DOCUMENT_PARSING_PORT}/health"
 wait_for_health "Transaction Extraction API" "http://localhost:${TRANSACTION_EXTRACTION_PORT}/health"
 wait_for_health "Data Validation API" "http://localhost:${DATA_VALIDATION_PORT}/health"
-wait_for_health "Stats Data API" "http://localhost:${STATS_DATA_PORT}/health"
+if ! is_container_test_mode; then
+    wait_for_health "Stats Data API" "http://localhost:${STATS_DATA_PORT}/health"
+fi
 wait_for_health "Email Ingestion API" "http://localhost:${EMAIL_INGESTION_PORT}/health"
 
 # -- Step 6: Start Stats Web --------------------------------------------------

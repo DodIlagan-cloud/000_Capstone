@@ -1,0 +1,28 @@
+# M12/M13 local container test override.
+# Runs the single Stats runtime image without Azure SQL so M12 mailbox retrieval
+# can be tested from Docker even when the current network blocks Azure SQL 1433.
+#
+# Usage:
+#   docker compose --env-file infrastructure/compose/.env.container `
+#     -f infrastructure/compose/stats-runtime.compose.yml `
+#     -f infrastructure/compose/stats-runtime.container-test.override.yml up --build -d
+
+services:
+  stats:
+    environment:
+      CONTAINER_TEST_MODE: "true"
+      STARTUP_DIAGNOSTIC_ON_FAILURE: "false"
+
+      # Identity uses a container-local SQLite database for login/session setup.
+      DATABASE_PROVIDER: "Sqlite"
+      DATABASE_URL: "sqlite:////app/data/identity-container-test.db"
+
+      # M12 uses in-memory profile/run stores and memory/env-backed secrets.
+      # Create or update the source from the Email Setup UI after container start.
+      EMAIL_SOURCE_CONFIG_STORE: "memory"
+      EMAIL_SECRET_PROVIDER: "memory"
+      EMAIL_INGESTION_MODE: "dry_run"
+      DEFAULT_LOOKBACK_HOURS: "0"
+      DEFAULT_MAX_MESSAGES: "50"
+
+# M13 End
