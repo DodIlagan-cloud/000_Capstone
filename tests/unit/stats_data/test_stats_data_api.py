@@ -153,10 +153,11 @@ def test_duplicate_check_returns_review_status_before_save(monkeypatch):
 
     response = TestClient(app).post(
         "/api/v1/transactions/duplicate-checks",
+        headers={"X-Stats-User-Id": "trusted_user"},
         json={
             "validation_result": result,
-            "uploaded_by_user_id": "user_1",
-            "saved_by_user_id": "user_1",
+            "uploaded_by_user_id": "spoofed_user",
+            "saved_by_user_id": "spoofed_user",
             "storage_reference": f"local-file://tests/input/{fixture_file.name}",
         },
     )
@@ -169,8 +170,8 @@ def test_duplicate_check_returns_review_status_before_save(monkeypatch):
     assert payload["summary"]["possible_transaction_duplicates"] == 1
     assert payload["document_results"][0]["match_type"] == "possible_same_document"
     assert payload["transaction_results"][0]["record_id"] == "record_1"
-    assert captured["kwargs"]["uploaded_by_user_id"] == "user_1"
-    assert captured["kwargs"]["saved_by_user_id"] == "user_1"
+    assert captured["kwargs"]["uploaded_by_user_id"] == "trusted_user"
+    assert captured["kwargs"]["saved_by_user_id"] == "trusted_user"
     assert captured["closed"] is True
 
 
@@ -413,8 +414,9 @@ def test_recent_uploaded_documents_returns_documents_for_frontend(monkeypatch):
         captured["opened"] = True
         return FakeConnection()
 
-    def fake_list(connection, *, limit):
+    def fake_list(connection, *, limit, owner_user_id=None):
         captured["limit"] = limit
+        captured["owner_user_id"] = owner_user_id
         return [
             UploadedDocumentSummary(
                 document_id="document_1",
@@ -436,13 +438,14 @@ def test_recent_uploaded_documents_returns_documents_for_frontend(monkeypatch):
     monkeypatch.setattr("stats_data.api.open_azure_sql_connection", fake_open_connection)
     monkeypatch.setattr("stats_data.api.list_recent_uploaded_documents", fake_list)
 
-    response = TestClient(app).get("/api/v1/documents?limit=10")
+    response = TestClient(app).get("/api/v1/documents?limit=10", headers={"X-Stats-User-Id": "user_1"})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["documents"][0]["document_id"] == "document_1"
     assert payload["documents"][0]["transaction_count"] == 16
     assert captured["limit"] == 10
+    assert captured["owner_user_id"] == "user_1"
     assert captured["closed"] is True
 
 

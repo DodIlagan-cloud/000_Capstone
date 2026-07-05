@@ -9,7 +9,6 @@ from decimal import Decimal
 from typing import Any
 
 from stats_data.validation_persistence import (
-    SqlOperation,
     _close_cursor,
     _document_fingerprint,
     _execute_insert_if_missing,
@@ -52,10 +51,6 @@ def check_validation_duplicates(
     )
     cursor = connection.cursor()
     try:
-        # Persist the validation/document shell so duplicate-check results have a durable parent.
-        for operation in _document_shell_operations(plan):
-            _execute_insert_if_missing(cursor, operation)
-
         document_result_rows = _document_duplicate_results(cursor, result, plan, uploaded_by_user_id)
         transaction_result_rows = _transaction_duplicate_results(cursor, plan, saved_by_user_id or uploaded_by_user_id)
         summary = _summary(plan, document_result_rows, transaction_result_rows)
@@ -65,7 +60,7 @@ def check_validation_duplicates(
         batch = _duplicate_check_batch_operation(
             duplicate_check_id=duplicate_check_id,
             validation_id=plan.validation_id,
-            document_id=plan.document_id,
+            candidate_document_id=plan.document_id,
             uploaded_by_user_id=uploaded_by_user_id,
             saved_by_user_id=saved_by_user_id,
             status=status,
@@ -78,7 +73,7 @@ def check_validation_duplicates(
                 cursor,
                 _duplicate_check_result_operation(
                     duplicate_check_id=duplicate_check_id,
-                    document_id=plan.document_id,
+                    candidate_document_id=plan.document_id,
                     index=index,
                     row=row,
                 ),
@@ -100,10 +95,6 @@ def check_validation_duplicates(
         document_results=document_result_rows,
         transaction_results=transaction_result_rows,
     )
-
-
-def _document_shell_operations(plan) -> list[SqlOperation]:
-    return [operation for operation in plan.operations if operation.table in {"validation_results", "stats_documents"}]
 
 
 def _document_duplicate_results(
@@ -303,7 +294,7 @@ def _duplicate_check_batch_operation(
     *,
     duplicate_check_id: str,
     validation_id: str,
-    document_id: str,
+    candidate_document_id: str,
     uploaded_by_user_id: str | None,
     saved_by_user_id: str | None,
     status: str,
@@ -314,7 +305,8 @@ def _duplicate_check_batch_operation(
         {
             "duplicate_check_id": duplicate_check_id,
             "validation_id": validation_id,
-            "document_id": document_id,
+            "document_id": None,
+            "candidate_document_id": candidate_document_id,
             "uploaded_by_user_id": uploaded_by_user_id,
             "saved_by_user_id": saved_by_user_id,
             "status": status,
@@ -333,7 +325,7 @@ def _duplicate_check_batch_operation(
 def _duplicate_check_result_operation(
     *,
     duplicate_check_id: str,
-    document_id: str,
+    candidate_document_id: str,
     index: int,
     row: dict[str, Any],
 ) -> SqlOperation:
@@ -352,7 +344,8 @@ def _duplicate_check_result_operation(
         {
             "duplicate_check_result_id": result_id,
             "duplicate_check_id": duplicate_check_id,
-            "document_id": document_id,
+            "document_id": None,
+            "candidate_document_id": candidate_document_id,
             "record_id": _text(row.get("record_id")),
             "result_scope": row["result_scope"],
             "match_type": row["match_type"],

@@ -46,6 +46,14 @@ MIGRATION_7 = (
     / "azure-sql"
     / "007_document_processing_steps.sql"
 )
+MIGRATION_14 = (
+    REPO_ROOT
+    / "apps"
+    / "stats-data"
+    / "migrations"
+    / "azure-sql"
+    / "014_duplicate_check_candidate_document.sql"
+)
 MIGRATION_README = REPO_ROOT / "apps" / "stats-data" / "migrations" / "azure-sql" / "README.md"
 M9_SPEC = REPO_ROOT / "docs" / "M9-stats-data-persistence-module-spec.md"
 M9_ERD = REPO_ROOT / "docs" / "M9-stats-data-erd.md"
@@ -62,6 +70,7 @@ COMPOSE_FILE = REPO_ROOT / "infrastructure" / "compose" / "stats-runtime.compose
 DOCKERFILE = REPO_ROOT / "infrastructure" / "containers" / "stats" / "Dockerfile"
 MIGRATION_RUNNER = REPO_ROOT / "apps" / "stats-data" / "scripts" / "apply_azure_sql_migrations.py"
 VALIDATION_PERSISTENCE_ADAPTER = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "validation_persistence.py"
+DUPLICATE_CHECKS_ADAPTER = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "duplicate_checks.py"
 STATS_DATA_API = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "api.py"
 STATS_DATA_DATABASE = REPO_ROOT / "apps" / "stats-data" / "src" / "stats_data" / "database.py"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
@@ -79,6 +88,7 @@ def test_m9_azure_sql_assets_exist():
         MIGRATION_5,
         MIGRATION_6,
         MIGRATION_7,
+        MIGRATION_14,
         MIGRATION_README,
         M9_SPEC,
         M9_ERD,
@@ -115,7 +125,7 @@ def test_migration_uses_azure_sql_types_and_migration_tracking():
 
 
 def test_migration_creates_required_m9_tables():
-    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}\n{read(MIGRATION_5)}\n{read(MIGRATION_6)}\n{read(MIGRATION_7)}".lower()
+    content = f"{read(MIGRATION)}\n{read(MIGRATION_2)}\n{read(MIGRATION_5)}\n{read(MIGRATION_6)}\n{read(MIGRATION_7)}\n{read(MIGRATION_14)}".lower()
     required_tables = [
         "dbo.validation_results",
         "dbo.stats_documents",
@@ -256,6 +266,23 @@ def test_processing_steps_migration_supports_upload_timing_contract():
     ]
     for term in required_terms:
         assert term in content, f"M9 processing-step migration must include {term}"
+
+
+def test_duplicate_check_candidate_document_migration_supports_pre_save_audit_contract():
+    content = read(MIGRATION_14)
+    required_terms = [
+        "014_duplicate_check_candidate_document",
+        "candidate_document_id",
+        "ALTER TABLE dbo.duplicate_check_batches ALTER COLUMN document_id nvarchar(36) NULL",
+        "ALTER TABLE dbo.duplicate_check_results ALTER COLUMN document_id nvarchar(36) NULL",
+        "DROP CONSTRAINT fk_duplicate_check_batches_stats_documents",
+        "DROP CONSTRAINT fk_duplicate_check_results_document",
+        "DROP INDEX ix_duplicate_check_batches_document_created ON dbo.duplicate_check_batches",
+        "ix_duplicate_check_batches_candidate_created",
+        "ix_duplicate_check_results_candidate_scope",
+    ]
+    for term in required_terms:
+        assert term in content, f"M9 duplicate pre-save audit migration must include {term}"
 
 
 def test_erd_matches_validation_promoted_tables():
@@ -471,6 +498,12 @@ def test_m9_stats_data_api_exposes_save_boundary():
     assert "SaveTransactionsBatchRequest" in api
     assert "DuplicateCheckRequest" in api
     assert "check_validation_duplicates" in api
+    duplicate_check_endpoint = api.split('@app.post("/api/v1/transactions/duplicate-checks"', 1)[1].split("def require_user_id", 1)[0]
+    assert 'alias="X-Stats-User-Id"' in duplicate_check_endpoint
+    assert "owner_user_id = trusted_user_id or request.uploaded_by_user_id" in duplicate_check_endpoint
+    assert "saved_by_user_id = trusted_user_id or request.saved_by_user_id" in duplicate_check_endpoint
+    assert "uploaded_by_user_id=owner_user_id" in duplicate_check_endpoint
+    assert "saved_by_user_id=saved_by_user_id" in duplicate_check_endpoint
     assert "UploadedDocumentsResponse" in api
     assert "DeleteUploadedDocumentResponse" in api
     assert "list_recent_uploaded_documents" in api
@@ -482,6 +515,14 @@ def test_m9_stats_data_api_exposes_save_boundary():
     assert "AZURE_SQL_CONNECTIONSTRING" in database
     assert "DATABASE_PROVIDER" in database
     assert "pyodbc.connect" in database
+
+
+def test_duplicate_check_adapter_keeps_pre_save_checks_side_effect_light():
+    adapter = read(DUPLICATE_CHECKS_ADAPTER)
+    assert "_document_shell_operations" not in adapter
+    assert '"stats_documents"' not in adapter.split("def check_validation_duplicates", 1)[1].split("def _document_duplicate_results", 1)[0]
+    assert "candidate_document_id" in adapter
+    assert '"document_id": None' in adapter
 
 
 def test_official_container_evidence_checks_azure_sql_not_postgres():

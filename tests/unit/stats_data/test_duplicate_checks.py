@@ -15,6 +15,7 @@ if str(STATS_DATA_SRC) not in sys.path:
     sys.path.insert(0, str(STATS_DATA_SRC))
 
 from stats_data.duplicate_checks import (  # noqa: E402
+    check_validation_duplicates,
     _document_duplicate_results,
     _duplicate_check_result_operation,
     _row_dict,
@@ -84,18 +85,59 @@ def test_duplicate_check_result_id_uses_row_content_not_position():
 
     first = _duplicate_check_result_operation(
         duplicate_check_id="duplicate_check_1",
-        document_id="document_current",
+        candidate_document_id="document_current",
         index=1,
         row=row,
     )
     second = _duplicate_check_result_operation(
         duplicate_check_id="duplicate_check_1",
-        document_id="document_current",
+        candidate_document_id="document_current",
         index=2,
         row=row,
     )
 
     assert first.values["duplicate_check_result_id"] == second.values["duplicate_check_result_id"]
+    assert first.values["document_id"] is None
+    assert first.values["candidate_document_id"] == "document_current"
+
+
+def test_duplicate_check_does_not_persist_candidate_document_shell():
+    connection = _DuplicateCheckConnection(
+        document_rows=[_Row(document_id="existing_document", original_filename="statement.pdf")]
+    )
+    result = {
+        "validation_id": "validation_duplicate_file",
+        "status": "valid",
+        "document_type": "statement",
+        "document": {
+            "ingestion_id": "ingestion_duplicate_file",
+            "original_filename": "statement.pdf",
+            "normalized_filename": "statement.pdf",
+            "sha256": "same-file-hash",
+        },
+        "summary": {
+            "normalized_record_count": 0,
+            "valid_record_count": 0,
+            "warning_record_count": 0,
+            "invalid_record_count": 0,
+            "duplicate_record_count": 0,
+        },
+        "normalized_records": [],
+        "validated_entities": [],
+        "validated_references": [],
+    }
+
+    duplicate_check = check_validation_duplicates(connection, result, uploaded_by_user_id="user_1")
+
+    executed = "\n".join(connection.cursor_instance.queries).lower()
+    assert duplicate_check.status == "blocked"
+    assert duplicate_check.summary["exact_file_duplicates"] == 1
+    assert "merge dbo.[stats_documents]" not in executed
+    assert "merge dbo.[validation_results]" not in executed
+    assert "merge dbo.[duplicate_check_batches]" in executed
+    assert "merge dbo.[duplicate_check_results]" in executed
+    assert "candidate_document_id" in executed
+    assert connection.committed is True
 
 
 def test_row_dict_prefers_named_access_over_position_fallback():
@@ -133,6 +175,22 @@ class _DuplicateCursor:
         rows = self._next_rows
         self._next_rows = []
         return rows
+
+
+class _DuplicateCheckConnection:
+    def __init__(self, *, document_rows=None):
+        self.cursor_instance = _DuplicateCursor(document_rows=document_rows)
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self):
+        return self.cursor_instance
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
 
 
 class _Row:
