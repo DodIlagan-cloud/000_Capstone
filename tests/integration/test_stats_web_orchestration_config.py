@@ -315,10 +315,12 @@ def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
 
     assert "StatsUploadProcessingJobs.StartUploadProcessingJobAsync" in program_source
     assert "StatsUploadProcessingJobs.GetUploadProcessingJobAsync" in program_source
+    assert "StatsUploadProcessingJobs.GetUploadProcessingStepsAsync" in program_source
     assert "RunProcessingJobAsync" in program_source
     assert "TimeSpan.FromMinutes(30)" in program_source
     assert '"/api/v1/upload-processing-jobs"' in program_source
     assert '"/api/v1/upload-processing-jobs/{jobId}"' in program_source
+    assert '"/api/v1/processing-jobs/{jobId}/steps"' in program_source
     assert "startAcceptedFileProcessingJob" in upload_source
     assert "pollProcessingJob" in upload_source
     assert "renderProcessingJobProgress" in upload_source

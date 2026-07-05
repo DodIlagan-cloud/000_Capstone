@@ -136,6 +136,10 @@ app.MapGet(
     "/api/v1/upload-processing-jobs/{jobId}",
     StatsUploadProcessingJobs.GetUploadProcessingJobAsync
 );
+app.MapGet(
+    "/api/v1/processing-jobs/{jobId}/steps",
+    StatsUploadProcessingJobs.GetUploadProcessingStepsAsync
+);
 // M9 End
 // Returns safe Power BI embed configuration state before the generic module proxy handles API traffic.
 app.MapGet(
@@ -2075,6 +2079,22 @@ public static class StatsUploadProcessingJobs
         var client = LongRunningClient(httpClientFactory);
         using var response = await client.GetAsync(
             $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/processing-jobs/{WebUtility.UrlEncode(jobId)}",
+            context.RequestAborted
+        );
+        var payload = await response.Content.ReadAsStringAsync(context.RequestAborted);
+        return Results.Content(payload, "application/json", statusCode: (int)response.StatusCode);
+    }
+
+    public static async Task<IResult> GetUploadProcessingStepsAsync(
+        string jobId,
+        HttpContext context,
+        IHttpClientFactory httpClientFactory,
+        StatsWebProxyOptions proxyOptions
+    )
+    {
+        var client = LongRunningClient(httpClientFactory);
+        using var response = await client.GetAsync(
+            $"{proxyOptions.StatsDataBaseUrl.TrimEnd('/')}/api/v1/processing-jobs/{WebUtility.UrlEncode(jobId)}/steps",
             context.RequestAborted
         );
         var payload = await response.Content.ReadAsStringAsync(context.RequestAborted);
