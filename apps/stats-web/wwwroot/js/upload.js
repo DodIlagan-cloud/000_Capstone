@@ -1005,6 +1005,7 @@ async function validateSelectedFile(file) {
   try {
     const response = await fetch(statsApiUrl(fileValidationBaseUrl, "/api/v1/files/validate"), {
       method: "POST",
+      headers: statsAuthHeaders(),
       body: formData,
     });
 
@@ -1862,6 +1863,7 @@ async function startAcceptedFileProcessingJob(record) {
     renderProcessingProgress(2, "Reading document", "Stats is reading the document text. You can keep this page open while it works.");
     const response = await fetch("/api/v1/upload-processing-jobs", {
       method: "POST",
+      headers: statsAuthHeaders(),
       body: formData,
     });
 

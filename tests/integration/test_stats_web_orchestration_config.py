@@ -274,6 +274,11 @@ def test_upload_js_treats_empty_base_urls_as_same_origin_proxy():
     assert "function currentStatsUser()" in upload_source
     assert "window.statsAccess.currentUser" not in upload_source
     assert "window.statsAccess.authHeaders" not in upload_source
+    validation_start = upload_source.index("async function validateSelectedFile(file)")
+    validation_end = upload_source.index("function renderIngestionResult(record)")
+    validation_source = upload_source[validation_start:validation_end]
+    assert 'statsApiUrl(fileValidationBaseUrl, "/api/v1/files/validate")' in validation_source
+    assert "headers: statsAuthHeaders()" in validation_source
     assert '"/api/v1/recognition-settings/active"' in program_source
     recognition_start = program_source.index("public static class StatsRecognitionSettings")
     recognition_source = program_source[recognition_start : program_source.index("// M9 - Stats Data and Persistence Start", recognition_start)]
@@ -316,6 +321,13 @@ def test_stats_web_upload_uses_async_processing_job_for_cloud_safe_parsing():
     assert "pollProcessingJob" in upload_source
     assert "renderProcessingJobProgress" in upload_source
     assert "payload.validation_result" in upload_source
+
+    job_start = upload_source.index("async function startAcceptedFileProcessingJob(record)")
+    job_poll = upload_source.index("async function pollProcessingJob(jobId)")
+    job_start_source = upload_source[job_start:job_poll]
+
+    assert 'fetch("/api/v1/upload-processing-jobs", {' in job_start_source
+    assert "headers: statsAuthHeaders()" in job_start_source
 
 
 def test_upload_uses_per_attempt_idempotency_before_async_m5_m7_processing():
