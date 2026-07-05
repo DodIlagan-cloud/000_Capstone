@@ -3,6 +3,9 @@ Covers run-history persistence, cross-run deduplication, handoff-failure
 recording, and safe mapping of saved-secret decrypt failures.
 M12 End"""
 
+from app.services import run_history_service
+from app.services import ingestion_service
+
 def _handoff_payload(email_payload):
     email_payload["policy"]["handoff_to_file_ingestion"] = True
     email_payload["policy"]["dry_run"] = False
@@ -98,7 +101,7 @@ def test_scheduled_runs_accepts_internal_key(client):
     assert response.json()["ran_count"] == 0
 
 
-def test_persistent_dedup_skips_previously_imported_attachment(
+def test_persistent_dedup_does_not_skip_blob_only_handoff(
     run_ingestion_func, ingestion_request_cls, email_payload, monkeypatch
 ):
     _handoff_payload(email_payload)
@@ -115,6 +118,35 @@ def test_persistent_dedup_skips_previously_imported_attachment(
     assert first.summary.handed_off_count == 1
 
     second = run_ingestion_func(ingestion_request_cls(**email_payload))
+    assert second.candidates[0].status == "handed_off"
+    assert second.summary.handed_off_count == 1
+    assert second.summary.duplicate_count == 0
+    assert calls["count"] == 2
+
+
+def test_persistent_dedup_skips_previously_processed_attachment(
+    run_ingestion_func, ingestion_request_cls, email_payload, monkeypatch
+):
+    _handoff_payload(email_payload)
+    calls = {"count": 0}
+
+    def fake_post(*_args, **_kwargs):
+        calls["count"] += 1
+        return _QueuedResponse()
+
+    monkeypatch.setattr("app.services.ingestion_service.httpx.post", fake_post)
+
+    first = run_ingestion_func(ingestion_request_cls(**email_payload))
+    message = email_payload["messages"][0]
+    dedup_key = f"{email_payload['source_id']}:{message['internet_message_id']}:{first.candidates[0].sha256}"
+    run_ingestion_func.__globals__["run_history_service"].mark_ingestion_processed(
+        first.candidates[0].handoff.ingestion_id,
+        "doc-1",
+        first.run_id,
+        dedup_key,
+    )
+
+    second = run_ingestion_func(ingestion_request_cls(**email_payload))
     assert second.candidates[0].status == "duplicate"
     assert second.summary.handed_off_count == 0
     assert second.summary.duplicate_count == 1
@@ -122,11 +154,10 @@ def test_persistent_dedup_skips_previously_imported_attachment(
         finding.code == "DUPLICATE_EMAIL_ATTACHMENT_PREVIOUSLY_IMPORTED"
         for finding in second.candidates[0].findings
     )
-    # The previously imported attachment must not be handed off a second time.
     assert calls["count"] == 1
 
 
-def test_dry_run_after_import_shows_already_imported(
+def test_dry_run_after_blob_only_handoff_remains_retryable(
     run_ingestion_func, ingestion_request_cls, email_payload, monkeypatch
 ):
     handoff_payload = _handoff_payload(dict(email_payload))
@@ -136,7 +167,7 @@ def test_dry_run_after_import_shows_already_imported(
     dry_payload = dict(email_payload)
     dry_payload["policy"] = {"handoff_to_file_ingestion": False, "dry_run": True, "deduplicate": True}
     dry_result = run_ingestion_func(ingestion_request_cls(**dry_payload))
-    assert dry_result.candidates[0].status == "duplicate"
+    assert dry_result.candidates[0].status == "retrieved"
 
 
 def test_handoff_failure_is_recorded_in_run_history(client, email_payload, monkeypatch):

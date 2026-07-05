@@ -670,6 +670,27 @@ def test_password_protected_pdf_is_blocked_before_handoff(client, email_payload)
     assert payload["candidates"][0]["findings"][0]["code"] == "PDF_PASSWORD_REQUIRED"
 
 
+def test_password_protected_pdf_marker_after_header_is_blocked(client, email_payload, monkeypatch):
+    monkeypatch.setattr("app.services.ingestion_service._unlock_pdf", lambda _content_base64, _password: None)
+    encrypted_pdf = b"%PDF-1.7\n" + (b"0" * 5000) + b"\ntrailer\n<< /Encrypt 5 0 R >>\n%%EOF"
+    attachment = email_payload["messages"][0]["attachments"][0]
+    attachment["content_base64"] = base64.b64encode(encrypted_pdf).decode("ascii")
+    attachment["size_bytes"] = len(encrypted_pdf)
+    email_payload["policy"]["handoff_to_file_ingestion"] = True
+    email_payload["policy"]["dry_run"] = False
+
+    response = client.post("/api/v1/email-ingestions/automated-runs", json=email_payload)
+
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "blocked"
+    assert payload["summary"]["password_required_count"] == 1
+    assert payload["summary"]["handed_off_count"] == 0
+    assert payload["candidates"][0]["status"] == "password_required"
+    assert payload["candidates"][0]["findings"][0]["code"] == "PDF_PASSWORD_REQUIRED"
+
+
 def _create_utilities_rules_source(client):
     client.post(
         "/api/v1/email-ingestion-sources",
@@ -1305,6 +1326,15 @@ def test_cross_run_dedup_survives_changing_imap_sequence_ids(
     email_payload["messages"][0]["message_id"] = "42"
     first = run_ingestion_func(ingestion_request_cls(**email_payload))
     assert first.summary.handed_off_count == 1
+
+    message = email_payload["messages"][0]
+    dedup_key = f"{email_payload['source_id']}:{message['internet_message_id']}:{first.candidates[0].sha256}"
+    run_ingestion_func.__globals__["run_history_service"].mark_ingestion_processed(
+        first.candidates[0].handoff.ingestion_id,
+        "doc-1",
+        first.run_id,
+        dedup_key,
+    )
 
     email_payload["messages"][0]["message_id"] = "99"  # same email, new session id
     email_payload["policy"]["dry_run"] = True

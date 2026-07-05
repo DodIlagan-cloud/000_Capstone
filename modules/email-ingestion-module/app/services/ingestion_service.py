@@ -159,10 +159,10 @@ def run_automated_email_ingestion(request: AutomatedEmailIngestionRequest) -> Au
             unlocked_via_rule = False
             handoff_content_base64 = attachment.content_base64
             handoff_sha256 = sha256
-            # Cross-run dedup: an attachment that a prior run already imported
-            # (handed off to file intake) must not be re-imported. This applies to
-            # dry and real runs alike, so dry runs surface the already-imported
-            # state and real runs do not create duplicate file-intake entries.
+            # Cross-run dedup: only attachments that were handed off and later
+            # marked processed by the database-ingest step count as already
+            # imported. A Blob-only handoff can still be retried if processing
+            # failed before persistence.
             already_imported = (
                 request.policy.deduplicate
                 and duplicate_key not in seen_keys
@@ -711,7 +711,22 @@ def _is_password_protected_pdf(attachment) -> bool:
         content = base64.b64decode(attachment.content_base64, validate=True)
     except Exception:
         return False
-    return content.startswith(b"%PDF") and b"/Encrypt" in content[:4096]
+    if not content.startswith(b"%PDF"):
+        return False
+    try:
+        import fitz  # PyMuPDF, packaged in the Stats runtime image.
+
+        document = fitz.open(stream=content, filetype="pdf")
+        try:
+            return bool(document.needs_pass)
+        finally:
+            document.close()
+    except Exception:
+        # Some real statements are malformed enough that the PDF engine cannot
+        # open them for inspection. Fall back to scanning the decoded bytes, not
+        # just the header, because encryption metadata is not guaranteed to sit
+        # in the first few KB.
+        return b"/Encrypt" in content
 
 
 def _unlock_pdf(content_base64: str | None, password: str | None) -> bytes | None:

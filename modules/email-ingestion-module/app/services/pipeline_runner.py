@@ -100,7 +100,7 @@ def _process_candidates(run, imported, clients, runner) -> ProcessImportedResult
         if outcome.status == "completed":
             succeeded += 1
             run_history_service.mark_ingestion_processed(
-                candidate.handoff_ingestion_id, outcome.document_id, run.run_id
+                candidate.handoff_ingestion_id, outcome.document_id, run.run_id, candidate.dedup_key
             )
         else:
             failed += 1

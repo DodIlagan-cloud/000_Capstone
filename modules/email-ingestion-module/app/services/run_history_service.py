@@ -30,9 +30,11 @@ _run_order: list[str] = []
 # Tracks which handed-off attachments have already been pushed through the pipeline,
 # so the manual button and the scheduler cannot push the same ingestion to M9 twice.
 _processed_ingestions: dict[str, str] = {}
+_processed_dedup_keys: set[str] = set()
 
-# Candidate statuses that represent an attachment that was actually imported into
-# file intake. Only these mark a dedup key as already-imported for later runs.
+# Candidate statuses that represent an attachment that reached file intake. They
+# only count as already imported for later mailbox runs after the matching
+# handoff_ingestion_id is also present in email_ingestion_processed.
 _IMPORTED_STATUSES = {AttachmentStatus.handed_off.value}
 
 
@@ -90,9 +92,11 @@ def get_run(run_id: str) -> EmailIngestionRunDetail | None:
 
 
 def is_attachment_already_imported(dedup_key: str | None) -> bool:
-    """Return True if a prior run already imported this attachment identity."""
+    """Return True if this attachment identity has already reached the database path."""
     if not dedup_key:
         return False
+    if dedup_key in _processed_dedup_keys:
+        return True
     if _use_azure_sql():
         try:
             return _is_already_imported_sql(dedup_key)
@@ -101,12 +105,21 @@ def is_attachment_already_imported(dedup_key: str | None) -> bool:
             return False
     for run in _runs.values():
         for candidate in run.candidates:
-            if candidate.dedup_key == dedup_key and candidate.status.value in _IMPORTED_STATUSES:
+            if (
+                candidate.dedup_key == dedup_key
+                and candidate.status.value in _IMPORTED_STATUSES
+                and candidate.handoff_ingestion_id in _processed_ingestions
+            ):
                 return True
     return False
 
 
-def mark_ingestion_processed(ingestion_id: str | None, document_id: str | None = None, run_id: str | None = None) -> None:
+def mark_ingestion_processed(
+    ingestion_id: str | None,
+    document_id: str | None = None,
+    run_id: str | None = None,
+    dedup_key: str | None = None,
+) -> None:
     """Record that an attachment's stored bytes were pushed through the pipeline."""
     if not ingestion_id:
         return
@@ -116,6 +129,9 @@ def mark_ingestion_processed(ingestion_id: str | None, document_id: str | None =
         except Exception as exc:  # pragma: no cover - cloud persistence guard
             logger.warning("M12 processed-marker write failed. ingestion_id=%s error=%s", ingestion_id, str(exc))
     _processed_ingestions[ingestion_id] = document_id or ""
+    if dedup_key:
+        _processed_dedup_keys.add(dedup_key)
+    _mark_processed_dedup_key_memory(ingestion_id, run_id)
 
 
 def list_unprocessed_import_run_ids(source_id: str, limit: int = 5) -> list[str]:
@@ -169,6 +185,16 @@ def clear_run_history() -> None:
     _runs.clear()
     _run_order.clear()
     _processed_ingestions.clear()
+    _processed_dedup_keys.clear()
+
+
+def _mark_processed_dedup_key_memory(ingestion_id: str, run_id: str | None) -> None:
+    runs = [_runs[run_id]] if run_id and run_id in _runs else list(_runs.values())
+    for run in runs:
+        for candidate in run.candidates:
+            if candidate.handoff_ingestion_id == ingestion_id and candidate.dedup_key:
+                _processed_dedup_keys.add(candidate.dedup_key)
+                return
 
 
 def _as_summary(run: EmailIngestionRunDetail) -> EmailIngestionRunSummaryRecord:
@@ -317,8 +343,11 @@ def _is_already_imported_sql(dedup_key: str) -> bool:
         cursor = connection.cursor()
         cursor.execute(
             f"""
-            SELECT TOP (1) 1 FROM {sql_store.qualified('email_ingestion_run_candidates')}
-            WHERE dedup_key = ? AND status IN ({placeholders})
+            SELECT TOP (1) 1
+            FROM {sql_store.qualified('email_ingestion_run_candidates')} c
+            INNER JOIN {sql_store.qualified('email_ingestion_processed')} p
+                ON p.ingestion_id = c.handoff_ingestion_id
+            WHERE c.dedup_key = ? AND c.status IN ({placeholders})
             """,
             dedup_key,
             *sorted(_IMPORTED_STATUSES),
