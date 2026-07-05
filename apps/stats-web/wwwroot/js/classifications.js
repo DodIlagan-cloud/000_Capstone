@@ -144,6 +144,7 @@ async function saveClassificationForm(form) {
       method: form.method || "POST",
       body: new FormData(form),
       headers: {
+        ...window.statsAccess.authHeaders(),
         "X-Stats-Async-Save": "true",
       },
     });

@@ -341,6 +341,8 @@ def test_upload_uses_per_attempt_idempotency_before_async_m5_m7_processing():
     assert "function createUploadAttemptIdempotencyKey()" in upload_source
     assert 'uploadAttemptIdempotencyKey = createUploadAttemptIdempotencyKey();' in upload_source
     assert 'formData.append("idempotency_key", uploadAttemptIdempotencyKey || createUploadAttemptIdempotencyKey());' in function_source
+    assert 'statsApiUrl(fileIngestionBaseUrl, "/api/v1/ingestions")' in function_source
+    assert "headers: statsAuthHeaders()" in function_source
     assert 'if (record.status === "queued" && ingestionHandoffReady(record))' in function_source
     assert 'record.status === "queued" || record.status === "duplicate"' not in function_source
     assert 'record.status === "duplicate" ? "Document already uploaded" : "Document upload needs review"' in upload_source
@@ -379,6 +381,27 @@ def test_queued_ingestion_still_reaches_m7_extraction_after_m5_parse():
     assert parse_step < extraction_step < validation_step
     assert '/api/v1/extractions' in program_source
     assert "BuildExtractionRequest(parseResult)" in program_source
+
+
+def test_upload_state_changing_fetches_carry_csrf_headers():
+    upload_source = UPLOAD_JS_FILE.read_text(encoding="utf-8")
+
+    ingestion_start = upload_source.index("async function sendAcceptedFileToProcessing()")
+    ingestion_end = upload_source.index("async function startAcceptedFileProcessingJob(record)")
+    ingestion_source = upload_source[ingestion_start:ingestion_end]
+
+    extraction_start = upload_source.index("async function extractTransactions(parseResultPayload)")
+    validation_start = upload_source.index("async function validateExtractedData(extractionResult)")
+    save_start = upload_source.index("async function saveReadyTransactions(validationResult, reviewState)")
+    extraction_source = upload_source[extraction_start:validation_start]
+    validation_source = upload_source[validation_start:save_start]
+
+    assert 'statsApiUrl(fileIngestionBaseUrl, "/api/v1/ingestions")' in ingestion_source
+    assert "headers: statsAuthHeaders()" in ingestion_source
+    assert 'statsApiUrl(transactionExtractionBaseUrl, "/api/v1/extractions")' in extraction_source
+    assert "...statsAuthHeaders()" in extraction_source
+    assert 'statsApiUrl(dataValidationBaseUrl, "/api/v1/validations")' in validation_source
+    assert "...statsAuthHeaders()" in validation_source
 
 
 def test_upload_js_does_not_force_single_page_parse_in_async_flow():
@@ -507,6 +530,7 @@ def test_classification_admin_page_uses_product_language_and_management_sections
     assert "data-classification-tab" in script_source
     assert "saveClassificationForm" in script_source
     assert "refreshWorkbench" in script_source
+    assert "...window.statsAccess.authHeaders()" in script_source
     assert "\"X-Stats-Async-Save\": \"true\"" in script_source
     assert "event.preventDefault()" in script_source
     assert "window.confirm(form.dataset.confirmMessage)" in script_source

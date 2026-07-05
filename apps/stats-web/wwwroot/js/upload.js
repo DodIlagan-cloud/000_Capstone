@@ -1821,6 +1821,7 @@ async function sendAcceptedFileToProcessing() {
 
     const response = await fetch(statsApiUrl(fileIngestionBaseUrl, "/api/v1/ingestions"), {
       method: "POST",
+      headers: statsAuthHeaders(),
       body: formData,
     });
 
@@ -1949,7 +1950,10 @@ function sleep(ms) {
 async function extractTransactions(parseResultPayload) {
   const response = await fetch(statsApiUrl(transactionExtractionBaseUrl, "/api/v1/extractions"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...statsAuthHeaders(),
+    },
     body: JSON.stringify(buildExtractionRequest(parseResultPayload)),
   });
 
@@ -1964,7 +1968,10 @@ async function validateExtractedData(extractionResult) {
   await loadActiveRecognitionChoices();
   const response = await fetch(statsApiUrl(dataValidationBaseUrl, "/api/v1/validations"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...statsAuthHeaders(),
+    },
     body: JSON.stringify(buildValidationRequest(extractionResult)),
   });
 
